@@ -1,0 +1,5 @@
+Company Name,SKU Name,Batch No,MFG Date (YYYY-MM-DD),Expiry Date (YYYY-MM-DD),MRP,Quantity,Code Type,Format
+Sunrise Pharma,Paracetamol 650,B001,2025-03-15,2027-03-14,25.00,5000,qr,pdf
+Sunrise Pharma,Dolo 650,B002,2025-04-01,2027-03-31,30.00,8000,datamatrix,zpl
+Sunrise Pharma,Crocin Cold,C001,2025-05-10,2027-05-09,45.00,3000,code128,png
+Sunrise Pharma,Saridon,S001,2025-06-01,2027-05-31,18.00,2000,qr,pdf
