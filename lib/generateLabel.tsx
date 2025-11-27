@@ -30,44 +30,67 @@ export interface LabelData {
 
 // Helper: Generate barcode as PNG data URL (browser-compatible)
 async function generateBarcodeImage(gtin: string, type: 'QR' | 'CODE128' | 'DATAMATRIX'): Promise<string> {
-  if (type === 'QR') {
-    // Use qrcode library for QR codes (works in browser)
-    return await QRCode.toDataURL(gtin, {
-      width: 200,
-      margin: 1,
-      errorCorrectionLevel: 'H'
-    });
-  } else if (type === 'CODE128') {
-    // For CODE128, we'll use a simple text representation for now
-    // In production, you'd use a library like JsBarcode
-    return await QRCode.toDataURL(gtin, { width: 200 });
-  } else {
-    // For DATAMATRIX, fallback to QR for now
-    return await QRCode.toDataURL(gtin, { width: 200 });
+  try {
+    console.log('Generating barcode image:', { gtin, type });
+    
+    if (type === 'QR') {
+      // Use qrcode library for QR codes (works in browser)
+      const dataUrl = await QRCode.toDataURL(gtin, {
+        width: 200,
+        margin: 1,
+        errorCorrectionLevel: 'H'
+      });
+      console.log('QR code generated successfully');
+      return dataUrl;
+    } else if (type === 'CODE128') {
+      // For CODE128, fallback to QR for now
+      console.log('CODE128 fallback to QR');
+      const dataUrl = await QRCode.toDataURL(gtin, { width: 200 });
+      return dataUrl;
+    } else {
+      // For DATAMATRIX, fallback to QR for now
+      console.log('DATAMATRIX fallback to QR');
+      const dataUrl = await QRCode.toDataURL(gtin, { width: 200 });
+      return dataUrl;
+    }
+  } catch (error) {
+    console.error('Error generating barcode image:', error);
+    throw new Error(`Failed to generate barcode: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
 
 // Generate PDF
 export async function generatePDF(data: LabelData, codeType: 'QR' | 'CODE128' | 'DATAMATRIX' = 'QR') {
-  const barcodeUrl = await generateBarcodeImage(data.gtin, codeType);
+  try {
+    console.log('generatePDF called with:', { data, codeType });
+    
+    const barcodeUrl = await generateBarcodeImage(data.gtin, codeType);
+    console.log('Barcode URL generated, creating PDF document...');
 
-  const Doc = () => (
-    <Document>
-      <Page size={[283, 425]} style={styles.page}> {/* ~3x4.5 inch */}
-        <Text style={styles.title}>{data.companyName}</Text>
-        <Text style={styles.text}>Product: {data.productName}</Text>
-        <Text style={styles.text}>Batch: {data.batchNo}</Text>
-        <Text style={styles.text}>Mfg: {data.mfgDate} | Exp: {data.expiryDate}</Text>
-        <Text style={styles.text}>MRP: ₹{data.mrp}</Text>
-        <View style={styles.code}>
-          <Image src={barcodeUrl} style={{ width: 200, height: 200 }} />
-        </View>
-        <Text style={styles.footer}>Verified by RxTrace India • www.rxtrace.in</Text>
-      </Page>
-    </Document>
-  );
+    const Doc = () => (
+      <Document>
+        <Page size={[283, 425]} style={styles.page}> {/* ~3x4.5 inch */}
+          <Text style={styles.title}>{data.companyName}</Text>
+          <Text style={styles.text}>Product: {data.productName}</Text>
+          <Text style={styles.text}>Batch: {data.batchNo}</Text>
+          <Text style={styles.text}>Mfg: {data.mfgDate} | Exp: {data.expiryDate}</Text>
+          <Text style={styles.text}>MRP: ₹{data.mrp}</Text>
+          <View style={styles.code}>
+            <Image src={barcodeUrl} style={{ width: 200, height: 200 }} />
+          </View>
+          <Text style={styles.footer}>Verified by RxTrace India • www.rxtrace.in</Text>
+        </Page>
+      </Document>
+    );
 
-  return pdf(<Doc />).toBlob();
+    console.log('Converting PDF to blob...');
+    const blob = await pdf(<Doc />).toBlob();
+    console.log('PDF blob created:', blob.size, 'bytes');
+    return blob;
+  } catch (error) {
+    console.error('Error in generatePDF:', error);
+    throw new Error(`Failed to generate PDF: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
 }
 
 // Generate ZPL (Zebra)

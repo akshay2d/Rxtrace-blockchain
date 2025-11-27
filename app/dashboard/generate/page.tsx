@@ -78,6 +78,12 @@ export default function GenerateLabels() {
 
     try {
       const qty = parseInt(quantity);
+      if (isNaN(qty) || qty < 1) {
+        alert('Please enter a valid quantity');
+        setGenerating(false);
+        return;
+      }
+
       const gtin = `890${Math.floor(100000000000 + Math.random() * 900000000000)}`;
 
       const labelData = {
@@ -89,6 +95,9 @@ export default function GenerateLabels() {
         mrp: mrp,
         gtin,
       };
+
+      console.log('Generating labels with data:', labelData);
+      console.log('Format:', manualFormat, 'Code Type:', manualCodeType, 'Quantity:', qty);
 
       await downloadLabelsManual([labelData], qty, manualCodeType, manualFormat);
       
@@ -103,7 +112,8 @@ export default function GenerateLabels() {
       alert(`Successfully generated ${qty} label(s)!`);
     } catch (error) {
       console.error('Error generating labels:', error);
-      alert('Error generating labels. Please try again.');
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      alert(`Error generating labels: ${errorMessage}\n\nPlease check the console for details.`);
     } finally {
       setGenerating(false);
     }
@@ -164,36 +174,51 @@ export default function GenerateLabels() {
     codeType: 'QR' | 'CODE128' | 'DATAMATRIX',
     format: 'PDF' | 'PNG' | 'ZPL' | 'EPL'
   ) => {
+    console.log('downloadLabelsManual called with:', { labels, repeatPerLabel, codeType, format });
+    
     let textOutput = '';
     const pdfBlobs: Blob[] = [];
 
-    for (const label of labels) {
-      if (format === 'PDF') {
-        const pdfBlob = await generatePDF(label, codeType);
-        for (let i = 0; i < repeatPerLabel; i++) {
-          pdfBlobs.push(pdfBlob);
+    try {
+      for (const label of labels) {
+        console.log('Processing label:', label);
+        
+        if (format === 'PDF' || format === 'PNG') {
+          console.log('Generating PDF/PNG...');
+          const pdfBlob = await generatePDF(label, codeType);
+          console.log('PDF blob generated:', pdfBlob.size, 'bytes');
+          
+          for (let i = 0; i < repeatPerLabel; i++) {
+            pdfBlobs.push(pdfBlob);
+          }
+        } else if (format === 'ZPL') {
+          console.log('Generating ZPL...');
+          const zpl = generateZPL(label, codeType);
+          textOutput += zpl.repeat(repeatPerLabel);
+        } else if (format === 'EPL') {
+          console.log('Generating EPL...');
+          const epl = generateEPL(label);
+          textOutput += epl.repeat(repeatPerLabel);
         }
-      } else if (format === 'PNG') {
-        // Generate PNG by creating PDF and converting (simplified approach)
-        const pdfBlob = await generatePDF(label, codeType);
-        for (let i = 0; i < repeatPerLabel; i++) {
-          pdfBlobs.push(pdfBlob);
-        }
-      } else if (format === 'ZPL') {
-        const zpl = generateZPL(label, codeType);
-        textOutput += zpl.repeat(repeatPerLabel);
-      } else if (format === 'EPL') {
-        const epl = generateEPL(label);
-        textOutput += epl.repeat(repeatPerLabel);
       }
-    }
 
-    if ((format === 'PDF' || format === 'PNG') && pdfBlobs.length > 0) {
-      const finalBlob = new Blob(pdfBlobs, { type: 'application/pdf' });
-      triggerDownload(finalBlob, `RxTrace_${pdfBlobs.length}_Labels.${format.toLowerCase()}`);
-    } else if (textOutput) {
-      const blob = new Blob([textOutput], { type: 'text/plain' });
-      triggerDownload(blob, `RxTrace_${labels.length * repeatPerLabel}_Labels.${format.toLowerCase()}`);
+      if ((format === 'PDF' || format === 'PNG') && pdfBlobs.length > 0) {
+        console.log('Creating final blob from', pdfBlobs.length, 'PDF blobs');
+        const finalBlob = new Blob(pdfBlobs, { type: 'application/pdf' });
+        console.log('Final blob size:', finalBlob.size, 'bytes');
+        triggerDownload(finalBlob, `RxTrace_${pdfBlobs.length}_Labels.${format.toLowerCase()}`);
+      } else if (textOutput) {
+        console.log('Creating text output, length:', textOutput.length);
+        const blob = new Blob([textOutput], { type: 'text/plain' });
+        triggerDownload(blob, `RxTrace_${labels.length * repeatPerLabel}_Labels.${format.toLowerCase()}`);
+      } else {
+        throw new Error('No output generated');
+      }
+      
+      console.log('Download triggered successfully');
+    } catch (error) {
+      console.error('Error in downloadLabelsManual:', error);
+      throw error;
     }
   };
 
@@ -232,12 +257,26 @@ export default function GenerateLabels() {
   };
 
   const triggerDownload = (blob: Blob, filename: string) => {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
+    console.log('triggerDownload called:', { blobSize: blob.size, filename });
+    
+    try {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      
+      // Clean up after a delay to ensure download starts
+      setTimeout(() => {
+        URL.revokeObjectURL(url);
+        console.log('Download cleanup completed');
+      }, 100);
+    } catch (error) {
+      console.error('Error in triggerDownload:', error);
+      throw error;
+    }
   };
 
   if (loading) return <div className="text-center py-20 text-2xl">Loading...</div>;
@@ -271,10 +310,17 @@ export default function GenerateLabels() {
               <div>
                 <Label className="text-sm font-semibold text-gray-700">MFG Date *</Label>
                 <Input 
-                  type="text" 
-                  value={mfgDate} 
-                  onChange={(e) => setMfgDate(e.target.value)} 
-                  placeholder="DD-MM-YYYY"
+                  type="date" 
+                  value={mfgDate ? mfgDate.split('-').reverse().join('-') : ''} 
+                  onChange={(e) => {
+                    // Convert YYYY-MM-DD to DD-MM-YYYY for storage
+                    if (e.target.value) {
+                      const [year, month, day] = e.target.value.split('-');
+                      setMfgDate(`${day}-${month}-${year}`);
+                    } else {
+                      setMfgDate('');
+                    }
+                  }} 
                   required
                   className="mt-1"
                 />
@@ -282,10 +328,17 @@ export default function GenerateLabels() {
               <div>
                 <Label className="text-sm font-semibold text-gray-700">Expiry Date *</Label>
                 <Input 
-                  type="text" 
-                  value={expiryDate} 
-                  onChange={(e) => setExpiryDate(e.target.value)} 
-                  placeholder="DD-MM-YYYY"
+                  type="date" 
+                  value={expiryDate ? expiryDate.split('-').reverse().join('-') : ''} 
+                  onChange={(e) => {
+                    // Convert YYYY-MM-DD to DD-MM-YYYY for storage
+                    if (e.target.value) {
+                      const [year, month, day] = e.target.value.split('-');
+                      setExpiryDate(`${day}-${month}-${year}`);
+                    } else {
+                      setExpiryDate('');
+                    }
+                  }} 
                   required
                   className="mt-1"
                 />
