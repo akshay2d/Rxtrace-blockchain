@@ -1,5 +1,5 @@
 // components/custom/QRCodeComponent.tsx
-import QRCode from "qrcode.react";
+import { QRCodeSVG } from "qrcode.react";
 
 interface Props {
   value: string;
@@ -8,12 +8,11 @@ interface Props {
 
 export default function QRCodeComponent({ value, size = 256 }: Props) {
   return (
-    <QRCode
+    <QRCodeSVG
       value={value}
       size={size}
       level="H"
       includeMargin={false}
-      renderAs="svg"
       fgColor="#000000"
       bgColor="#ffffff"
     />

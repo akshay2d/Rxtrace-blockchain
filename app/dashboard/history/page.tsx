@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabase";
+import { supabaseClient } from "@/lib/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
@@ -25,10 +25,10 @@ export default function History() {
 
   useEffect(() => {
     const fetchBatches = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { user } } = await supabaseClient().auth.getUser();
       if (!user) return;
 
-      const { data, error } = await supabase
+      const { data, error } = await supabaseClient()
         .from("product_batches")
         .select("*")
         .eq("user_id", user.id)

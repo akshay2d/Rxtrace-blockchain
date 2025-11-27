@@ -1,16 +1,36 @@
 // app/dashboard/layout.tsx
+'use client';
+
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Pill, LogOut, QrCode, BarChart3, Download, Home } from 'lucide-react';
 import Link from 'next/link';
 import { supabaseClient } from '@/lib/supabase/client';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 
-export default async function DashboardLayout({
+export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const { data: { user } } = await supabaseClient().auth.getUser();
+  const [userEmail, setUserEmail] = useState<string>('');
+  const router = useRouter();
+
+  useEffect(() => {
+    async function getUser() {
+      const { data: { user } } = await supabaseClient().auth.getUser();
+      if (user) {
+        setUserEmail(user.email || '');
+      }
+    }
+    getUser();
+  }, []);
+
+  const handleSignOut = async () => {
+    await supabaseClient().auth.signOut();
+    router.push('/auth/signin');
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
@@ -59,13 +79,11 @@ export default async function DashboardLayout({
         <div className="p-4 border-t">
           <Card className="p-4 bg-gradient-to-br from-blue-50 to-orange-50">
             <p className="text-sm font-medium">Logged in as:</p>
-            <p className="text-sm text-gray-700 truncate">{user?.email}</p>
+            <p className="text-sm text-gray-700 truncate">{userEmail}</p>
           </Card>
-          <form action="/auth/signout" method="post">
-            <Button type="submit" variant="outline" className="w-full mt-4 gap-2">
-              <LogOut className="h-4 w-4" /> Sign Out
-            </Button>
-          </form>
+          <Button onClick={handleSignOut} variant="outline" className="w-full mt-4 gap-2">
+            <LogOut className="h-4 w-4" /> Sign Out
+          </Button>
         </div>
       </div>
 
