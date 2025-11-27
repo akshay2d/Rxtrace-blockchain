@@ -1,9 +1,22 @@
 // app/pricing/page.tsx
+'use client';
+
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Check } from 'lucide-react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
 export default function Pricing() {
+  const router = useRouter();
+
+  const handleUpgrade = (planName: string) => {
+    if (planName === "Professional" || planName === "Enterprise") {
+      // Redirect to dashboard or payment page
+      router.push('/dashboard');
+    }
+  };
+
   const plans = [
     {
       name: "Free Forever",
@@ -16,7 +29,8 @@ export default function Pricing() {
         "No real GS1 prefix",
         "Community support",
       ],
-      cta: "Current Plan",
+      cta: "Get Started Free",
+      ctaLink: "/auth/signup",
       popular: false,
     },
     {
@@ -32,6 +46,7 @@ export default function Pricing() {
         "Email support",
       ],
       cta: "Upgrade Now",
+      ctaLink: "/dashboard",
       popular: true,
     },
     {
@@ -47,6 +62,7 @@ export default function Pricing() {
         "Custom branding",
       ],
       cta: "Contact Sales",
+      ctaLink: "mailto:sales@rxtrace.in",
       popular: false,
     },
   ];
@@ -87,15 +103,44 @@ export default function Pricing() {
                   </li>
                 ))}
               </ul>
-              <Button
-                className={`w-full ${plan.popular ? 'bg-orange-500 hover:bg-orange-600' : ''}`}
-                disabled={plan.cta === "Current Plan"}
-              >
-                {plan.cta}
-              </Button>
+              {plan.ctaLink.startsWith('mailto:') ? (
+                <a href={plan.ctaLink}>
+                  <Button
+                    className={`w-full ${plan.popular ? 'bg-orange-500 hover:bg-orange-600' : ''}`}
+                  >
+                    {plan.cta}
+                  </Button>
+                </a>
+              ) : (
+                <Link href={plan.ctaLink}>
+                  <Button
+                    className={`w-full ${plan.popular ? 'bg-orange-500 hover:bg-orange-600' : ''}`}
+                  >
+                    {plan.cta}
+                  </Button>
+                </Link>
+              )}
             </CardContent>
           </Card>
         ))}
+      </div>
+
+      <div className="max-w-4xl mx-auto mt-20 px-4">
+        <Card className="bg-gradient-to-r from-blue-50 to-orange-50 border-2">
+          <CardContent className="p-8">
+            <h2 className="text-3xl font-bold text-center mb-4">Need a custom solution?</h2>
+            <p className="text-center text-gray-600 mb-6">
+              Contact our sales team for enterprise pricing, volume discounts, and custom integrations.
+            </p>
+            <div className="flex justify-center">
+              <a href="mailto:sales@rxtrace.in">
+                <Button size="lg" className="bg-[#0052CC] hover:bg-blue-700">
+                  Contact Sales Team
+                </Button>
+              </a>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
