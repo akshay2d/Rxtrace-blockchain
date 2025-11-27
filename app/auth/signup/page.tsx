@@ -40,6 +40,7 @@ export default function SignUp() {
       password: data.password,
       options: {
         data: { full_name: data.contact_person },
+        emailRedirectTo: `${window.location.origin}/dashboard`,
       },
     });
 
@@ -55,31 +56,40 @@ export default function SignUp() {
       return;
     }
 
-    // 2. Save company details
+    // 2. Save company details (store in localStorage temporarily if email not confirmed)
+    const companyData = {
+      company_name: data.company_name,
+      contact_person: data.contact_person,
+      email: data.email,
+      phone: data.phone,
+      address: data.address,
+      gst_number: data.gst_number,
+      gtin_prefix: data.gtin_prefix,
+      total_skus: data.total_skus,
+      industry: data.industry,
+      business_type: data.business_type,
+      labels_per_month: data.labels_per_month,
+      user_id: authResponse.user.id,
+    };
+
+    // Try to save company details
     const { error: companyError } = await supabaseClient()
       .from('companies')
-      .insert({
-        company_name: data.company_name,
-        contact_person: data.contact_person,
-        email: data.email,
-        phone: data.phone,
-        address: data.address,
-        gst_number: data.gst_number,
-        gtin_prefix: data.gtin_prefix,
-        total_skus: data.total_skus,
-        industry: data.industry,
-        business_type: data.business_type,
-        labels_per_month: data.labels_per_month,
-        user_id: authResponse.user.id,
-      });
+      .insert(companyData);
 
     if (companyError) {
-      alert('Account created, but company details failed to save: ' + companyError.message);
-      // Still continue — user is logged in
+      // Store company data in localStorage to save after email verification
+      localStorage.setItem('pending_company_data', JSON.stringify(companyData));
     }
 
-    // Success → go to dashboard
-    router.push('/dashboard');
+    // Check if email confirmation is required
+    if (authResponse.session) {
+      // User is already logged in (email confirmation disabled)
+      router.push('/dashboard');
+    } else {
+      // Email confirmation required - redirect to verification page
+      router.push(`/auth/verify?email=${encodeURIComponent(data.email)}`);
+    }
     setLoading(false);
   };
 

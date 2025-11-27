@@ -22,6 +22,25 @@ export default function DashboardLayout({
       const { data: { user } } = await supabaseClient().auth.getUser();
       if (user) {
         setUserEmail(user.email || '');
+        
+        // Check if there's pending company data to save after email verification
+        const pendingData = localStorage.getItem('pending_company_data');
+        if (pendingData) {
+          try {
+            const companyData = JSON.parse(pendingData);
+            // Try to save the company data
+            const { error } = await supabaseClient()
+              .from('companies')
+              .insert(companyData);
+            
+            if (!error) {
+              // Successfully saved, remove from localStorage
+              localStorage.removeItem('pending_company_data');
+            }
+          } catch (err) {
+            console.error('Error saving pending company data:', err);
+          }
+        }
       }
     }
     getUser();
