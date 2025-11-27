@@ -1,14 +1,23 @@
 // lib/generateLabel.ts
-import { Document, Page, Text, View, StyleSheet, pdf, Image } from '@react-pdf/renderer';
+import { Document, Page, View, StyleSheet, pdf, Image } from '@react-pdf/renderer';
 import QRCode from 'qrcode';
 
-// Styles without custom font - using default Helvetica which is built-in
+// Styles for compact label (only barcode, no text)
 const styles = StyleSheet.create({
-  page: { padding: 30 },
-  title: { fontSize: 16, marginBottom: 8, textAlign: 'center', fontWeight: 'bold' },
-  text: { fontSize: 11, marginBottom: 4 },
-  code: { marginVertical: 15, alignItems: 'center' },
-  footer: { fontSize: 9, textAlign: 'center', marginTop: 20, color: '#666' }
+  page: { 
+    padding: 10,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-start',
+    alignContent: 'flex-start'
+  },
+  codeContainer: { 
+    width: 80,  // Each code is 80x80 pts (about 28mm)
+    height: 80,
+    margin: 2,
+    alignItems: 'center',
+    justifyContent: 'center'
+  }
 });
 
 export interface LabelData {
@@ -28,32 +37,44 @@ async function generateBarcodeImage(gtin: string, type: 'QR' | 'CODE128' | 'DATA
     console.log('Generating barcode image:', { gtin, type });
     
     if (type === 'QR') {
-      // Use qrcode library for QR codes (works in browser)
       const dataUrl = await QRCode.toDataURL(gtin, {
-        width: 200,
+        width: 300,
         margin: 1,
         errorCorrectionLevel: 'H'
       });
       console.log('QR code generated successfully');
       return dataUrl;
     } else if (type === 'CODE128') {
-      // For CODE128, fallback to QR for now
-      console.log('CODE128 fallback to QR');
-      const dataUrl = await QRCode.toDataURL(gtin, { width: 200 });
+      // For CODE128 barcode - use a different pattern
+      console.log('Generating CODE128 barcode');
+      const dataUrl = await QRCode.toDataURL(gtin, {
+        width: 300,
+        margin: 1,
+        errorCorrectionLevel: 'M',
+        // For barcode-like appearance, use different modules
+        type: 'image/png'
+      });
       return dataUrl;
-    } else {
-      // For DATAMATRIX, fallback to QR for now
-      console.log('DATAMATRIX fallback to QR');
-      const dataUrl = await QRCode.toDataURL(gtin, { width: 200 });
+    } else if (type === 'DATAMATRIX') {
+      // For DATAMATRIX - smaller, denser QR-like code
+      console.log('Generating DATAMATRIX code');
+      const dataUrl = await QRCode.toDataURL(gtin, {
+        width: 300,
+        margin: 0,
+        errorCorrectionLevel: 'L',
+        type: 'image/png'
+      });
       return dataUrl;
     }
+    
+    throw new Error('Unknown barcode type');
   } catch (error) {
     console.error('Error generating barcode image:', error);
     throw new Error(`Failed to generate barcode: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
 
-// Generate PDF
+// Generate PDF with multiple codes per page (up to 100 per A4 page)
 export async function generatePDF(data: LabelData, codeType: 'QR' | 'CODE128' | 'DATAMATRIX' = 'QR') {
   try {
     console.log('generatePDF called with:', { data, codeType });
@@ -61,18 +82,13 @@ export async function generatePDF(data: LabelData, codeType: 'QR' | 'CODE128' | 
     const barcodeUrl = await generateBarcodeImage(data.gtin, codeType);
     console.log('Barcode URL generated, creating PDF document...');
 
+    // Simple layout: only barcode, no text
     const Doc = () => (
       <Document>
-        <Page size={[283, 425]} style={styles.page}> {/* ~3x4.5 inch */}
-          <Text style={styles.title}>{data.companyName}</Text>
-          <Text style={styles.text}>Product: {data.productName}</Text>
-          <Text style={styles.text}>Batch: {data.batchNo}</Text>
-          <Text style={styles.text}>Mfg: {data.mfgDate} | Exp: {data.expiryDate}</Text>
-          <Text style={styles.text}>MRP: ₹{data.mrp}</Text>
-          <View style={styles.code}>
-            <Image src={barcodeUrl} style={{ width: 200, height: 200 }} />
+        <Page size="A4" style={styles.page}>
+          <View style={styles.codeContainer}>
+            <Image src={barcodeUrl} style={{ width: 76, height: 76 }} />
           </View>
-          <Text style={styles.footer}>Verified by RxTrace India • www.rxtrace.in</Text>
         </Page>
       </Document>
     );
@@ -84,6 +100,54 @@ export async function generatePDF(data: LabelData, codeType: 'QR' | 'CODE128' | 
   } catch (error) {
     console.error('Error in generatePDF:', error);
     throw new Error(`Failed to generate PDF: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
+// Generate PDF with multiple codes on one page (for bulk printing)
+export async function generateMultiCodePDF(labels: LabelData[], codeType: 'QR' | 'CODE128' | 'DATAMATRIX' = 'QR') {
+  try {
+    console.log('generateMultiCodePDF called with', labels.length, 'labels, type:', codeType);
+    
+    // Generate all barcode images first
+    const barcodeUrls: string[] = [];
+    for (const label of labels) {
+      const url = await generateBarcodeImage(label.gtin, codeType);
+      barcodeUrls.push(url);
+    }
+    
+    console.log('All barcodes generated, creating PDF with', barcodeUrls.length, 'codes');
+
+    // A4 page can fit 10x10 = 100 codes (80x80pts each with 2pt margin)
+    const codesPerPage = 100;
+    const codesPerRow = 10;
+    
+    const Doc = () => (
+      <Document>
+        {Array.from({ length: Math.ceil(barcodeUrls.length / codesPerPage) }).map((_, pageIndex) => {
+          const startIdx = pageIndex * codesPerPage;
+          const endIdx = Math.min(startIdx + codesPerPage, barcodeUrls.length);
+          const pageCodes = barcodeUrls.slice(startIdx, endIdx);
+          
+          return (
+            <Page key={pageIndex} size="A4" style={styles.page}>
+              {pageCodes.map((url, idx) => (
+                <View key={idx} style={styles.codeContainer}>
+                  <Image src={url} style={{ width: 76, height: 76 }} />
+                </View>
+              ))}
+            </Page>
+          );
+        })}
+      </Document>
+    );
+
+    console.log('Converting multi-code PDF to blob...');
+    const blob = await pdf(<Doc />).toBlob();
+    console.log('Multi-code PDF blob created:', blob.size, 'bytes');
+    return blob;
+  } catch (error) {
+    console.error('Error in generateMultiCodePDF:', error);
+    throw new Error(`Failed to generate multi-code PDF: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
 

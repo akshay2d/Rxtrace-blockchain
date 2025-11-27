@@ -3,7 +3,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabaseClient } from '@/lib/supabase/client';
-import { generatePDF, generateZPL, generateEPL } from '@/lib/generateLabel';
+import { generateMultiCodePDF, generateZPL, generateEPL } from '@/lib/generateLabel';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
@@ -177,42 +177,42 @@ export default function GenerateLabels() {
     console.log('downloadLabelsManual called with:', { labels, repeatPerLabel, codeType, format });
     
     let textOutput = '';
-    const pdfBlobs: Blob[] = [];
 
     try {
-      for (const label of labels) {
-        console.log('Processing label:', label);
+      if (format === 'PDF' || format === 'PNG') {
+        console.log('Generating PDF/PNG with multi-code layout...');
         
-        if (format === 'PDF' || format === 'PNG') {
-          console.log('Generating PDF/PNG...');
-          const pdfBlob = await generatePDF(label, codeType);
-          console.log('PDF blob generated:', pdfBlob.size, 'bytes');
-          
+        // Create array with repeated labels
+        const allLabels: any[] = [];
+        for (const label of labels) {
           for (let i = 0; i < repeatPerLabel; i++) {
-            pdfBlobs.push(pdfBlob);
+            allLabels.push(label);
           }
-        } else if (format === 'ZPL') {
-          console.log('Generating ZPL...');
+        }
+        
+        console.log('Total codes to generate:', allLabels.length);
+        const pdfBlob = await generateMultiCodePDF(allLabels, codeType);
+        console.log('PDF blob generated:', pdfBlob.size, 'bytes');
+        
+        triggerDownload(pdfBlob, `RxTrace_${allLabels.length}_Codes.pdf`);
+        
+      } else if (format === 'ZPL') {
+        console.log('Generating ZPL...');
+        for (const label of labels) {
           const zpl = generateZPL(label, codeType);
           textOutput += zpl.repeat(repeatPerLabel);
-        } else if (format === 'EPL') {
-          console.log('Generating EPL...');
+        }
+        const blob = new Blob([textOutput], { type: 'text/plain' });
+        triggerDownload(blob, `RxTrace_${labels.length * repeatPerLabel}_Labels.zpl`);
+        
+      } else if (format === 'EPL') {
+        console.log('Generating EPL...');
+        for (const label of labels) {
           const epl = generateEPL(label);
           textOutput += epl.repeat(repeatPerLabel);
         }
-      }
-
-      if ((format === 'PDF' || format === 'PNG') && pdfBlobs.length > 0) {
-        console.log('Creating final blob from', pdfBlobs.length, 'PDF blobs');
-        const finalBlob = new Blob(pdfBlobs, { type: 'application/pdf' });
-        console.log('Final blob size:', finalBlob.size, 'bytes');
-        triggerDownload(finalBlob, `RxTrace_${pdfBlobs.length}_Labels.${format.toLowerCase()}`);
-      } else if (textOutput) {
-        console.log('Creating text output, length:', textOutput.length);
         const blob = new Blob([textOutput], { type: 'text/plain' });
-        triggerDownload(blob, `RxTrace_${labels.length * repeatPerLabel}_Labels.${format.toLowerCase()}`);
-      } else {
-        throw new Error('No output generated');
+        triggerDownload(blob, `RxTrace_${labels.length * repeatPerLabel}_Labels.epl`);
       }
       
       console.log('Download triggered successfully');
@@ -229,30 +229,32 @@ export default function GenerateLabels() {
     format: 'PDF' | 'PNG' | 'ZPL' | 'EPL'
   ) => {
     let textOutput = '';
-    const pdfBlobs: Blob[] = [];
 
-    for (const label of labels) {
-      if (format === 'PDF') {
-        const pdfBlob = await generatePDF(label, codeType);
-        pdfBlobs.push(pdfBlob);
-      } else if (format === 'PNG') {
-        const pdfBlob = await generatePDF(label, codeType);
-        pdfBlobs.push(pdfBlob);
+    try {
+      if (format === 'PDF' || format === 'PNG') {
+        console.log('Generating CSV multi-code PDF...');
+        const pdfBlob = await generateMultiCodePDF(labels, codeType);
+        triggerDownload(pdfBlob, `RxTrace_CSV_${labels.length}_Codes.pdf`);
+        
       } else if (format === 'ZPL') {
-        const zpl = generateZPL(label, codeType);
-        textOutput += zpl;
+        for (const label of labels) {
+          const zpl = generateZPL(label, codeType);
+          textOutput += zpl;
+        }
+        const blob = new Blob([textOutput], { type: 'text/plain' });
+        triggerDownload(blob, `RxTrace_CSV_${labels.length}_Labels.zpl`);
+        
       } else if (format === 'EPL') {
-        const epl = generateEPL(label);
-        textOutput += epl;
+        for (const label of labels) {
+          const epl = generateEPL(label);
+          textOutput += epl;
+        }
+        const blob = new Blob([textOutput], { type: 'text/plain' });
+        triggerDownload(blob, `RxTrace_CSV_${labels.length}_Labels.epl`);
       }
-    }
-
-    if ((format === 'PDF' || format === 'PNG') && pdfBlobs.length > 0) {
-      const finalBlob = new Blob(pdfBlobs, { type: 'application/pdf' });
-      triggerDownload(finalBlob, `RxTrace_CSV_${pdfBlobs.length}_Labels.${format.toLowerCase()}`);
-    } else if (textOutput) {
-      const blob = new Blob([textOutput], { type: 'text/plain' });
-      triggerDownload(blob, `RxTrace_CSV_${labels.length}_Labels.${format.toLowerCase()}`);
+    } catch (error) {
+      console.error('Error in downloadLabelsCsv:', error);
+      throw error;
     }
   };
 
@@ -308,7 +310,10 @@ export default function GenerateLabels() {
       };
 
       console.log('Generating PDF for printing...');
-      const pdfBlob = await generatePDF(labelData, manualCodeType);
+      
+      // Create array with repeated labels for printing
+      const allLabels = Array(qty).fill(labelData);
+      const pdfBlob = await generateMultiCodePDF(allLabels, manualCodeType);
       
       // Open PDF in new window for printing
       const url = URL.createObjectURL(pdfBlob);
