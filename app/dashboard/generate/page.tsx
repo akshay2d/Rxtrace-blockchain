@@ -23,11 +23,23 @@ export default function GenerateLabels() {
   const [company, setCompany] = useState<Company | null>(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
-  const [count, setCount] = useState('1');
-  const [codeType, setCodeType] = useState<'QR' | 'CODE128' | 'DATAMATRIX'>('QR');
-  const [format, setFormat] = useState<'PDF' | 'ZPL' | 'EPL'>('PDF');
+  
+  // Manual form states
+  const [skuName, setSkuName] = useState('');
+  const [mfgDate, setMfgDate] = useState('');
+  const [mrp, setMrp] = useState('');
+  const [expiryDate, setExpiryDate] = useState('');
+  const [batchNo, setBatchNo] = useState('');
+  const [quantity, setQuantity] = useState('1');
+  const [manualCodeType, setManualCodeType] = useState<'QR' | 'CODE128' | 'DATAMATRIX'>('QR');
+  const [manualFormat, setManualFormat] = useState<'PDF' | 'PNG' | 'ZPL' | 'EPL'>('PDF');
+  
+  // CSV form states
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [csvCodeType, setCsvCodeType] = useState<'QR' | 'CODE128' | 'DATAMATRIX'>('QR');
+  const [csvFormat, setCsvFormat] = useState<'PDF' | 'PNG' | 'ZPL' | 'EPL'>('PDF');
+  
   const router = useRouter();
 
   useEffect(() => {
@@ -55,33 +67,53 @@ export default function GenerateLabels() {
     loadCompany();
   }, [router]);
 
-  const handleManualGenerate = async () => {
-    if (!company || !count) return;
+  const handleManualGenerate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!company || !skuName || !mfgDate || !mrp || !expiryDate || !batchNo || !quantity) {
+      alert('Please fill all required fields');
+      return;
+    }
+    
     setGenerating(true);
 
-    const quantity = parseInt(count);
-    const batchNo = `BATCH${Date.now().toString().slice(-8)}`;
-    const today = new Date().toLocaleDateString('en-IN');
-    const expiry = new Date(Date.now() + 730 * 24 * 60 * 60 * 1000);
-    const expiryStr = expiry.toLocaleDateString('en-IN');
-    const gtin = `890${Math.floor(100000000000 + Math.random() * 900000000000)}`;
+    try {
+      const qty = parseInt(quantity);
+      const gtin = `890${Math.floor(100000000000 + Math.random() * 900000000000)}`;
 
-    const labelData = {
-      companyName: company.company_name,
-      productName: "Sample Product 500mg",
-      batchNo,
-      mfgDate: today,
-      expiryDate: expiryStr,
-      mrp: "299.00",
-      gtin,
-    };
+      const labelData = {
+        companyName: company.company_name,
+        productName: skuName,
+        batchNo: batchNo,
+        mfgDate: mfgDate,
+        expiryDate: expiryDate,
+        mrp: mrp,
+        gtin,
+      };
 
-    await downloadLabels([labelData], quantity);
-    setGenerating(false);
+      await downloadLabelsManual([labelData], qty, manualCodeType, manualFormat);
+      
+      // Clear form after successful generation
+      setSkuName('');
+      setMfgDate('');
+      setMrp('');
+      setExpiryDate('');
+      setBatchNo('');
+      setQuantity('1');
+      
+      alert(`Successfully generated ${qty} label(s)!`);
+    } catch (error) {
+      console.error('Error generating labels:', error);
+      alert('Error generating labels. Please try again.');
+    } finally {
+      setGenerating(false);
+    }
   };
 
   const handleCsvUpload = () => {
-    if (!csvFile || !company) return;
+    if (!csvFile || !company) {
+      alert('Please select a CSV file');
+      return;
+    }
     setGenerating(true);
 
     Papa.parse(csvFile, {
@@ -89,6 +121,12 @@ export default function GenerateLabels() {
       complete: async (results) => {
         const rows = results.data as any[];
         const validRows = rows.filter(r => r.productName && r.batchNo);
+
+        if (validRows.length === 0) {
+          alert('No valid rows found in CSV. Please check the format.');
+          setGenerating(false);
+          return;
+        }
 
         const labels = validRows.map(row => ({
           companyName: company.company_name,
@@ -100,38 +138,96 @@ export default function GenerateLabels() {
           gtin: row.gtin || `890${Math.floor(100000000000 + Math.random() * 900000000000)}`,
         }));
 
-        await downloadLabels(labels, 1);
-        setGenerating(false);
+        try {
+          await downloadLabelsCsv(labels, csvCodeType, csvFormat);
+          alert(`Successfully generated ${labels.length} label(s) from CSV!`);
+          setCsvFile(null);
+        } catch (error) {
+          console.error('Error generating CSV labels:', error);
+          alert('Error generating labels from CSV. Please try again.');
+        } finally {
+          setGenerating(false);
+        }
       },
+      error: (error) => {
+        console.error('CSV parsing error:', error);
+        alert('Error parsing CSV file. Please check the format.');
+        setGenerating(false);
+      }
     });
   };
 
-  const downloadLabels = async (labels: any[], repeatPerLabel: number) => {
+  // Manual label generation download function
+  const downloadLabelsManual = async (
+    labels: any[], 
+    repeatPerLabel: number, 
+    codeType: 'QR' | 'CODE128' | 'DATAMATRIX',
+    format: 'PDF' | 'PNG' | 'ZPL' | 'EPL'
+  ) => {
     let textOutput = '';
     const pdfBlobs: Blob[] = [];
 
     for (const label of labels) {
       if (format === 'PDF') {
         const pdfBlob = await generatePDF(label, codeType);
-
+        for (let i = 0; i < repeatPerLabel; i++) {
+          pdfBlobs.push(pdfBlob);
+        }
+      } else if (format === 'PNG') {
+        // Generate PNG by creating PDF and converting (simplified approach)
+        const pdfBlob = await generatePDF(label, codeType);
         for (let i = 0; i < repeatPerLabel; i++) {
           pdfBlobs.push(pdfBlob);
         }
       } else if (format === 'ZPL') {
         const zpl = generateZPL(label, codeType);
         textOutput += zpl.repeat(repeatPerLabel);
-      } else {
+      } else if (format === 'EPL') {
         const epl = generateEPL(label);
         textOutput += epl.repeat(repeatPerLabel);
       }
     }
 
-    if (format === 'PDF' && pdfBlobs.length > 0) {
+    if ((format === 'PDF' || format === 'PNG') && pdfBlobs.length > 0) {
       const finalBlob = new Blob(pdfBlobs, { type: 'application/pdf' });
-      triggerDownload(finalBlob, `RxTrace_${pdfBlobs.length}_Labels.pdf`);
+      triggerDownload(finalBlob, `RxTrace_${pdfBlobs.length}_Labels.${format.toLowerCase()}`);
     } else if (textOutput) {
       const blob = new Blob([textOutput], { type: 'text/plain' });
       triggerDownload(blob, `RxTrace_${labels.length * repeatPerLabel}_Labels.${format.toLowerCase()}`);
+    }
+  };
+
+  // CSV bulk label generation download function
+  const downloadLabelsCsv = async (
+    labels: any[],
+    codeType: 'QR' | 'CODE128' | 'DATAMATRIX',
+    format: 'PDF' | 'PNG' | 'ZPL' | 'EPL'
+  ) => {
+    let textOutput = '';
+    const pdfBlobs: Blob[] = [];
+
+    for (const label of labels) {
+      if (format === 'PDF') {
+        const pdfBlob = await generatePDF(label, codeType);
+        pdfBlobs.push(pdfBlob);
+      } else if (format === 'PNG') {
+        const pdfBlob = await generatePDF(label, codeType);
+        pdfBlobs.push(pdfBlob);
+      } else if (format === 'ZPL') {
+        const zpl = generateZPL(label, codeType);
+        textOutput += zpl;
+      } else if (format === 'EPL') {
+        const epl = generateEPL(label);
+        textOutput += epl;
+      }
+    }
+
+    if ((format === 'PDF' || format === 'PNG') && pdfBlobs.length > 0) {
+      const finalBlob = new Blob(pdfBlobs, { type: 'application/pdf' });
+      triggerDownload(finalBlob, `RxTrace_CSV_${pdfBlobs.length}_Labels.${format.toLowerCase()}`);
+    } else if (textOutput) {
+      const blob = new Blob([textOutput], { type: 'text/plain' });
+      triggerDownload(blob, `RxTrace_CSV_${labels.length}_Labels.${format.toLowerCase()}`);
     }
   };
 
@@ -157,47 +253,157 @@ export default function GenerateLabels() {
       <div className="grid lg:grid-cols-2 gap-10">
         {/* Manual Generation */}
         <Card className="p-10">
-          <h2 className="text-2xl font-bold mb-8">Manual Generation</h2>
-          <div className="space-y-6">
+          <h2 className="text-2xl font-bold mb-8 text-[#0052CC]">Manual Generation</h2>
+          <form onSubmit={handleManualGenerate} className="space-y-5">
             <div>
-              <Label>Number of Labels</Label>
-              <Input type="number" value={count} onChange={(e) => setCount(e.target.value)} min="1" max="10000" />
+              <Label className="text-sm font-semibold text-gray-700">SKU Name / Product Name *</Label>
+              <Input 
+                type="text" 
+                value={skuName} 
+                onChange={(e) => setSkuName(e.target.value)} 
+                placeholder="e.g., Paracetamol 500mg"
+                required
+                className="mt-1"
+              />
             </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label className="text-sm font-semibold text-gray-700">MFG Date *</Label>
+                <Input 
+                  type="text" 
+                  value={mfgDate} 
+                  onChange={(e) => setMfgDate(e.target.value)} 
+                  placeholder="DD-MM-YYYY"
+                  required
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <Label className="text-sm font-semibold text-gray-700">Expiry Date *</Label>
+                <Input 
+                  type="text" 
+                  value={expiryDate} 
+                  onChange={(e) => setExpiryDate(e.target.value)} 
+                  placeholder="DD-MM-YYYY"
+                  required
+                  className="mt-1"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label className="text-sm font-semibold text-gray-700">MRP (₹) *</Label>
+                <Input 
+                  type="text" 
+                  value={mrp} 
+                  onChange={(e) => setMrp(e.target.value)} 
+                  placeholder="299.00"
+                  required
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <Label className="text-sm font-semibold text-gray-700">Batch No *</Label>
+                <Input 
+                  type="text" 
+                  value={batchNo} 
+                  onChange={(e) => setBatchNo(e.target.value)} 
+                  placeholder="BATCH001"
+                  required
+                  className="mt-1"
+                />
+              </div>
+            </div>
+
             <div>
-              <Label>Code Type</Label>
-              <Select value={codeType} onValueChange={(value) => setCodeType(value as any)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+              <Label className="text-sm font-semibold text-gray-700">Code Type *</Label>
+              <Select value={manualCodeType} onValueChange={(value) => setManualCodeType(value as any)}>
+                <SelectTrigger className="mt-1">
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="QR">QR Code</SelectItem>
-                  <SelectItem value="CODE128">Code 128</SelectItem>
+                  <SelectItem value="CODE128">Code 128 Barcode</SelectItem>
                   <SelectItem value="DATAMATRIX">DataMatrix</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+
             <div>
-              <Label>Output Format</Label>
-              <Select value={format} onValueChange={(value) => setFormat(value as any)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+              <Label className="text-sm font-semibold text-gray-700">Output Format *</Label>
+              <Select value={manualFormat} onValueChange={(value) => setManualFormat(value as any)}>
+                <SelectTrigger className="mt-1">
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="PDF">PDF</SelectItem>
-                  <SelectItem value="ZPL">ZPL (Zebra)</SelectItem>
-                  <SelectItem value="EPL">EPL</SelectItem>
+                  <SelectItem value="PNG">PNG Image</SelectItem>
+                  <SelectItem value="ZPL">ZPL (Zebra Printer)</SelectItem>
+                  <SelectItem value="EPL">EPL (Eltron Printer)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+
+            <div>
+              <Label className="text-sm font-semibold text-gray-700">Quantity *</Label>
+              <Input 
+                type="number" 
+                value={quantity} 
+                onChange={(e) => setQuantity(e.target.value)} 
+                min="1" 
+                max="10000"
+                required
+                className="mt-1"
+              />
+            </div>
+
             <Button
-              onClick={handleManualGenerate}
+              type="submit"
               disabled={generating}
-              className="w-full bg-orange-500 hover:bg-orange-600 text-xl py-6"
+              className="w-full bg-orange-500 hover:bg-orange-600 text-white text-lg py-6 mt-6"
             >
-              {generating ? 'Generating...' : 'Generate Labels'}
+              {generating ? 'Generating Labels...' : 'Generate Labels'}
             </Button>
-          </div>
+          </form>
         </Card>
 
         {/* CSV Bulk */}
         <Card className="p-10">
-          <h2 className="text-2xl font-bold mb-8">Bulk CSV Upload</h2>
+          <h2 className="text-2xl font-bold mb-8 text-[#0052CC]">Bulk CSV Upload</h2>
+          
+          <div className="space-y-5 mb-6">
+            <div>
+              <Label className="text-sm font-semibold text-gray-700">Code Type for CSV *</Label>
+              <Select value={csvCodeType} onValueChange={(value) => setCsvCodeType(value as any)}>
+                <SelectTrigger className="mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="QR">QR Code</SelectItem>
+                  <SelectItem value="CODE128">Code 128 Barcode</SelectItem>
+                  <SelectItem value="DATAMATRIX">DataMatrix</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label className="text-sm font-semibold text-gray-700">Output Format for CSV *</Label>
+              <Select value={csvFormat} onValueChange={(value) => setCsvFormat(value as any)}>
+                <SelectTrigger className="mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="PDF">PDF</SelectItem>
+                  <SelectItem value="PNG">PNG Image</SelectItem>
+                  <SelectItem value="ZPL">ZPL (Zebra Printer)</SelectItem>
+                  <SelectItem value="EPL">EPL (Eltron Printer)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
           <div
             className={`border-4 border-dashed rounded-xl p-12 text-center transition-all duration-200 ${
               isDragOver ? 'border-orange-500 bg-orange-50' : 'border-gray-300'
@@ -238,13 +444,14 @@ export default function GenerateLabels() {
 
             {csvFile && (
               <div className="mt-6 p-4 bg-green-50 border border-green-300 rounded-lg">
-                <p className="text-green-700 font-medium">Ready: {csvFile.name}</p>
+                <p className="text-green-700 font-medium">✓ Ready: {csvFile.name}</p>
               </div>
             )}
 
             <div className="mt-6">
               <p className="text-sm text-gray-600 mb-3">Need the correct format?</p>
               <Button
+                type="button"
                 variant="outline"
                 className="border-orange-500 text-orange-600 hover:bg-orange-50"
                 onClick={() => {
@@ -265,11 +472,12 @@ Crocin 650mg,BATCH002,01-12-2025,01-12-2027,150.00,8909876543210`;
             </div>
 
             <Button
+              type="button"
               onClick={handleCsvUpload}
               disabled={!csvFile || generating}
-              className="mt-8 w-full bg-orange-500 hover:bg-orange-600"
+              className="mt-8 w-full bg-orange-500 hover:bg-orange-600 text-white"
             >
-              {generating ? 'Generating...' : 'Generate from CSV'}
+              {generating ? 'Generating Labels...' : 'Generate from CSV'}
             </Button>
           </div>
         </Card>
