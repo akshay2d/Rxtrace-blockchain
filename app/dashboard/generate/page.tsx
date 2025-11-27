@@ -10,7 +10,7 @@ import { Card } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import Papa from 'papaparse';
-import { Upload } from 'lucide-react';
+import { Upload, Printer } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
 interface Company {
@@ -279,6 +279,59 @@ export default function GenerateLabels() {
     }
   };
 
+  const handlePrint = async () => {
+    if (!company || !skuName || !mfgDate || !mrp || !expiryDate || !batchNo || !quantity) {
+      alert('Please fill all required fields before printing');
+      return;
+    }
+
+    setGenerating(true);
+
+    try {
+      const qty = parseInt(quantity);
+      if (isNaN(qty) || qty < 1) {
+        alert('Please enter a valid quantity');
+        setGenerating(false);
+        return;
+      }
+
+      const gtin = `890${Math.floor(100000000000 + Math.random() * 900000000000)}`;
+
+      const labelData = {
+        companyName: company.company_name,
+        productName: skuName,
+        batchNo: batchNo,
+        mfgDate: mfgDate,
+        expiryDate: expiryDate,
+        mrp: mrp,
+        gtin,
+      };
+
+      console.log('Generating PDF for printing...');
+      const pdfBlob = await generatePDF(labelData, manualCodeType);
+      
+      // Open PDF in new window for printing
+      const url = URL.createObjectURL(pdfBlob);
+      const printWindow = window.open(url, '_blank');
+      
+      if (printWindow) {
+        printWindow.onload = () => {
+          printWindow.print();
+        };
+      } else {
+        alert('Please allow pop-ups to print labels');
+      }
+
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) {
+      console.error('Error printing labels:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      alert(`Error printing labels: ${errorMessage}`);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
   if (loading) return <div className="text-center py-20 text-2xl">Loading...</div>;
   if (!company) return <div className="text-center py-20 text-2xl text-red-600">No company found</div>;
 
@@ -412,13 +465,26 @@ export default function GenerateLabels() {
               />
             </div>
 
-            <Button
-              type="submit"
-              disabled={generating}
-              className="w-full bg-orange-500 hover:bg-orange-600 text-white text-lg py-6 mt-6"
-            >
-              {generating ? 'Generating Labels...' : 'Generate Labels'}
-            </Button>
+            <div className="grid grid-cols-2 gap-4 mt-6">
+              <Button
+                type="submit"
+                disabled={generating}
+                className="bg-orange-500 hover:bg-orange-600 text-white text-lg py-6"
+              >
+                {generating ? 'Generating...' : 'Download Labels'}
+              </Button>
+              
+              <Button
+                type="button"
+                onClick={handlePrint}
+                disabled={generating}
+                variant="outline"
+                className="border-2 border-[#0052CC] text-[#0052CC] hover:bg-[#0052CC] hover:text-white text-lg py-6"
+              >
+                <Printer className="mr-2 h-5 w-5" />
+                Print Labels
+              </Button>
+            </div>
           </form>
         </Card>
 
