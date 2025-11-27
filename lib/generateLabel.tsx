@@ -2,15 +2,9 @@
 import { Document, Page, Text, View, StyleSheet, pdf, Image } from '@react-pdf/renderer';
 import QRCode from 'qrcode';
 
-// Register font
-import { Font } from '@react-pdf/renderer';
-Font.register({
-  family: 'Roboto',
-  src: 'https://cdnjs.cloudflare.com/ajax/libs/ink/3.1.10/fonts/Roboto/roboto-medium.ttf'
-});
-
+// Styles without custom font - using default Helvetica which is built-in
 const styles = StyleSheet.create({
-  page: { padding: 30, fontFamily: 'Roboto' },
+  page: { padding: 30 },
   title: { fontSize: 16, marginBottom: 8, textAlign: 'center', fontWeight: 'bold' },
   text: { fontSize: 11, marginBottom: 4 },
   code: { marginVertical: 15, alignItems: 'center' },
