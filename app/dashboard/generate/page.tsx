@@ -1,308 +1,278 @@
 // app/dashboard/generate/page.tsx
-"use client";
+'use client';
 
-import { useState } from "react";
-import { useForm, type SubmitHandler } from "react-hook-form";
-import { z } from "zod";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { format } from "date-fns";
-import Papa from "papaparse";
-import { createClient } from "@supabase/supabase-js";
-import { Download, Loader2 } from "lucide-react";
-import { toast } from "sonner";
+import { useState, useEffect } from 'react';
+import { supabaseClient } from '@/lib/supabase/client';
+import { generatePDF, generateZPL, generateEPL } from '@/lib/generateLabel';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Card } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import Papa from 'papaparse';
+import { Upload } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+interface Company {
+  id: string;
+  company_name: string;
+  gst_number: string;
+}
 
-import {
-  buildSignedGs1String,
-  generateDummyGtin,
-  generatePdfBuffer,
-  generatePngBuffer,
-  generateZplLabel,
-  generateEplLabel,
-} from "@/lib/generateLabel";
+export default function GenerateLabels() {
+  const [company, setCompany] = useState<Company | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [generating, setGenerating] = useState(false);
+  const [count, setCount] = useState('1');
+  const [codeType, setCodeType] = useState<'QR' | 'CODE128' | 'DATAMATRIX'>('QR');
+  const [format, setFormat] = useState<'PDF' | 'ZPL' | 'EPL'>('PDF');
+  const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const router = useRouter();
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+  useEffect(() => {
+    async function loadCompany() {
+      const { data: { user } } = await supabaseClient().auth.getUser();
+      if (!user) {
+        router.push('/auth/signin');
+        return;
+      }
 
-const formSchema = z.object({
-  companyName: z.string().min(1),
-  contactPerson: z.string().min(1),
-  email: z.string().email(),
-  phone: z.string().min(10),
-  address: z.string().min(1),
-  gstNumber: z.string().length(15),
-  skuName: z.string().min(1),
-  batchNo: z.string().min(1),
-  mfgDate: z.string(),
-  expiryDate: z.string(),
-  mrp: z.string().min(1),
-  quantity: z.string().min(1),
-  codeType: z.enum(["QR", "Code128", "DataMatrix"]),
-  format: z.enum(["PDF", "PNG", "ZPL", "EPL"]),
-  hasGs1: z.enum(["Yes", "No"]),
-  gtinPrefix: z.string().optional(),
-});
+      const { data, error } = await supabaseClient()
+        .from('companies')
+        .select('id, company_name, gst_number')
+        .eq('user_id', user.id)
+        .single();
 
-type FormData = z.infer<typeof formSchema>;
+      if (error || !data) {
+        router.push('/auth/signup');
+        return;
+      }
 
-export default function GeneratePage() {
-  const [isLoading, setIsLoading] = useState(false);
+      setCompany(data);
+      setLoading(false);
+    }
+    loadCompany();
+  }, [router]);
 
-  const {
-    register,
-    handleSubmit,
-    watch,
-    setValue,
-    reset,
-  } = useForm<FormData>({
-    resolver: zodResolver(formSchema),
-    defaultValues: {
-      hasGs1: "No",
-      codeType: "QR",
-      format: "PDF",
-      quantity: "1",
-      mrp: "100",
-    },
-  });
+  const handleManualGenerate = async () => {
+    if (!company || !count) return;
+    setGenerating(true);
 
-  const hasGs1 = watch("hasGs1");
-
-  const generateSingleLabel = async (data: FormData) => {
-    const gtin = data.hasGs1 === "Yes" && data.gtinPrefix
-      ? data.gtinPrefix.padEnd(14, "0").slice(0, 14)
-      : generateDummyGtin();
-
-    const expiryYYMMDD = format(new Date(data.expiryDate), "yyMMdd");
-    const gs1Content = buildSignedGs1String({
-      gtin,
-      batch: data.batchNo.toUpperCase(),
-      expiry: expiryYYMMDD,
-      companySecret: process.env.NEXT_PUBLIC_LABEL_HMAC_SECRET || "fallback",
-    });
+    const quantity = parseInt(count);
+    const batchNo = `BATCH${Date.now().toString().slice(-8)}`;
+    const today = new Date().toLocaleDateString('en-IN');
+    const expiry = new Date(Date.now() + 730 * 24 * 60 * 60 * 1000);
+    const expiryStr = expiry.toLocaleDateString('en-IN');
+    const gtin = `890${Math.floor(100000000000 + Math.random() * 900000000000)}`;
 
     const labelData = {
-      ...data,
+      companyName: company.company_name,
+      productName: "Sample Product 500mg",
+      batchNo,
+      mfgDate: today,
+      expiryDate: expiryStr,
+      mrp: "299.00",
       gtin,
-      gs1Content,
-      mfgDate: format(new Date(data.mfgDate), "MM/yyyy"),
-      expiryDate: format(new Date(data.expiryDate), "MM/yyyy"),
     };
 
-    let buffer: any;
-    let ext = "";
-    let mime = "";
-
-    switch (data.format) {
-      case "PDF":
-        buffer = await generatePdfBuffer(labelData);
-        ext = "pdf";
-        mime = "application/pdf";
-        break;
-      case "PNG":
-        buffer = await generatePngBuffer(labelData);
-        ext = "png";
-        mime = "image/png";
-        break;
-      case "ZPL":
-        buffer = generateZplLabel(labelData);
-        ext = "zpl";
-        mime = "text/plain";
-        break;
-      case "EPL":
-        buffer = generateEplLabel(labelData);
-        ext = "epl";
-        mime = "text/plain";
-        break;
-    }
-
-    await supabase.from("labels").insert({
-      company_name: data.companyName,
-      contact_person: data.contactPerson,
-      email: data.email,
-      phone: data.phone,
-      address: data.address,
-      gst_number: data.gstNumber,
-      sku_name: data.skuName,
-      batch_no: data.batchNo,
-      mfg_date: data.mfgDate,
-      expiry_date: data.expiryDate,
-      mrp: parseFloat(data.mrp),
-      quantity: 1,
-      code_type: data.codeType,
-      format: data.format,
-      gtin,
-      gs1_content: gs1Content,
-    });
-
-    const blob = new Blob([buffer], { type: mime });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${data.batchNo}-${data.skuName}.${ext}`;
-    a.click();
-    URL.revokeObjectURL(url);
+    await downloadLabels([labelData], quantity);
+    setGenerating(false);
   };
 
-  const onSubmit: SubmitHandler<FormData> = async (data) => {
-    setIsLoading(true);
-    try {
-      const qty = parseInt(data.quantity) || 1;
-      for (let i = 0; i < qty; i++) {
-        await generateSingleLabel(data);
-      }
-      toast.success(`${qty} label(s) generated & saved!`);
-      reset();
-    } catch (err: any) {
-      toast.error(err.message || "Failed to generate");
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const handleCsvUpload = () => {
+    if (!csvFile || !company) return;
+    setGenerating(true);
 
-  const handleCsv = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    Papa.parse(file, {
+    Papa.parse(csvFile, {
       header: true,
-      complete: (result) => {
-        const rows = result.data as any[];
-        rows
-          .filter(r => r["Company Name"] && r["SKU Name"])
-          .forEach(r => {
-            const data: FormData = {
-              companyName: r["Company Name"] || "ABC Pharma",
-              contactPerson: r["Contact Person"] || "",
-              email: r["Email"] || "",
-              phone: r["Phone"] || "",
-              address: r["Address"] || "",
-              gstNumber: r["GST Number"] || "27ABCDE1234F2Z5",
-              skuName: r["SKU Name"] || "Unknown",
-              batchNo: r["Batch No"] || "B001",
-              mfgDate: r["MFG Date (YYYY-MM-DD)"] || "2025-01-01",
-              expiryDate: r["Expiry Date (YYYY-MM-DD)"] || "2027-12-31",
-              mrp: r["MRP"] || "100",
-              quantity: "1",
-              codeType: (r["Code Type"] || "QR") as any,
-              format: (r["Format"] || "PDF") as any,
-              hasGs1: (r["GS1 Letter (Yes/No)"] || "No").toLowerCase().includes("yes") ? "Yes" : "No",
-              gtinPrefix: r["GTIN Prefix (optional)"] || undefined,
-            };
-            generateSingleLabel(data);
-          });
-        toast.success("Bulk labels generated from CSV!");
+      complete: async (results) => {
+        const rows = results.data as any[];
+        const validRows = rows.filter(r => r.productName && r.batchNo);
+
+        const labels = validRows.map(row => ({
+          companyName: company.company_name,
+          productName: row.productName || "Unknown Product",
+          batchNo: row.batchNo,
+          mfgDate: row.mfgDate || new Date().toLocaleDateString('en-IN'),
+          expiryDate: row.expiryDate || "31-12-2027",
+          mrp: row.mrp || "299.00",
+          gtin: row.gtin || `890${Math.floor(100000000000 + Math.random() * 900000000000)}`,
+        }));
+
+        await downloadLabels(labels, 1);
+        setGenerating(false);
       },
     });
   };
 
-  const downloadTemplate = () => {
-    const csv = `Company Name,Contact Person,Email,Phone,Address,GST Number,SKU Name,Batch No,MFG Date (YYYY-MM-DD),Expiry Date (YYYY-MM-DD),MRP,Quantity,Code Type,Format,GS1 Letter (Yes/No),GTIN Prefix (optional)\nABC Pharma,John,john@example.com,9876543210,Mumbai,27ABCDE1234F2Z5,Paracetamol,B001,2025-01-01,2027-12-31,85.00,10,QR,PDF,No,\n`;
-    const blob = new Blob([csv], { type: "text/csv" });
+  const downloadLabels = async (labels: any[], repeatPerLabel: number) => {
+    let textOutput = '';
+    const pdfBlobs: Blob[] = [];
+
+    for (const label of labels) {
+      if (format === 'PDF') {
+        const pdfBlob = await generatePDF(label, codeType);
+
+        for (let i = 0; i < repeatPerLabel; i++) {
+          pdfBlobs.push(pdfBlob);
+        }
+      } else if (format === 'ZPL') {
+        const zpl = generateZPL(label, codeType);
+        textOutput += zpl.repeat(repeatPerLabel);
+      } else {
+        const epl = generateEPL(label);
+        textOutput += epl.repeat(repeatPerLabel);
+      }
+    }
+
+    if (format === 'PDF' && pdfBlobs.length > 0) {
+      const finalBlob = new Blob(pdfBlobs, { type: 'application/pdf' });
+      triggerDownload(finalBlob, `RxTrace_${pdfBlobs.length}_Labels.pdf`);
+    } else if (textOutput) {
+      const blob = new Blob([textOutput], { type: 'text/plain' });
+      triggerDownload(blob, `RxTrace_${labels.length * repeatPerLabel}_Labels.${format.toLowerCase()}`);
+    }
+  };
+
+  const triggerDownload = (blob: Blob, filename: string) => {
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
+    const a = document.createElement('a');
     a.href = url;
-    a.download = "rxtrace_template.csv";
+    a.download = filename;
     a.click();
     URL.revokeObjectURL(url);
   };
 
+  if (loading) return <div className="text-center py-20 text-2xl">Loading...</div>;
+  if (!company) return <div className="text-center py-20 text-2xl text-red-600">No company found</div>;
+
   return (
-    <div className="min-h-screen bg-background p-6">
-      <div className="max-w-6xl mx-auto">
-        <h1 className="text-4xl font-bold text-center mb-8">Indian Pharma Label Generator</h1>
+    <div className="max-w-6xl mx-auto py-10">
+      <h1 className="text-4xl font-bold text-[#0052CC] mb-2">Generate Labels</h1>
+      <p className="text-lg text-gray-600 mb-10">
+        Company: <strong>{company.company_name}</strong> • GST: {company.gst_number}
+      </p>
 
-        <Tabs defaultValue="manual">
-          <TabsList className="grid w-full grid-cols-2 mb-6">
-            <TabsTrigger value="manual">Manual</TabsTrigger>
-            <TabsTrigger value="csv">CSV Bulk</TabsTrigger>
-          </TabsList>
+      <div className="grid lg:grid-cols-2 gap-10">
+        {/* Manual Generation */}
+        <Card className="p-10">
+          <h2 className="text-2xl font-bold mb-8">Manual Generation</h2>
+          <div className="space-y-6">
+            <div>
+              <Label>Number of Labels</Label>
+              <Input type="number" value={count} onChange={(e) => setCount(e.target.value)} min="1" max="10000" />
+            </div>
+            <div>
+              <Label>Code Type</Label>
+              <Select value={codeType} onValueChange={(value) => setCodeType(value as any)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="QR">QR Code</SelectItem>
+                  <SelectItem value="CODE128">Code 128</SelectItem>
+                  <SelectItem value="DATAMATRIX">DataMatrix</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Output Format</Label>
+              <Select value={format} onValueChange={(value) => setFormat(value as any)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="PDF">PDF</SelectItem>
+                  <SelectItem value="ZPL">ZPL (Zebra)</SelectItem>
+                  <SelectItem value="EPL">EPL</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <Button
+              onClick={handleManualGenerate}
+              disabled={generating}
+              className="w-full bg-orange-500 hover:bg-orange-600 text-xl py-6"
+            >
+              {generating ? 'Generating...' : 'Generate Labels'}
+            </Button>
+          </div>
+        </Card>
 
-          <TabsContent value="manual">
-            <Card>
-              <CardHeader><CardTitle>Generate Labels</CardTitle></CardHeader>
-              <CardContent>
-                <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div><Label>Company Name *</Label><Input {...register("companyName")} /></div>
-                    <div><Label>Contact Person *</Label><Input {...register("contactPerson")} /></div>
-                    <div><Label>Email *</Label><Input type="email" {...register("email")} /></div>
-                    <div><Label>Phone *</Label><Input {...register("phone")} /></div>
-                    <div className="md:col-span-2"><Label>Address *</Label><Textarea {...register("address")} /></div>
-                    <div><Label>GST Number *</Label><Input {...register("gstNumber")} placeholder="27ABCDE1234F2Z5" /></div>
-                    <div><Label>SKU Name *</Label><Input {...register("skuName")} /></div>
-                    <div><Label>Batch No *</Label><Input {...register("batchNo")} /></div>
-                    <div><Label>MFG Date *</Label><Input type="date" {...register("mfgDate")} /></div>
-                    <div><Label>Expiry Date *</Label><Input type="date" {...register("expiryDate")} /></div>
-                    <div><Label>MRP *</Label><Input type="number" step="0.01" {...register("mrp")} /></div>
-                    <div><Label>Quantity *</Label><Input type="number" {...register("quantity")} /></div>
+        {/* CSV Bulk */}
+        <Card className="p-10">
+          <h2 className="text-2xl font-bold mb-8">Bulk CSV Upload</h2>
+          <div
+            className={`border-4 border-dashed rounded-xl p-12 text-center transition-all duration-200 ${
+              isDragOver ? 'border-orange-500 bg-orange-50' : 'border-gray-300'
+            }`}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setIsDragOver(true);
+            }}
+            onDragLeave={(e) => {
+              e.preventDefault();
+              setIsDragOver(false);
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              setIsDragOver(false);
+              const file = e.dataTransfer.files?.[0];
+              if (file && file.name.endsWith('.csv')) {
+                setCsvFile(file);
+              }
+            }}
+          >
+            <Input
+              type="file"
+              accept=".csv"
+              onChange={(e) => e.target.files?.[0] && setCsvFile(e.target.files[0])}
+              className="hidden"
+              id="csv-upload"
+            />
+            <label htmlFor="csv-upload" className="cursor-pointer block">
+              <div className="mx-auto w-20 h-20 bg-orange-100 rounded-full flex items-center justify-center mb-4">
+                <Upload className="w-10 h-10 text-orange-600" />
+              </div>
+              <p className="text-xl font-semibold">
+                {isDragOver ? 'Drop your CSV here' : 'Drag & drop CSV file here'}
+              </p>
+              <p className="text-gray-500 mt-2">or click to browse</p>
+            </label>
 
-                    <div><Label>Code Type</Label>
-                      <Select onValueChange={(v) => setValue("codeType", v as any)} defaultValue="QR">
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="QR">QR Code</SelectItem>
-                          <SelectItem value="Code128">Code 128</SelectItem>
-                          <SelectItem value="DataMatrix">DataMatrix</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
+            {csvFile && (
+              <div className="mt-6 p-4 bg-green-50 border border-green-300 rounded-lg">
+                <p className="text-green-700 font-medium">Ready: {csvFile.name}</p>
+              </div>
+            )}
 
-                    <div><Label>Format</Label>
-                      <Select onValueChange={(v) => setValue("format", v as any)} defaultValue="PDF">
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="PDF">PDF</SelectItem>
-                          <SelectItem value="PNG">PNG</SelectItem>
-                          <SelectItem value="ZPL">ZPL</SelectItem>
-                          <SelectItem value="EPL">EPL</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
+            <div className="mt-6">
+              <p className="text-sm text-gray-600 mb-3">Need the correct format?</p>
+              <Button
+                variant="outline"
+                className="border-orange-500 text-orange-600 hover:bg-orange-50"
+                onClick={() => {
+                  const csv = `productName,batchNo,mfgDate,expiryDate,mrp,gtin
+Paracetamol 500mg,BATCH001,25-11-2025,25-11-2027,299.00,8901234567890
+Crocin 650mg,BATCH002,01-12-2025,01-12-2027,150.00,8909876543210`;
+                  const blob = new Blob([csv], { type: 'text/csv' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = 'RxTrace_Label_Template.csv';
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+              >
+                Download CSV Template
+              </Button>
+            </div>
 
-                    <div><Label>GS1 Prefix?</Label>
-                      <Select onValueChange={(v) => setValue("hasGs1", v as any)} defaultValue="No">
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="Yes">Yes</SelectItem>
-                          <SelectItem value="No">No (Dummy)</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    {hasGs1 === "Yes" && (
-                      <div><Label>GTIN Prefix</Label><Input {...register("gtinPrefix")} placeholder="8901234" /></div>
-                    )}
-                  </div>
-
-                  <Button type="submit" size="lg" className="w-full" disabled={isLoading}>
-                    {isLoading ? <><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Generating...</> : "Generate Labels"}
-                  </Button>
-                </form>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="csv">
-            <Card>
-              <CardHeader><CardTitle>Bulk Upload</CardTitle></CardHeader>
-              <CardContent className="space-y-6">
-                <Button onClick={downloadTemplate} variant="outline" className="w-full">
-                  <Download className="mr-2 h-4 w-4" /> Download Template
-                </Button>
-                <Input type="file" accept=".csv" onChange={handleCsv} className="max-w-md mx-auto" />
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
+            <Button
+              onClick={handleCsvUpload}
+              disabled={!csvFile || generating}
+              className="mt-8 w-full bg-orange-500 hover:bg-orange-600"
+            >
+              {generating ? 'Generating...' : 'Generate from CSV'}
+            </Button>
+          </div>
+        </Card>
       </div>
     </div>
   );

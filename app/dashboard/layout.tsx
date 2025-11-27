@@ -1,0 +1,78 @@
+// app/dashboard/layout.tsx
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Pill, LogOut, QrCode, BarChart3, Download, Home } from 'lucide-react';
+import Link from 'next/link';
+import { supabaseClient } from '@/lib/supabase/client';
+
+export default async function DashboardLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const { data: { user } } = await supabaseClient().auth.getUser();
+
+  return (
+    <div className="min-h-screen bg-gray-50 flex">
+      {/* Sidebar */}
+      <div className="w-64 bg-white border-r border-gray-200 flex flex-col">
+        <div className="p-6 border-b">
+          <div className="flex items-center gap-3">
+            <Pill className="h-8 w-8 text-orange-500" />
+            <span className="text-xl font-bold text-[#0052CC]">RxTrace India</span>
+          </div>
+        </div>
+
+        <nav className="flex-1 p-4">
+          <ul className="space-y-2">
+            <li>
+              <Link href="/dashboard">
+                <Button variant="ghost" className="w-full justify-start gap-3">
+                  <Home className="h-5 w-5" /> Overview
+                </Button>
+              </Link>
+            </li>
+            <li>
+              <Link href="/dashboard/generate">
+                <Button variant="ghost" className="w-full justify-start gap-3">
+                  <QrCode className="h-5 w-5" /> Generate Labels
+                </Button>
+              </Link>
+            </li>
+            <li>
+              <Link href="/dashboard/analytics">
+                <Button variant="ghost" className="w-full justify-start gap-3">
+                  <BarChart3 className="h-5 w-5" /> Analytics & Billing
+                </Button>
+              </Link>
+            </li>
+            <li>
+              <Link href="/dashboard/downloads">
+                <Button variant="ghost" className="w-full justify-start gap-3">
+                  <Download className="h-5 w-5" /> Downloads
+                </Button>
+              </Link>
+            </li>
+          </ul>
+        </nav>
+
+        <div className="p-4 border-t">
+          <Card className="p-4 bg-gradient-to-br from-blue-50 to-orange-50">
+            <p className="text-sm font-medium">Logged in as:</p>
+            <p className="text-sm text-gray-700 truncate">{user?.email}</p>
+          </Card>
+          <form action="/auth/signout" method="post">
+            <Button type="submit" variant="outline" className="w-full mt-4 gap-2">
+              <LogOut className="h-4 w-4" /> Sign Out
+            </Button>
+          </form>
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="flex-1 p-8">
+        {children}
+      </div>
+    </div>
+  );
+}
