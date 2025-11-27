@@ -23,6 +23,7 @@ export default function GenerateLabels() {
   const [company, setCompany] = useState<Company | null>(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState<string>('');
   
   // Manual form states
   const [skuName, setSkuName] = useState('');
@@ -44,25 +45,55 @@ export default function GenerateLabels() {
 
   useEffect(() => {
     async function loadCompany() {
-      const { data: { user } } = await supabaseClient().auth.getUser();
-      if (!user) {
-        router.push('/auth/signin');
-        return;
+      try {
+        console.log('Loading company data...');
+        const { data: { user }, error: authError } = await supabaseClient().auth.getUser();
+        
+        if (authError) {
+          console.error('Auth error:', authError);
+          setError('Authentication error. Please sign in again.');
+          setLoading(false);
+          setTimeout(() => router.push('/auth/signin'), 2000);
+          return;
+        }
+        
+        if (!user) {
+          console.log('No user found, redirecting to signin');
+          router.push('/auth/signin');
+          return;
+        }
+
+        console.log('User found:', user.id);
+        const { data, error } = await supabaseClient()
+          .from('companies')
+          .select('id, company_name, gst_number')
+          .eq('user_id', user.id)
+          .single();
+
+        if (error) {
+          console.error('Company fetch error:', error);
+          setError('No company found. Please complete registration.');
+          setLoading(false);
+          setTimeout(() => router.push('/auth/signup'), 2000);
+          return;
+        }
+        
+        if (!data) {
+          console.log('No company data, redirecting to signup');
+          setError('No company found. Please register your company.');
+          setLoading(false);
+          setTimeout(() => router.push('/auth/signup'), 2000);
+          return;
+        }
+
+        console.log('Company loaded:', data);
+        setCompany(data);
+        setLoading(false);
+      } catch (err) {
+        console.error('Error loading company:', err);
+        setError('Failed to load company data. Please refresh the page.');
+        setLoading(false);
       }
-
-      const { data, error } = await supabaseClient()
-        .from('companies')
-        .select('id, company_name, gst_number')
-        .eq('user_id', user.id)
-        .single();
-
-      if (error || !data) {
-        router.push('/auth/signup');
-        return;
-      }
-
-      setCompany(data);
-      setLoading(false);
     }
     loadCompany();
   }, [router]);
@@ -337,8 +368,26 @@ export default function GenerateLabels() {
     }
   };
 
-  if (loading) return <div className="text-center py-20 text-2xl">Loading...</div>;
-  if (!company) return <div className="text-center py-20 text-2xl text-red-600">No company found</div>;
+  if (loading) return (
+    <div className="text-center py-20">
+      <div className="text-2xl text-gray-600 mb-4">Loading...</div>
+      <div className="text-sm text-gray-500">Fetching your company details</div>
+    </div>
+  );
+  
+  if (error) return (
+    <div className="text-center py-20">
+      <div className="text-2xl text-red-600 mb-4">{error}</div>
+      <div className="text-sm text-gray-500">Redirecting...</div>
+    </div>
+  );
+  
+  if (!company) return (
+    <div className="text-center py-20">
+      <div className="text-2xl text-red-600 mb-4">No company found</div>
+      <div className="text-sm text-gray-500">Please complete your registration</div>
+    </div>
+  );
 
   return (
     <div className="max-w-6xl mx-auto py-10">
