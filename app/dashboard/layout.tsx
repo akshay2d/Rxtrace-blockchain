@@ -3,7 +3,7 @@
 
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Pill, LogOut, QrCode, BarChart3, Home } from 'lucide-react';
+import { Pill, LogOut, QrCode, BarChart3, Home, History } from 'lucide-react';
 import Link from 'next/link';
 import { supabaseClient } from '@/lib/supabase/client';
 import { useEffect, useState } from 'react';
@@ -75,6 +75,13 @@ export default function DashboardLayout({
               <Link href="/dashboard/generate">
                 <Button variant="ghost" className="w-full justify-start gap-3">
                   <QrCode className="h-5 w-5" /> Generate Labels
+                </Button>
+              </Link>
+            </li>
+            <li>
+              <Link href="/dashboard/history">
+                <Button variant="ghost" className="w-full justify-start gap-3">
+                  <History className="h-5 w-5" /> Label History
                 </Button>
               </Link>
             </li>

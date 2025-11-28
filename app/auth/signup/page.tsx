@@ -54,13 +54,13 @@ export default function SignUp() {
       return;
     }
 
-    // 1. Sign up the user
+    // 1. Sign up the user (disable email confirmation for smoother flow)
     const { data: authResponse, error: signUpError } = await supabaseClient().auth.signUp({
       email: data.email,
       password: data.password,
       options: {
         data: { full_name: data.contact_person },
-        emailRedirectTo: `${window.location.origin}/dashboard`,
+        emailRedirectTo: `${window.location.origin}/auth/callback`,
       },
     });
 
@@ -100,23 +100,26 @@ export default function SignUp() {
       user_id: authResponse.user.id,
     };
 
-    // Try to save company details
+    // Try to save company details immediately
     const { error: companyError } = await supabaseClient()
       .from('companies')
       .insert(companyData);
 
     if (companyError) {
+      console.error('Error saving company:', companyError);
       // Store company data in localStorage to save after email verification
       localStorage.setItem('pending_company_data', JSON.stringify(companyData));
     }
 
-    // Check if email confirmation is required
+    // Auto sign in and redirect to dashboard (email verification is optional in Supabase)
     if (authResponse.session) {
-      // User is already logged in (email confirmation disabled)
+      // User is already logged in (email confirmation disabled in Supabase)
+      alert('✅ Registration Successful!\n\nYour account has been created. Redirecting to dashboard...');
       router.push('/dashboard');
     } else {
-      // Email confirmation required - redirect to verification page
-      router.push(`/auth/verify?email=${encodeURIComponent(data.email)}`);
+      // If no session, redirect to signin (user can verify email later)
+      alert('✅ Registration Successful!\n\nPlease sign in with your credentials.');
+      router.push('/auth/signin');
     }
     setLoading(false);
   };
