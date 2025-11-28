@@ -34,6 +34,26 @@ export default function SignUp() {
       labels_per_month: (formData.get('labels_per_month') as string) || null,
     };
 
+    // Check if user already exists
+    const { data: existingUser } = await supabaseClient().auth.signInWithPassword({
+      email: data.email,
+      password: 'dummy-check-password'
+    });
+
+    // If sign in didn't fail with "Invalid login credentials", user might exist
+    const { data: checkUser } = await supabaseClient()
+      .from('companies')
+      .select('email')
+      .eq('email', data.email)
+      .single();
+
+    if (checkUser) {
+      alert('⚠️ Account Already Exists!\n\nAn account with this email is already registered. Please sign in instead.');
+      setLoading(false);
+      router.push('/auth/signin');
+      return;
+    }
+
     // 1. Sign up the user
     const { data: authResponse, error: signUpError } = await supabaseClient().auth.signUp({
       email: data.email,
@@ -45,6 +65,14 @@ export default function SignUp() {
     });
 
     if (signUpError) {
+      // Check if error is due to user already existing
+      if (signUpError.message.includes('already registered') || 
+          signUpError.message.includes('User already registered')) {
+        alert('⚠️ Account Already Exists!\n\nThis email is already registered. Please sign in instead.');
+        setLoading(false);
+        router.push('/auth/signin');
+        return;
+      }
       alert('Signup failed: ' + signUpError.message);
       setLoading(false);
       return;

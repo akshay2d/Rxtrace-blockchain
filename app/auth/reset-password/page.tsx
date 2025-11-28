@@ -1,0 +1,128 @@
+'use client';
+
+import { useState } from 'react';
+import { supabaseClient } from '@/lib/supabase/client';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Card } from '@/components/ui/card';
+import { useRouter } from 'next/navigation';
+import { CheckCircle } from 'lucide-react';
+
+export default function ResetPassword() {
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState(false);
+  const router = useRouter();
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+
+    if (password !== confirmPassword) {
+      setError('Passwords do not match');
+      return;
+    }
+
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters long');
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const { error: updateError } = await supabaseClient().auth.updateUser({
+        password: password
+      });
+
+      if (updateError) {
+        console.error('Password update error:', updateError);
+        setError(updateError.message);
+        setLoading(false);
+        return;
+      }
+
+      setSuccess(true);
+      setLoading(false);
+
+      // Redirect to signin after 3 seconds
+      setTimeout(() => {
+        router.push('/auth/signin');
+      }, 3000);
+    } catch (err) {
+      console.error('Unexpected error:', err);
+      setError('Failed to reset password. Please try again.');
+      setLoading(false);
+    }
+  };
+
+  if (success) {
+    return (
+      <Card className="p-8 shadow-2xl text-center">
+        <div className="mx-auto w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
+          <CheckCircle className="h-10 w-10 text-green-600" />
+        </div>
+        <h1 className="text-3xl font-bold mb-4 text-green-600">Password Reset Successful!</h1>
+        <p className="text-gray-600 mb-6">
+          Your password has been updated successfully.
+        </p>
+        <p className="text-sm text-gray-500">
+          Redirecting to sign in page...
+        </p>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="p-8 shadow-2xl">
+      <h1 className="text-3xl font-bold text-center mb-2 text-[#0052CC]">Reset Password</h1>
+      <p className="text-center text-gray-600 mb-8">Enter your new password</p>
+      
+      {error && (
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+          {error}
+        </div>
+      )}
+      
+      <form onSubmit={handleResetPassword} className="space-y-6">
+        <div>
+          <Input 
+            type="password" 
+            placeholder="New Password (min 8 characters)" 
+            value={password} 
+            onChange={(e) => setPassword(e.target.value)} 
+            required 
+            minLength={8}
+            disabled={loading}
+          />
+        </div>
+        
+        <div>
+          <Input 
+            type="password" 
+            placeholder="Confirm New Password" 
+            value={confirmPassword} 
+            onChange={(e) => setConfirmPassword(e.target.value)} 
+            required 
+            minLength={8}
+            disabled={loading}
+          />
+        </div>
+        
+        <Button 
+          type="submit"
+          className="w-full bg-orange-500 hover:bg-orange-600" 
+          disabled={loading}
+        >
+          {loading ? 'Resetting Password...' : 'Reset Password'}
+        </Button>
+      </form>
+      
+      <p className="text-center mt-6 text-gray-600">
+        Remember your password? <a href="/auth/signin" className="text-[#0052CC] font-semibold hover:underline">Sign In</a>
+      </p>
+    </Card>
+  );
+}
