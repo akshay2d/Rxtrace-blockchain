@@ -60,7 +60,9 @@ export default function SignUp() {
       password: data.password,
       options: {
         data: { full_name: data.contact_person },
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
+        emailRedirectTo: typeof window !== 'undefined' 
+          ? `${window.location.origin}/auth/callback`
+          : 'https://rxtrace.in/auth/callback',
       },
     });
 

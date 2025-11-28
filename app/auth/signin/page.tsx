@@ -124,10 +124,10 @@ export default function SignIn() {
     try {
       console.log('Sending password reset email to:', email);
       
-      // Get the current URL origin
+      // Get the current URL origin (works for both localhost and production)
       const redirectUrl = typeof window !== 'undefined' 
         ? `${window.location.origin}/auth/reset-password`
-        : 'http://localhost:3000/auth/reset-password';
+        : 'https://rxtrace.in/auth/reset-password';
       
       console.log('Redirect URL:', redirectUrl);
 
