@@ -1,6 +1,7 @@
 // lib/generateLabel.ts
 import { Document, Page, View, StyleSheet, pdf, Image } from '@react-pdf/renderer';
 import QRCode from 'qrcode';
+import JsBarcode from 'jsbarcode';
 
 // Styles for compact label (only barcode, no text)
 const styles = StyleSheet.create({
@@ -44,26 +45,32 @@ async function generateBarcodeImage(gtin: string, type: 'QR' | 'CODE128' | 'DATA
       });
       console.log('QR code generated successfully');
       return dataUrl;
+      
     } else if (type === 'CODE128') {
-      // For CODE128 barcode - use a different pattern
+      // Generate CODE128 barcode using jsbarcode
       console.log('Generating CODE128 barcode');
-      const dataUrl = await QRCode.toDataURL(gtin, {
-        width: 300,
-        margin: 1,
-        errorCorrectionLevel: 'M',
-        // For barcode-like appearance, use different modules
-        type: 'image/png'
+      const canvas = document.createElement('canvas');
+      JsBarcode(canvas, gtin, {
+        format: 'CODE128',
+        width: 2,
+        height: 80,
+        displayValue: false,
+        margin: 5
       });
+      const dataUrl = canvas.toDataURL('image/png');
+      console.log('CODE128 barcode generated successfully');
       return dataUrl;
+      
     } else if (type === 'DATAMATRIX') {
-      // For DATAMATRIX - smaller, denser QR-like code
-      console.log('Generating DATAMATRIX code');
+      // For DATAMATRIX - use QR with minimal margin (similar appearance)
+      console.log('Generating DATAMATRIX code (using QR with compact layout)');
       const dataUrl = await QRCode.toDataURL(gtin, {
         width: 300,
         margin: 0,
         errorCorrectionLevel: 'L',
         type: 'image/png'
       });
+      console.log('DATAMATRIX code generated successfully');
       return dataUrl;
     }
     

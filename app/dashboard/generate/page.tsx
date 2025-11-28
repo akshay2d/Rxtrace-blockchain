@@ -115,6 +115,21 @@ export default function GenerateLabels() {
         return;
       }
 
+      // Get current user
+      const { data: { user } } = await supabaseClient().auth.getUser();
+      if (!user) {
+        alert('Please sign in again');
+        setGenerating(false);
+        return;
+      }
+
+      // Get company details for saving
+      const { data: companyData } = await supabaseClient()
+        .from('companies')
+        .select('contact_person, email, phone, address')
+        .eq('id', company.id)
+        .single();
+
       const gtin = `890${Math.floor(100000000000 + Math.random() * 900000000000)}`;
 
       const labelData = {
@@ -130,7 +145,50 @@ export default function GenerateLabels() {
       console.log('Generating labels with data:', labelData);
       console.log('Format:', manualFormat, 'Code Type:', manualCodeType, 'Quantity:', qty);
 
+      // Generate and download labels
       await downloadLabelsManual([labelData], qty, manualCodeType, manualFormat);
+      
+      // Save to product_batches table
+      const { error: batchError } = await supabaseClient()
+        .from('product_batches')
+        .insert({
+          user_id: user.id,
+          company_name: company.company_name,
+          contact_person: companyData?.contact_person || 'N/A',
+          email: companyData?.email || user.email || 'N/A',
+          phone: companyData?.phone || 'N/A',
+          address: companyData?.address || 'N/A',
+          gst_number: company.gst_number,
+          gtin: gtin,
+          sku_name: skuName,
+          batch_no: batchNo,
+          mfd: mfgDate.split('-').reverse().join('-'), // Convert DD-MM-YYYY to YYYY-MM-DD
+          expiry: expiryDate.split('-').reverse().join('-'), // Convert DD-MM-YYYY to YYYY-MM-DD
+          mrp: parseFloat(mrp),
+          labels_count: qty,
+        });
+
+      if (batchError) {
+        console.error('Error saving to product_batches:', batchError);
+      }
+
+      // Save to generated_labels table
+      const { error: labelError } = await supabaseClient()
+        .from('generated_labels')
+        .insert({
+          user_id: user.id,
+          company_id: company.id,
+          label_type: manualCodeType,
+          format: manualFormat,
+          quantity: qty,
+          gtin: gtin,
+          batch_no: batchNo,
+          expiry_date: expiryDate,
+        });
+
+      if (labelError) {
+        console.error('Error saving to generated_labels:', labelError);
+      }
       
       // Clear form after successful generation
       setSkuName('');
@@ -169,6 +227,21 @@ export default function GenerateLabels() {
           return;
         }
 
+        // Get current user
+        const { data: { user } } = await supabaseClient().auth.getUser();
+        if (!user) {
+          alert('Please sign in again');
+          setGenerating(false);
+          return;
+        }
+
+        // Get company details for saving
+        const { data: companyData } = await supabaseClient()
+          .from('companies')
+          .select('contact_person, email, phone, address')
+          .eq('id', company.id)
+          .single();
+
         const labels = validRows.map(row => ({
           companyName: company.company_name,
           productName: row.productName || "Unknown Product",
@@ -180,7 +253,54 @@ export default function GenerateLabels() {
         }));
 
         try {
+          // Generate and download labels
           await downloadLabelsCsv(labels, csvCodeType, csvFormat);
+          
+          // Save each label batch to database
+          for (const label of labels) {
+            // Save to product_batches table
+            const { error: batchError } = await supabaseClient()
+              .from('product_batches')
+              .insert({
+                user_id: user.id,
+                company_name: company.company_name,
+                contact_person: companyData?.contact_person || 'N/A',
+                email: companyData?.email || user.email || 'N/A',
+                phone: companyData?.phone || 'N/A',
+                address: companyData?.address || 'N/A',
+                gst_number: company.gst_number,
+                gtin: label.gtin,
+                sku_name: label.productName,
+                batch_no: label.batchNo,
+                mfd: label.mfgDate.split('-').reverse().join('-'), // Convert DD-MM-YYYY to YYYY-MM-DD
+                expiry: label.expiryDate.split('-').reverse().join('-'),
+                mrp: parseFloat(label.mrp),
+                labels_count: 1,
+              });
+
+            if (batchError) {
+              console.error('Error saving batch to database:', batchError);
+            }
+
+            // Save to generated_labels table
+            const { error: labelError } = await supabaseClient()
+              .from('generated_labels')
+              .insert({
+                user_id: user.id,
+                company_id: company.id,
+                label_type: csvCodeType,
+                format: csvFormat,
+                quantity: 1,
+                gtin: label.gtin,
+                batch_no: label.batchNo,
+                expiry_date: label.expiryDate,
+              });
+
+            if (labelError) {
+              console.error('Error saving label to database:', labelError);
+            }
+          }
+          
           alert(`Successfully generated ${labels.length} label(s) from CSV!`);
           setCsvFile(null);
         } catch (error) {
