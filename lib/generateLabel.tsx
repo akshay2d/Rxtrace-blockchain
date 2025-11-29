@@ -37,6 +37,15 @@ export interface LabelData {
 /**
  * Build GS1-compliant data string from label data
  * Format: (AI)Value(AI)Value...
+ * 
+ * GS1 Application Identifiers (AI) used:
+ * - (01) GTIN: Global Trade Item Number (14 digits)
+ * - (17) Expiration Date (YYMMDD format)
+ * - (10) Batch/Lot Number
+ * - (11) Manufacturing Date (YYMMDD format)
+ * - (21) Serial Number (optional)
+ * 
+ * Note: For GS1-128 barcodes, FNC1 character is added separately in the encoding process
  * Note: GTIN can be either GS1-registered or auto-generated unique identifier
  */
 function buildGS1String(data: LabelData): string {
@@ -73,7 +82,10 @@ function buildGS1String(data: LabelData): string {
     parts.push(`(11)${yy}${mm}${dd}`);
   }
   
-  return parts.join('');
+  const gs1String = parts.join('');
+  console.log('GS1 String built:', gs1String);
+  console.log('Data used:', { gtin: data.gtin, expiry: data.expiryDate, batch: data.batchNo, mfg: data.mfgDate });
+  return gs1String;
 }
 
 /**
@@ -140,10 +152,28 @@ async function generateBarcodeImage(
       return dataUrl;
 
     } else if (type === 'CODE128') {
-      // Generate CODE128 barcode using jsbarcode
-      console.log('Generating CODE128 barcode');
+      // Generate GS1-128 barcode with FNC1 character
+      // GS1-128 is Code 128 with Function Code 1 (FNC1) character to indicate GS1 format
+      // 
+      // FNC1 Implementation:
+      // - Unicode: \u00F1 (ñ character used as FNC1 placeholder)
+      // - Purpose: Signals to scanners that the barcode contains GS1 Application Identifiers
+      // - Position: Must be placed at the start of the data string
+      // 
+      // Without FNC1, scanners will read the barcode as plain Code 128, not GS1-128
+      console.log('Generating GS1-128 (Code 128) barcode');
       const canvas = document.createElement('canvas');
-      JsBarcode(canvas, barcodeData, {
+      
+      let code128Data = barcodeData;
+      
+      if (useGS1Format && !isRxTraceProduct) {
+        // Add FNC1 character for GS1-128 compliance
+        code128Data = '\u00F1' + barcodeData; // FNC1 at start for GS1-128
+        console.log('Added FNC1 character for GS1-128 compliance');
+        console.log('Full GS1-128 data:', code128Data);
+      }
+      
+      JsBarcode(canvas, code128Data, {
         format: 'CODE128',
         width: 2,
         height: 80,
@@ -151,7 +181,7 @@ async function generateBarcodeImage(
         margin: 5
       });
       const dataUrl = canvas.toDataURL('image/png');
-      console.log('CODE128 barcode generated successfully');
+      console.log('GS1-128 barcode generated successfully');
       return dataUrl;
 
     } else if (type === 'DATAMATRIX') {
@@ -427,10 +457,17 @@ export function generateZPL(
     barcodeData = data.gtin;
   }
 
+  // For GS1-128 (Code 128), add FNC1 character and proper formatting
+  let code128Data = barcodeData;
+  if (codeType === 'CODE128' && useGS1Format && !isRxTraceProduct) {
+    // In ZPL, >8 represents FNC1 for GS1-128
+    code128Data = '>8' + barcodeData;
+  }
+
   const codeZpl = codeType === 'QR'
     ? `^FO80,140^BQN,2,5^FDQA,${barcodeData}^FS`
     : codeType === 'CODE128'
-    ? `^FO50,150^BY3^BCN,100,Y,N,N^FD${barcodeData}^FS`
+    ? `^FO50,150^BY3^BCN,100,Y,N,N^FD${code128Data}^FS`
     : `^FO80,150^BXN,8,200^FD${barcodeData}^FS`;
 
   return `^XA

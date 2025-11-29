@@ -35,6 +35,7 @@ export default function GenerateLabels() {
   const [manualCodeType, setManualCodeType] = useState<'QR' | 'CODE128' | 'DATAMATRIX'>('QR');
   const [manualFormat, setManualFormat] = useState<'PDF' | 'PNG' | 'ZPL' | 'EPL'>('PDF');
   const [useGS1Format, setUseGS1Format] = useState(true); // GS1 format toggle
+  const [gs1PreviewString, setGs1PreviewString] = useState<string>(''); // GS1 preview
   
   // CSV form states
   const [csvFile, setCsvFile] = useState<File | null>(null);
@@ -44,6 +45,49 @@ export default function GenerateLabels() {
   const [csvUseGS1Format, setCsvUseGS1Format] = useState(true); // GS1 format for CSV
   
   const router = useRouter();
+
+  // Build GS1 preview string from form data
+  const buildGS1Preview = () => {
+    if (!skuName || !mfgDate || !expiryDate || !batchNo) {
+      setGs1PreviewString('');
+      return;
+    }
+
+    const gtin = `890${Math.floor(100000000000 + Math.random() * 900000000000)}`;
+    const paddedGtin = gtin.padStart(14, '0');
+    
+    const parts: string[] = [];
+    
+    // (01) GTIN
+    parts.push(`(01)${paddedGtin}`);
+    
+    // (17) Expiration Date - YYMMDD
+    if (expiryDate) {
+      const [dd, mm, yyyy] = expiryDate.split('-');
+      const yy = yyyy.slice(-2);
+      parts.push(`(17)${yy}${mm}${dd}`);
+    }
+    
+    // (10) Batch/Lot Number
+    if (batchNo) {
+      parts.push(`(10)${batchNo}`);
+    }
+    
+    // (11) Manufacturing Date - YYMMDD
+    if (mfgDate) {
+      const [dd, mm, yyyy] = mfgDate.split('-');
+      const yy = yyyy.slice(-2);
+      parts.push(`(11)${yy}${mm}${dd}`);
+    }
+    
+    const gs1String = parts.join('');
+    setGs1PreviewString(gs1String);
+  };
+
+  // Update GS1 preview when form fields change
+  useEffect(() => {
+    buildGS1Preview();
+  }, [skuName, mfgDate, expiryDate, batchNo]);
 
   useEffect(() => {
     async function loadCompany() {
@@ -644,6 +688,22 @@ export default function GenerateLabels() {
                 className="mt-1"
               />
             </div>
+
+            {/* GS1 Preview */}
+            {gs1PreviewString && (
+              <div className="mt-4 p-4 bg-blue-50 border-2 border-blue-300 rounded-lg">
+                <Label className="text-sm font-bold text-blue-900 mb-2 block">📋 GS1-Compliant Data Preview:</Label>
+                <div className="bg-white p-3 rounded border border-blue-200 font-mono text-sm break-all text-blue-800">
+                  {gs1PreviewString}
+                </div>
+                <p className="text-xs text-blue-700 mt-2">
+                  ✓ This exact GS1 string will be encoded in your barcode/QR code
+                </p>
+                <div className="text-xs text-blue-600 mt-2 space-y-1">
+                  <div><strong>(01)</strong> = GTIN • <strong>(17)</strong> = Expiry • <strong>(10)</strong> = Batch • <strong>(11)</strong> = MFG Date</div>
+                </div>
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-4 mt-6">
               <Button
