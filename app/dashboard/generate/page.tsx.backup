@@ -34,14 +34,12 @@ export default function GenerateLabels() {
   const [quantity, setQuantity] = useState('1');
   const [manualCodeType, setManualCodeType] = useState<'QR' | 'CODE128' | 'DATAMATRIX'>('QR');
   const [manualFormat, setManualFormat] = useState<'PDF' | 'PNG' | 'ZPL' | 'EPL'>('PDF');
-  const [useGS1Format, setUseGS1Format] = useState(true); // GS1 format toggle
   
   // CSV form states
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [csvCodeType, setCsvCodeType] = useState<'QR' | 'CODE128' | 'DATAMATRIX'>('QR');
   const [csvFormat, setCsvFormat] = useState<'PDF' | 'PNG' | 'ZPL' | 'EPL'>('PDF');
-  const [csvUseGS1Format, setCsvUseGS1Format] = useState(true); // GS1 format for CSV
   
   const router = useRouter();
 
@@ -145,10 +143,10 @@ export default function GenerateLabels() {
       };
 
       console.log('Generating labels with data:', labelData);
-      console.log('Format:', manualFormat, 'Code Type:', manualCodeType, 'Quantity:', qty, 'GS1:', useGS1Format);
+      console.log('Format:', manualFormat, 'Code Type:', manualCodeType, 'Quantity:', qty);
 
       // Generate and download labels
-      await downloadLabelsManual([labelData], qty, manualCodeType, manualFormat, true, false);
+      await downloadLabelsManual([labelData], qty, manualCodeType, manualFormat);
       
       // Save to product_batches table
       const { error: batchError } = await supabaseClient()
@@ -256,7 +254,7 @@ export default function GenerateLabels() {
 
         try {
           // Generate and download labels
-          await downloadLabelsCsv(labels, csvCodeType, csvFormat, true, false);
+          await downloadLabelsCsv(labels, csvCodeType, csvFormat);
           
           // Save each label batch to database
           for (const label of labels) {
@@ -325,11 +323,9 @@ export default function GenerateLabels() {
     labels: any[], 
     repeatPerLabel: number, 
     codeType: 'QR' | 'CODE128' | 'DATAMATRIX',
-    format: 'PDF' | 'PNG' | 'ZPL' | 'EPL',
-    useGS1: boolean = true,
-    isRxTraceProduct: boolean = false
+    format: 'PDF' | 'PNG' | 'ZPL' | 'EPL'
   ) => {
-    console.log('downloadLabelsManual called with:', { labels, repeatPerLabel, codeType, format, useGS1, isRxTraceProduct });
+    console.log('downloadLabelsManual called with:', { labels, repeatPerLabel, codeType, format });
     
     let textOutput = '';
 
@@ -346,7 +342,7 @@ export default function GenerateLabels() {
         }
         
         console.log('Total codes to generate:', allLabels.length);
-        const pdfBlob = await generateMultiCodePDF(allLabels, codeType, useGS1, isRxTraceProduct);
+        const pdfBlob = await generateMultiCodePDF(allLabels, codeType);
         console.log('PDF blob generated:', pdfBlob.size, 'bytes');
         
         triggerDownload(pdfBlob, `RxTrace_${allLabels.length}_Codes.pdf`);
@@ -354,7 +350,7 @@ export default function GenerateLabels() {
       } else if (format === 'ZPL') {
         console.log('Generating ZPL...');
         for (const label of labels) {
-          const zpl = generateZPL(label, codeType, useGS1, isRxTraceProduct);
+          const zpl = generateZPL(label, codeType);
           textOutput += zpl.repeat(repeatPerLabel);
         }
         const blob = new Blob([textOutput], { type: 'text/plain' });
@@ -363,7 +359,7 @@ export default function GenerateLabels() {
       } else if (format === 'EPL') {
         console.log('Generating EPL...');
         for (const label of labels) {
-          const epl = generateEPL(label, useGS1, isRxTraceProduct);
+          const epl = generateEPL(label);
           textOutput += epl.repeat(repeatPerLabel);
         }
         const blob = new Blob([textOutput], { type: 'text/plain' });
@@ -381,21 +377,19 @@ export default function GenerateLabels() {
   const downloadLabelsCsv = async (
     labels: any[],
     codeType: 'QR' | 'CODE128' | 'DATAMATRIX',
-    format: 'PDF' | 'PNG' | 'ZPL' | 'EPL',
-    useGS1: boolean = true,
-    isRxTraceProduct: boolean = false
+    format: 'PDF' | 'PNG' | 'ZPL' | 'EPL'
   ) => {
     let textOutput = '';
 
     try {
       if (format === 'PDF' || format === 'PNG') {
         console.log('Generating CSV multi-code PDF...');
-        const pdfBlob = await generateMultiCodePDF(labels, codeType, useGS1, isRxTraceProduct);
+        const pdfBlob = await generateMultiCodePDF(labels, codeType);
         triggerDownload(pdfBlob, `RxTrace_CSV_${labels.length}_Codes.pdf`);
         
       } else if (format === 'ZPL') {
         for (const label of labels) {
-          const zpl = generateZPL(label, codeType, useGS1, isRxTraceProduct);
+          const zpl = generateZPL(label, codeType);
           textOutput += zpl;
         }
         const blob = new Blob([textOutput], { type: 'text/plain' });
@@ -403,7 +397,7 @@ export default function GenerateLabels() {
         
       } else if (format === 'EPL') {
         for (const label of labels) {
-          const epl = generateEPL(label, useGS1, isRxTraceProduct);
+          const epl = generateEPL(label);
           textOutput += epl;
         }
         const blob = new Blob([textOutput], { type: 'text/plain' });
@@ -470,7 +464,7 @@ export default function GenerateLabels() {
       
       // Create array with repeated labels for printing
       const allLabels = Array(qty).fill(labelData);
-      const pdfBlob = await generateMultiCodePDF(allLabels, manualCodeType, true, false);
+      const pdfBlob = await generateMultiCodePDF(allLabels, manualCodeType);
       
       // Open PDF in new window for printing
       const url = URL.createObjectURL(pdfBlob);

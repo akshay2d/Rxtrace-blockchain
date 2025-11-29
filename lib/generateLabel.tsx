@@ -28,7 +28,7 @@ export interface LabelData {
   mfgDate: string;     // DD-MM-YYYY
   expiryDate: string;  // DD-MM-YYYY
   mrp: string;
-  gtin: string;
+  gtin: string;        // GS1-registered GTIN or auto-generated unique identifier (14 digits)
   serial?: string;
 }
 
@@ -37,11 +37,13 @@ export interface LabelData {
 /**
  * Build GS1-compliant data string from label data
  * Format: (AI)Value(AI)Value...
+ * Note: GTIN can be either GS1-registered or auto-generated unique identifier
  */
 function buildGS1String(data: LabelData): string {
   const parts: string[] = [];
   
   // (01) GTIN - Global Trade Item Number (14 digits, pad with leading zeros)
+  // Works with both real GS1 GTINs and auto-generated unique identifiers
   if (data.gtin) {
     const paddedGtin = data.gtin.padStart(14, '0');
     parts.push(`(01)${paddedGtin}`);
