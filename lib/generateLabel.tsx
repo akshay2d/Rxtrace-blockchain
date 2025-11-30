@@ -233,20 +233,22 @@ async function generateBarcodeImage(
       console.log('Generating GS1 DataMatrix code with bwip-js');
       
       try {
-        // bwip-js supports GS1 DataMatrix with proper FNC1
+        // For GS1 DataMatrix, bwip-js requires gs1datamatrix bcid
         let bwipData = barcodeData;
         
         if (useGS1Format && !isRxTraceProduct) {
-          // For GS1 DataMatrix, use ^FNC1 prefix
-          bwipData = '^FNC1' + barcodeData;
-          console.log('Using GS1 DataMatrix with FNC1 prefix');
+          // Use gs1datamatrix bcid which automatically handles FNC1
+          // Data should not have ^FNC1 prefix for gs1datamatrix
+          console.log('Using GS1 DataMatrix with gs1datamatrix bcid');
+          console.log('DataMatrix data:', bwipData.replace(/\x1D/g, '<GS>'));
         }
         
         const canvas = bwipjs.toCanvas(document.createElement('canvas'), {
-          bcid: 'datamatrix',      // DataMatrix barcode type
+          bcid: useGS1Format && !isRxTraceProduct ? 'gs1datamatrix' : 'datamatrix',
           text: bwipData,
           scale: 3,
           height: 10,
+          width: 10,
         });
         
         const dataUrl = canvas.toDataURL('image/png');
@@ -254,15 +256,31 @@ async function generateBarcodeImage(
         return dataUrl;
       } catch (error) {
         console.error('Error generating DataMatrix with bwip-js:', error);
-        // Fallback to QR code
-        const dataUrl = await QRCode.toDataURL(barcodeData, {
-          width: 300,
-          margin: 0,
-          errorCorrectionLevel: 'L',
-          type: 'image/png'
-        });
-        console.log('DataMatrix fallback to QR code');
-        return dataUrl;
+        console.error('Error details:', error instanceof Error ? error.message : 'Unknown');
+        
+        // Try fallback without FNC1
+        try {
+          console.log('Trying DataMatrix fallback without GS1...');
+          const canvas = bwipjs.toCanvas(document.createElement('canvas'), {
+            bcid: 'datamatrix',
+            text: barcodeData,
+            scale: 3,
+          });
+          const dataUrl = canvas.toDataURL('image/png');
+          console.log('DataMatrix generated with fallback');
+          return dataUrl;
+        } catch (fallbackError) {
+          console.error('DataMatrix fallback also failed:', fallbackError);
+          // Final fallback to QR code
+          const dataUrl = await QRCode.toDataURL(barcodeData, {
+            width: 300,
+            margin: 0,
+            errorCorrectionLevel: 'L',
+            type: 'image/png'
+          });
+          console.log('DataMatrix fallback to QR code');
+          return dataUrl;
+        }
       }
     }
 
