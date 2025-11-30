@@ -2,6 +2,7 @@
 import { Document, Page, View, StyleSheet, pdf, Image } from '@react-pdf/renderer';
 import QRCode from 'qrcode';
 import JsBarcode from 'jsbarcode';
+import bwipjs from 'bwip-js';
 
 // Styles for compact label (only barcode, no text)
 const styles = StyleSheet.create({
@@ -152,38 +153,36 @@ async function generateBarcodeImage(
       return dataUrl;
 
     } else if (type === 'CODE128') {
-      // Generate GS1-128 barcode with FNC1 character
-      // GS1-128 is Code 128 with Function Code 1 (FNC1) character to indicate GS1 format
-      // 
-      // FNC1 Implementation:
-      // - JsBarcode doesn't support FNC1 directly, so we encode the GS1 data as-is
-      // - Industrial scanners will recognize the GS1 AI format pattern
-      // - For full GS1-128 compliance, use ZPL/EPL printer formats which support FNC1
-      // 
-      // Note: The parentheses in AIs are kept for better scanner compatibility
-      console.log('Generating GS1-128 (Code 128) barcode');
-      const canvas = document.createElement('canvas');
-      
-      // Use the GS1 data directly without FNC1 to avoid encoding errors
-      // The AI format with parentheses is recognized by most modern scanners
-      let code128Data = barcodeData;
+      // Generate GS1-128 barcode using bwip-js for proper FNC1 support
+      console.log('Generating GS1-128 (Code 128) barcode with bwip-js');
       
       try {
-        JsBarcode(canvas, code128Data, {
-          format: 'CODE128',
-          width: 2,
-          height: 80,
-          displayValue: false,
-          margin: 5
+        // bwip-js supports GS1-128 with proper FNC1 character
+        // Use ^FNC1 at the start to indicate GS1 format
+        let bwipData = barcodeData;
+        
+        if (useGS1Format && !isRxTraceProduct) {
+          // For GS1-128, use ^FNC1 prefix which bwip-js recognizes
+          bwipData = '^FNC1' + barcodeData;
+          console.log('Using GS1-128 with FNC1 prefix');
+        }
+        
+        const canvas = bwipjs.toCanvas(document.createElement('canvas'), {
+          bcid: 'gs1-128',        // GS1-128 barcode type
+          text: bwipData,
+          scale: 3,
+          height: 10,
+          includetext: false,
         });
+        
         const dataUrl = canvas.toDataURL('image/png');
-        console.log('GS1-128 barcode generated successfully');
+        console.log('GS1-128 barcode generated successfully with bwip-js');
         return dataUrl;
       } catch (error) {
-        console.error('Error generating Code 128:', error);
-        // Fallback: try without special characters
-        const cleanData = barcodeData.replace(/[^\x20-\x7E]/g, '');
-        JsBarcode(canvas, cleanData, {
+        console.error('Error generating GS1-128 with bwip-js:', error);
+        // Fallback to JsBarcode
+        const canvas = document.createElement('canvas');
+        JsBarcode(canvas, barcodeData, {
           format: 'CODE128',
           width: 2,
           height: 80,
@@ -196,16 +195,41 @@ async function generateBarcodeImage(
       }
 
     } else if (type === 'DATAMATRIX') {
-      // For DATAMATRIX - use QR with minimal margin (similar appearance)
-      console.log('Generating DATAMATRIX code (using QR with compact layout)');
-      const dataUrl = await QRCode.toDataURL(barcodeData, {
-        width: 300,
-        margin: 0,
-        errorCorrectionLevel: 'L',
-        type: 'image/png'
-      });
-      console.log('DATAMATRIX code generated successfully');
-      return dataUrl;
+      // Generate GS1 DataMatrix using bwip-js
+      console.log('Generating GS1 DataMatrix code with bwip-js');
+      
+      try {
+        // bwip-js supports GS1 DataMatrix with proper FNC1
+        let bwipData = barcodeData;
+        
+        if (useGS1Format && !isRxTraceProduct) {
+          // For GS1 DataMatrix, use ^FNC1 prefix
+          bwipData = '^FNC1' + barcodeData;
+          console.log('Using GS1 DataMatrix with FNC1 prefix');
+        }
+        
+        const canvas = bwipjs.toCanvas(document.createElement('canvas'), {
+          bcid: 'datamatrix',      // DataMatrix barcode type
+          text: bwipData,
+          scale: 3,
+          version: 'square',       // Use square DataMatrix
+        });
+        
+        const dataUrl = canvas.toDataURL('image/png');
+        console.log('GS1 DataMatrix code generated successfully with bwip-js');
+        return dataUrl;
+      } catch (error) {
+        console.error('Error generating DataMatrix with bwip-js:', error);
+        // Fallback to QR code
+        const dataUrl = await QRCode.toDataURL(barcodeData, {
+          width: 300,
+          margin: 0,
+          errorCorrectionLevel: 'L',
+          type: 'image/png'
+        });
+        console.log('DataMatrix fallback to QR code');
+        return dataUrl;
+      }
     }
 
     throw new Error('Unknown barcode type');
