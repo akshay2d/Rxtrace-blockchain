@@ -40,51 +40,82 @@ export interface LabelData {
  * Format: (AI)Value(AI)Value...
  * 
  * GS1 Application Identifiers (AI) used:
- * - (01) GTIN: Global Trade Item Number (14 digits)
- * - (17) Expiration Date (YYMMDD format)
- * - (10) Batch/Lot Number
- * - (11) Manufacturing Date (YYMMDD format)
- * - (21) Serial Number (optional)
+ * - (01) GTIN: Global Trade Item Number (14 digits) - Fixed length
+ * - (17) Expiration Date (YYMMDD format) - Fixed length (6 digits)
+ * - (10) Batch/Lot Number - Variable length (requires GS separator)
+ * - (11) Manufacturing Date (YYMMDD format) - Fixed length (6 digits)
+ * - (21) Serial Number (optional) - Variable length (requires GS separator)
  * 
- * Note: For GS1-128 barcodes, FNC1 character is added separately in the encoding process
+ * For actual barcode encoding:
+ * - Parentheses are removed
+ * - GS1 separators (Group Separator, ASCII 29) are added after variable-length fields
+ * - FNC1 is added at the start (handled by bwip-js with ^FNC1 prefix)
+ * 
  * Note: GTIN can be either GS1-registered or auto-generated unique identifier
  */
-function buildGS1String(data: LabelData): string {
+function buildGS1String(data: LabelData, forBarcode: boolean = false): string {
+  const GS = String.fromCharCode(29); // Group Separator (ASCII 29) - used in GS1 for variable length fields
   const parts: string[] = [];
   
   // (01) GTIN - Global Trade Item Number (14 digits, pad with leading zeros)
-  // Works with both real GS1 GTINs and auto-generated unique identifiers
+  // Fixed length - no separator needed after this
   if (data.gtin) {
     const paddedGtin = data.gtin.padStart(14, '0');
-    parts.push(`(01)${paddedGtin}`);
+    if (forBarcode) {
+      parts.push(`01${paddedGtin}`);
+    } else {
+      parts.push(`(01)${paddedGtin}`);
+    }
   }
   
-  // (17) Expiration Date - YYMMDD format
+  // (17) Expiration Date - YYMMDD format (6 digits)
+  // Fixed length - no separator needed after this
   if (data.expiryDate) {
     const [dd, mm, yyyy] = data.expiryDate.split('-');
     const yy = yyyy.slice(-2);
-    parts.push(`(17)${yy}${mm}${dd}`);
+    if (forBarcode) {
+      parts.push(`17${yy}${mm}${dd}`);
+    } else {
+      parts.push(`(17)${yy}${mm}${dd}`);
+    }
   }
   
-  // (10) Batch/Lot Number
+  // (10) Batch/Lot Number - Variable length
+  // MUST have GS separator after value (unless it's the last field)
   if (data.batchNo) {
-    parts.push(`(10)${data.batchNo}`);
+    if (forBarcode) {
+      // Add GS separator after batch number for proper parsing
+      parts.push(`10${data.batchNo}${GS}`);
+    } else {
+      parts.push(`(10)${data.batchNo}`);
+    }
   }
   
-  // (21) Serial Number (optional)
-  if (data.serial) {
-    parts.push(`(21)${data.serial}`);
-  }
-  
-  // (11) Production/Manufacturing Date - YYMMDD format
+  // (11) Production/Manufacturing Date - YYMMDD format (6 digits)
+  // Fixed length - no separator needed
   if (data.mfgDate) {
     const [dd, mm, yyyy] = data.mfgDate.split('-');
     const yy = yyyy.slice(-2);
-    parts.push(`(11)${yy}${mm}${dd}`);
+    if (forBarcode) {
+      parts.push(`11${yy}${mm}${dd}`);
+    } else {
+      parts.push(`(11)${yy}${mm}${dd}`);
+    }
+  }
+  
+  // (21) Serial Number (optional) - Variable length
+  // If present, add GS separator (unless it's the last field)
+  if (data.serial) {
+    if (forBarcode) {
+      parts.push(`21${data.serial}${GS}`);
+    } else {
+      parts.push(`(21)${data.serial}`);
+    }
   }
   
   const gs1String = parts.join('');
-  console.log('GS1 String built:', gs1String);
+  console.log('GS1 String built:', forBarcode ? 'For Barcode (no parentheses, with GS)' : 'For Display (with parentheses)');
+  console.log('GS1 Data:', gs1String.replace(/\x1D/g, '<GS>'));
   console.log('Data used:', { gtin: data.gtin, expiry: data.expiryDate, batch: data.batchNo, mfg: data.mfgDate });
   return gs1String;
 }
@@ -136,8 +167,9 @@ async function generateBarcodeImage(
       barcodeData = buildRxTraceURL(data);
       console.log('Generating RxTrace verification URL:', barcodeData);
     } else if (useGS1Format) {
-      barcodeData = buildGS1String(data);
-      console.log('Generating GS1 format:', barcodeData);
+      // For barcode encoding, remove parentheses - FNC1 and AI numbers are sufficient
+      barcodeData = buildGS1String(data, true);
+      console.log('Generating GS1 format (no parentheses for barcode):', barcodeData);
     } else {
       barcodeData = data.gtin;
       console.log('Generating plain GTIN:', barcodeData);
@@ -487,7 +519,8 @@ export function generateZPL(
   if (isRxTraceProduct) {
     barcodeData = buildRxTraceURL(data);
   } else if (useGS1Format) {
-    barcodeData = buildGS1String(data);
+    // Remove parentheses for barcode encoding
+    barcodeData = buildGS1String(data, true);
   } else {
     barcodeData = data.gtin;
   }
@@ -529,7 +562,8 @@ export function generateEPL(
   if (isRxTraceProduct) {
     barcodeData = buildRxTraceURL(data);
   } else if (useGS1Format) {
-    barcodeData = buildGS1String(data);
+    // Remove parentheses for barcode encoding
+    barcodeData = buildGS1String(data, true);
   } else {
     barcodeData = data.gtin;
   }
