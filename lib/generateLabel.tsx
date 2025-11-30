@@ -81,7 +81,8 @@ function buildGS1String(data: LabelData, forBarcode: boolean = false): string {
   }
   
   // (10) Batch/Lot Number - Variable length
-  // MUST have GS separator after value (unless it's the last field)
+  // Place AFTER all fixed-length fields for proper GS1 parsing
+  // MUST have GS separator after value for scanner to detect next AI
   if (data.batchNo) {
     if (forBarcode) {
       // Add GS separator after batch number for proper parsing
@@ -117,6 +118,7 @@ function buildGS1String(data: LabelData, forBarcode: boolean = false): string {
   console.log('GS1 String built:', forBarcode ? 'For Barcode (no parentheses, with GS)' : 'For Display (with parentheses)');
   console.log('GS1 Data:', gs1String.replace(/\x1D/g, '<GS>'));
   console.log('Data used:', { gtin: data.gtin, expiry: data.expiryDate, batch: data.batchNo, mfg: data.mfgDate });
+  console.log('Field order: (01)GTIN → (17)EXPIRY → (10)BATCH+GS → (11)MFG');
   return gs1String;
 }
 
@@ -244,7 +246,7 @@ async function generateBarcodeImage(
           bcid: 'datamatrix',      // DataMatrix barcode type
           text: bwipData,
           scale: 3,
-          version: 'square',       // Use square DataMatrix
+          height: 10,
         });
         
         const dataUrl = canvas.toDataURL('image/png');
