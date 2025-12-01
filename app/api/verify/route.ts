@@ -54,6 +54,18 @@ export async function POST(request: NextRequest) {
       console.warn('Batch mismatch:', gs1Data.batchNo, '!==', batch.batch_no);
     }
 
+    // Create complete display string with database fields + GS1 fields
+    // Format: Product Name | MRP | MFG | Expiry | Batch
+    const displayParts: string[] = [];
+    
+    if (batch.sku_name) displayParts.push(`Product: ${batch.sku_name}`);
+    if (batch.mrp) displayParts.push(`MRP: ₹${batch.mrp}`);
+    if (gs1Data.mfgDate || batch.mfd) displayParts.push(`MFG: ${gs1Data.mfgDate || batch.mfd}`);
+    if (gs1Data.expiryDate || batch.expiry) displayParts.push(`Expiry: ${gs1Data.expiryDate || batch.expiry}`);
+    if (gs1Data.batchNo || batch.batch_no) displayParts.push(`Batch: ${gs1Data.batchNo || batch.batch_no}`);
+    
+    const completeDisplay = displayParts.join(' | ');
+
     // Product found - it's RxTrace verified!
     return NextResponse.json({
       verified: true,
@@ -61,7 +73,7 @@ export async function POST(request: NextRequest) {
       batchMatch,
       expiryMatch,
       message: 'Verified by RxTrace India ✓',
-      scannedData: gs1Data.parsed ? formatGS1ForDisplay(gs1Data) : code,
+      scannedData: completeDisplay,
       parsedGS1: gs1Data.parsed ? gs1Data : null,
       product: {
         companyName: batch.company_name,

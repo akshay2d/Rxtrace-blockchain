@@ -19,6 +19,15 @@ export interface GS1Data {
   
   /** AI (21) - Serial Number (variable length) */
   serialNo?: string;
+
+  /** AI (91) - Internal: MRP (company-specific) */
+  mrp?: string;
+
+  /** AI (92) - Internal: SKU / Product name (company-specific) */
+  skuName?: string;
+
+  /** AI (93) - Internal: Company name (company-specific) */
+  companyName?: string;
   
   /** Original scanned barcode data before parsing */
   raw: string;
@@ -31,8 +40,8 @@ export interface GS1Data {
  * Parse GS1-compliant barcode data and extract Application Identifier (AI) fields
  * 
  * Supports two input formats:
- * 1. Barcode format (without parentheses): `01GTIN17YYMMDD10BATCH<GS>11YYMMDD`
- * 2. Human-readable format (with parentheses): `(01)GTIN(17)YYMMDD(10)BATCH(11)YYMMDD`
+ * 1. Barcode format (without parentheses): `01GTIN17YYMMDD10BATCH<GS>11YYMMDD91MRP<GS>92SKU<GS>93COMPANY<GS>`
+ * 2. Human-readable format (with parentheses): `(01)GTIN(17)YYMMDD(10)BATCH(11)YYMMDD(91)MRP(92)SKU(93)COMPANY`
  * 
  * Handles GS1 standards:
  * - Fixed-length fields (GTIN, dates)
@@ -41,22 +50,6 @@ export interface GS1Data {
  * 
  * @param data - Raw GS1 barcode string from scanner
  * @returns Parsed GS1 data object with extracted fields
- * 
- * @example
- * // Parse barcode format
- * const result = parseGS1('0108901234567890172512311011251129');
- * // result.gtin = '08901234567890'
- * // result.expiryDate = '31-12-2025'
- * // result.batchNo = '1011'
- * // result.mfgDate = '29-11-2025'
- * 
- * @example
- * // Parse human-readable format
- * const result = parseGS1('(01)08901234567890(17)251231(10)BATCH001(11)251129');
- * // result.gtin = '08901234567890'
- * // result.expiryDate = '31-12-2025'
- * // result.batchNo = 'BATCH001'
- * // result.mfgDate = '29-11-2025'
  */
 export function parseGS1(data: string): GS1Data {
   const result: GS1Data = {
@@ -72,23 +65,30 @@ export function parseGS1(data: string): GS1Data {
   console.log('Data with visible GS:', data.replace(/\x1D/g, '<GS>'));
 
   // Remove any FNC1 characters that might be at the start
+  // FNC1 is often encoded as ASCII 0x1D or a special symbol; scanners may map it differently.
   let cleanData = data.replace(/^[\u00F1\xF1]/, '');
   
   // Check if data has parentheses (display format) or not (barcode format)
-  const hasParentheses = cleanData.includes('(01)') || cleanData.includes('(10)') || cleanData.includes('(17)');
+  const hasParentheses =
+    cleanData.includes('(01)') ||
+    cleanData.includes('(10)') ||
+    cleanData.includes('(17)') ||
+    cleanData.includes('(91)') ||
+    cleanData.includes('(92)') ||
+    cleanData.includes('(93)');
 
   if (hasParentheses) {
-    // Format with parentheses: (01)12345(17)250101(10)BATCH(11)241201
+    // Format with parentheses: (01)12345(17)250101(10)BATCH(11)241201(91)MRP(92)SKU(93)COMP
     return parseGS1WithParentheses(cleanData);
   } else {
-    // Format without parentheses: 01123456789012341725010110BATCH<GS>11241201
+    // Format without parentheses: 01123456789012341725010110BATCH<GS>1124120191MRP<GS>92SKU<GS>93COMP<GS>
     return parseGS1WithoutParentheses(cleanData);
   }
 }
 
 /**
  * Parse GS1 data in human-readable format (with parentheses)
- * Format: (01)GTIN(17)YYMMDD(10)BATCH(11)YYMMDD
+ * Format: (01)GTIN(17)YYMMDD(10)BATCH(11)YYMMDD(91)MRP(92)SKU(93)COMPANY
  * 
  * @param data - GS1 string with parentheses around Application Identifiers
  * @returns Parsed GS1 data object
@@ -100,14 +100,14 @@ function parseGS1WithParentheses(data: string): GS1Data {
     parsed: true,
   };
 
-  // Extract (01) GTIN - 14 digits
+  // (01) GTIN - 14 digits
   const gtinMatch = data.match(/\(01\)(\d{14})/);
   if (gtinMatch) {
     result.gtin = gtinMatch[1];
     console.log('Extracted GTIN:', result.gtin);
   }
 
-  // Extract (17) Expiry Date - 6 digits YYMMDD
+  // (17) Expiry Date - 6 digits YYMMDD
   const expiryMatch = data.match(/\(17\)(\d{6})/);
   if (expiryMatch) {
     const yymmdd = expiryMatch[1];
@@ -115,14 +115,14 @@ function parseGS1WithParentheses(data: string): GS1Data {
     console.log('Extracted Expiry:', result.expiryDate, 'from', yymmdd);
   }
 
-  // Extract (10) Batch/Lot Number - variable length
+  // (10) Batch/Lot Number - variable length (up to next "(" or end)
   const batchMatch = data.match(/\(10\)([^\(]+)/);
   if (batchMatch) {
     result.batchNo = batchMatch[1].trim();
     console.log('Extracted Batch:', result.batchNo);
   }
 
-  // Extract (11) MFG Date - 6 digits YYMMDD
+  // (11) MFG Date - 6 digits YYMMDD
   const mfgMatch = data.match(/\(11\)(\d{6})/);
   if (mfgMatch) {
     const yymmdd = mfgMatch[1];
@@ -130,11 +130,32 @@ function parseGS1WithParentheses(data: string): GS1Data {
     console.log('Extracted MFG Date:', result.mfgDate, 'from', yymmdd);
   }
 
-  // Extract (21) Serial Number - variable length
+  // (21) Serial Number - variable length
   const serialMatch = data.match(/\(21\)([^\(]+)/);
   if (serialMatch) {
     result.serialNo = serialMatch[1].trim();
     console.log('Extracted Serial:', result.serialNo);
+  }
+
+  // (91) MRP - variable length (internal use)
+  const mrpMatch = data.match(/\(91\)([^\(]+)/);
+  if (mrpMatch) {
+    result.mrp = mrpMatch[1].trim();
+    console.log('Extracted MRP (AI 91):', result.mrp);
+  }
+
+  // (92) SKU / Product Name - variable length (internal use)
+  const skuMatch = data.match(/\(92\)([^\(]+)/);
+  if (skuMatch) {
+    result.skuName = skuMatch[1].trim();
+    console.log('Extracted SKU (AI 92):', result.skuName);
+  }
+
+  // (93) Company Name - variable length (internal use)
+  const companyMatch = data.match(/\(93\)([^\(]+)/);
+  if (companyMatch) {
+    result.companyName = companyMatch[1].trim();
+    console.log('Extracted Company (AI 93):', result.companyName);
   }
 
   return result;
@@ -142,7 +163,8 @@ function parseGS1WithParentheses(data: string): GS1Data {
 
 /**
  * Parse GS1 data in barcode format (without parentheses)
- * Format: 01GTIN17YYMMDD10BATCH<GS>11YYMMDD
+ * Format: 
+ *   01GTIN17YYMMDD11YYMMDD10BATCH<GS>91MRP<GS>92SKU<GS>93COMPANY<GS>21SERIAL<GS>
  * 
  * Uses sequential parsing with 2-digit Application Identifiers:
  * - Fixed-length AIs: Read exact number of characters
@@ -171,26 +193,35 @@ function parseGS1WithoutParentheses(data: string): GS1Data {
     console.log('Found AI:', ai, 'at position', position - 2);
 
     switch (ai) {
-      case '01': // GTIN - 14 digits (fixed length)
+      case '01': { // GTIN - 14 digits (fixed length)
         result.gtin = data.substring(position, position + 14);
         position += 14;
         console.log('Extracted GTIN:', result.gtin);
         break;
+      }
 
-      case '17': // Expiry Date - 6 digits YYMMDD (fixed length)
+      case '17': { // Expiry Date - 6 digits YYMMDD (fixed length)
         const expiryYYMMDD = data.substring(position, position + 6);
         result.expiryDate = formatGS1Date(expiryYYMMDD);
         position += 6;
         console.log('Extracted Expiry:', result.expiryDate, 'from', expiryYYMMDD);
         break;
+      }
 
-      case '10': // Batch Number - variable length (ends with GS or end of string)
+      case '11': { // MFG Date - 6 digits YYMMDD (fixed length)
+        const mfgYYMMDD = data.substring(position, position + 6);
+        result.mfgDate = formatGS1Date(mfgYYMMDD);
+        position += 6;
+        console.log('Extracted MFG Date:', result.mfgDate, 'from', mfgYYMMDD);
+        break;
+      }
+
+      case '10': { // Batch Number - variable length (ends with GS or next AI)
         const batchEnd = data.indexOf(GS, position);
         if (batchEnd !== -1) {
           result.batchNo = data.substring(position, batchEnd);
           position = batchEnd + 1; // Skip GS character
         } else {
-          // No GS found, take rest of string or until next AI
           const nextAI = findNextAI(data, position);
           if (nextAI !== -1) {
             result.batchNo = data.substring(position, nextAI);
@@ -202,15 +233,9 @@ function parseGS1WithoutParentheses(data: string): GS1Data {
         }
         console.log('Extracted Batch:', result.batchNo);
         break;
+      }
 
-      case '11': // MFG Date - 6 digits YYMMDD (fixed length)
-        const mfgYYMMDD = data.substring(position, position + 6);
-        result.mfgDate = formatGS1Date(mfgYYMMDD);
-        position += 6;
-        console.log('Extracted MFG Date:', result.mfgDate, 'from', mfgYYMMDD);
-        break;
-
-      case '21': // Serial Number - variable length (ends with GS or end of string)
+      case '21': { // Serial Number - variable length (ends with GS or end)
         const serialEnd = data.indexOf(GS, position);
         if (serialEnd !== -1) {
           result.serialNo = data.substring(position, serialEnd);
@@ -221,11 +246,69 @@ function parseGS1WithoutParentheses(data: string): GS1Data {
         }
         console.log('Extracted Serial:', result.serialNo);
         break;
+      }
+
+      case '91': { // MRP - variable length (internal use)
+        const mrpEnd = data.indexOf(GS, position);
+        if (mrpEnd !== -1) {
+          result.mrp = data.substring(position, mrpEnd);
+          position = mrpEnd + 1;
+        } else {
+          const nextAI = findNextAI(data, position);
+          if (nextAI !== -1) {
+            result.mrp = data.substring(position, nextAI);
+            position = nextAI;
+          } else {
+            result.mrp = data.substring(position);
+            position = data.length;
+          }
+        }
+        console.log('Extracted MRP (AI 91):', result.mrp);
+        break;
+      }
+
+      case '92': { // SKU / Product name - variable length (internal use)
+        const skuEnd = data.indexOf(GS, position);
+        if (skuEnd !== -1) {
+          result.skuName = data.substring(position, skuEnd);
+          position = skuEnd + 1;
+        } else {
+          const nextAI = findNextAI(data, position);
+          if (nextAI !== -1) {
+            result.skuName = data.substring(position, nextAI);
+            position = nextAI;
+          } else {
+            result.skuName = data.substring(position);
+            position = data.length;
+          }
+        }
+        console.log('Extracted SKU (AI 92):', result.skuName);
+        break;
+      }
+
+      case '93': { // Company name - variable length (internal use)
+        const compEnd = data.indexOf(GS, position);
+        if (compEnd !== -1) {
+          result.companyName = data.substring(position, compEnd);
+          position = compEnd + 1;
+        } else {
+          const nextAI = findNextAI(data, position);
+          if (nextAI !== -1) {
+            result.companyName = data.substring(position, nextAI);
+            position = nextAI;
+          } else {
+            result.companyName = data.substring(position);
+            position = data.length;
+          }
+        }
+        console.log('Extracted Company (AI 93):', result.companyName);
+        break;
+      }
 
       default:
-        // Unknown AI, try to skip it
+        // Unknown AI, stop parsing to avoid garbage
         console.warn('Unknown AI:', ai, '- stopping parse');
-        position = data.length; // Stop parsing
+        position = data.length;
         break;
     }
   }
@@ -237,8 +320,8 @@ function parseGS1WithoutParentheses(data: string): GS1Data {
  * Find the position of the next GS1 Application Identifier in the data string
  * 
  * Application Identifiers are:
- * - Always 2 digits
- * - Commonly: 01 (GTIN), 10 (Batch), 11 (MFG), 17 (Expiry), 21 (Serial), etc.
+ * - Always 2 digits in this implementation
+ * - Commonly: 01, 10, 11, 17, 21, 30, 37, 91, 92, 93, etc.
  * 
  * @param data - GS1 data string
  * @param startPos - Position to start searching from
@@ -246,14 +329,12 @@ function parseGS1WithoutParentheses(data: string): GS1Data {
  * @internal
  */
 function findNextAI(data: string, startPos: number): number {
+  const knownAIs = ['01', '10', '11', '17', '21', '30', '37', '91', '92', '93'];
+
   for (let i = startPos; i < data.length - 1; i++) {
     const twoChars = data.substring(i, i + 2);
-    // Check if it looks like an AI (two digits)
-    if (/^\d{2}$/.test(twoChars)) {
-      // Common GS1 AIs start with 01, 10, 11, 17, 21, etc.
-      if (['01', '10', '11', '17', '21', '30', '37'].includes(twoChars)) {
-        return i;
-      }
+    if (/^\d{2}$/.test(twoChars) && knownAIs.includes(twoChars)) {
+      return i;
     }
   }
   return -1;
@@ -269,11 +350,6 @@ function findNextAI(data: string, startPos: number): number {
  * 
  * @param yymmdd - GS1 date string in YYMMDD format (6 digits)
  * @returns Formatted date string in DD-MM-YYYY format
- * 
- * @example
- * formatGS1Date('251231') // Returns '31-12-2025'
- * formatGS1Date('001225') // Returns '25-12-2000'
- * 
  * @internal
  */
 function formatGS1Date(yymmdd: string): string {
@@ -285,8 +361,8 @@ function formatGS1Date(yymmdd: string): string {
   const mm = yymmdd.substring(2, 4);
   const dd = yymmdd.substring(4, 6);
 
-  // Convert YY to YYYY (assuming 20YY for dates 00-99)
-  const yyyy = parseInt(yy) < 50 ? `20${yy}` : `19${yy}`;
+  // Convert YY to YYYY (simple rule: 00-49 => 2000-2049, 50-99 => 1950-1999)
+  const yyyy = parseInt(yy, 10) < 50 ? `20${yy}` : `19${yy}`;
 
   return `${dd}-${mm}-${yyyy}`;
 }
@@ -296,14 +372,6 @@ function formatGS1Date(yymmdd: string): string {
  * 
  * Combines all extracted GS1 fields into a pipe-separated string
  * suitable for display in scanner apps or verification interfaces
- * 
- * @param data - Parsed GS1 data object
- * @returns Formatted string with all available fields
- * 
- * @example
- * const gs1Data = parseGS1('(01)08901234567890(17)251231(10)BATCH001');
- * formatGS1ForDisplay(gs1Data);
- * // Returns: "GTIN: 08901234567890 | Expiry: 31-12-2025 | Batch: BATCH001"
  */
 export function formatGS1ForDisplay(data: GS1Data): string {
   if (!data.parsed) {
@@ -312,11 +380,16 @@ export function formatGS1ForDisplay(data: GS1Data): string {
 
   const parts: string[] = [];
   
-  if (data.gtin) parts.push(`GTIN: ${data.gtin}`);
-  if (data.expiryDate) parts.push(`Expiry: ${data.expiryDate}`);
-  if (data.batchNo) parts.push(`Batch: ${data.batchNo}`);
-  if (data.mfgDate) parts.push(`MFG: ${data.mfgDate}`);
-  if (data.serialNo) parts.push(`Serial: ${data.serialNo}`);
+  if (data.companyName) parts.push(`Company: ${data.companyName}`);
+  if (data.skuName)     parts.push(`SKU: ${data.skuName}`);
+  if (data.mrp)         parts.push(`MRP: ${data.mrp}`);
+  if (data.batchNo)     parts.push(`Batch: ${data.batchNo}`);
+  if (data.mfgDate)     parts.push(`MFG: ${data.mfgDate}`);
+  if (data.expiryDate)  parts.push(`Expiry: ${data.expiryDate}`);
+  if (data.gtin)        parts.push(`GTIN: ${data.gtin}`);
+  if (data.serialNo)    parts.push(`Serial: ${data.serialNo}`);
 
+  // This now aligns with what you want to show:
+  // Company / SKU / MRP / MFD / Expiry / Batch / GTIN / Serial
   return parts.join(' | ');
 }

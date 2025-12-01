@@ -3,7 +3,16 @@
 
 import { useState, useEffect } from 'react';
 import { supabaseClient } from '@/lib/supabase/client';
-import { generateMultiCodePDF, generateZPL, generateEPL } from '@/lib/generateLabel';
+
+import {
+  generateMultiCodePDF,
+  generateZPL,
+  generateEPL,
+  makeGtin14,
+  buildGs1DisplayString,
+  type LabelData,
+} from '@/lib/generateLabel';
+
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
@@ -24,115 +33,60 @@ export default function GenerateLabels() {
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string>('');
-  
+
   // Manual form states
   const [skuName, setSkuName] = useState('');
-  const [mfgDate, setMfgDate] = useState('');
+  const [mfgDate, setMfgDate] = useState('');      // stored as string (DD-MM-YYYY or YYYY-MM-DD etc.)
   const [mrp, setMrp] = useState('');
   const [expiryDate, setExpiryDate] = useState('');
   const [batchNo, setBatchNo] = useState('');
   const [quantity, setQuantity] = useState('1');
   const [manualCodeType, setManualCodeType] = useState<'QR' | 'CODE128' | 'DATAMATRIX'>('QR');
   const [manualFormat, setManualFormat] = useState<'PDF' | 'PNG' | 'ZPL' | 'EPL'>('PDF');
-  const [useGS1Format, setUseGS1Format] = useState(true); // GS1 format toggle
-  const [gs1PreviewString, setGs1PreviewString] = useState<string>(''); // GS1 preview
-  
+  const [useGS1Format, setUseGS1Format] = useState(true); // currently always true, but can add toggle later
+  const [gs1PreviewString, setGs1PreviewString] = useState<string>('');
+  const [gtin, setGtin] = useState<string>(''); // current batch GTIN-14
+
   // CSV form states
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [csvCodeType, setCsvCodeType] = useState<'QR' | 'CODE128' | 'DATAMATRIX'>('QR');
   const [csvFormat, setCsvFormat] = useState<'PDF' | 'PNG' | 'ZPL' | 'EPL'>('PDF');
-  const [csvUseGS1Format, setCsvUseGS1Format] = useState(true); // GS1 format for CSV
-  
+  const [csvUseGS1Format, setCsvUseGS1Format] = useState(true);
+
   const router = useRouter();
 
-  // Build GS1 preview string from form data
-  const buildGS1Preview = () => {
-    if (!skuName || !mfgDate || !expiryDate || !batchNo) {
-      setGs1PreviewString('');
-      return;
-    }
-
-    const gtin = `890${Math.floor(100000000000 + Math.random() * 900000000000)}`;
-    const paddedGtin = gtin.padStart(14, '0');
-    
-    const parts: string[] = [];
-    
-    // (01) GTIN
-    parts.push(`(01)${paddedGtin}`);
-    
-    // (17) Expiration Date - YYMMDD
-    if (expiryDate) {
-      const [dd, mm, yyyy] = expiryDate.split('-');
-      const yy = yyyy.slice(-2);
-      parts.push(`(17)${yy}${mm}${dd}`);
-    }
-    
-    // (10) Batch/Lot Number
-    if (batchNo) {
-      parts.push(`(10)${batchNo}`);
-    }
-    
-    // (11) Manufacturing Date - YYMMDD
-    if (mfgDate) {
-      const [dd, mm, yyyy] = mfgDate.split('-');
-      const yy = yyyy.slice(-2);
-      parts.push(`(11)${yy}${mm}${dd}`);
-    }
-    
-    const gs1String = parts.join('');
-    setGs1PreviewString(gs1String);
-  };
-
-  // Update GS1 preview when form fields change
-  useEffect(() => {
-    buildGS1Preview();
-  }, [skuName, mfgDate, expiryDate, batchNo]);
-
+  // -------------------- LOAD COMPANY --------------------
   useEffect(() => {
     async function loadCompany() {
       try {
-        console.log('Loading company data...');
         const { data: { user }, error: authError } = await supabaseClient().auth.getUser();
-        
+
         if (authError) {
-          console.error('Auth error:', authError);
           setError('Authentication error. Please sign in again.');
           setLoading(false);
           setTimeout(() => router.push('/auth/signin'), 2000);
           return;
         }
-        
+
         if (!user) {
-          console.log('No user found, redirecting to signin');
           router.push('/auth/signin');
           return;
         }
 
-        console.log('User found:', user.id);
         const { data, error } = await supabaseClient()
           .from('companies')
           .select('id, company_name, gst_number')
           .eq('user_id', user.id)
           .single();
 
-        if (error) {
-          console.error('Company fetch error:', error);
+        if (error || !data) {
           setError('No company found. Please complete registration.');
           setLoading(false);
           setTimeout(() => router.push('/auth/signup'), 2000);
           return;
         }
-        
-        if (!data) {
-          console.log('No company data, redirecting to signup');
-          setError('No company found. Please register your company.');
-          setLoading(false);
-          setTimeout(() => router.push('/auth/signup'), 2000);
-          return;
-        }
 
-        console.log('Company loaded:', data);
         setCompany(data);
         setLoading(false);
       } catch (err) {
@@ -144,24 +98,62 @@ export default function GenerateLabels() {
     loadCompany();
   }, [router]);
 
+  // -------------------- BUILD GS1 PREVIEW --------------------
+  // Build preview string using the SAME logic as barcode encoding
+  useEffect(() => {
+    if (!company || !skuName || !mfgDate || !expiryDate || !batchNo || !mrp) {
+      setGs1PreviewString('');
+      return;
+    }
+
+    // Ensure we have a GTIN for preview; generate once per batch
+    if (!gtin) {
+      const body = `890${Math.floor(1000000000 + Math.random() * 9000000000)}`; // 13-digit body for GTIN
+      const gtin14 = makeGtin14(body);
+      setGtin(gtin14);
+      return; // effect will re-run with new gtin
+    }
+
+    const labelData: LabelData = {
+      companyName: company.company_name,
+      productName: skuName,
+      batchNo,
+      mfgDate,
+      expiryDate,
+      mrp,
+      gtin,
+    };
+
+    const display = buildGs1DisplayString(labelData);
+    setGs1PreviewString(display);
+  }, [company, skuName, mfgDate, expiryDate, batchNo, mrp, gtin]);
+
+  // Reset GTIN when form cleared
+  useEffect(() => {
+    if (!skuName && !mfgDate && !expiryDate && !batchNo && !mrp) {
+      setGtin('');
+      setGs1PreviewString('');
+    }
+  }, [skuName, mfgDate, expiryDate, batchNo, mrp]);
+
+  // -------------------- MANUAL GENERATION --------------------
   const handleManualGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!company || !skuName || !mfgDate || !mrp || !expiryDate || !batchNo || !quantity) {
       alert('Please fill all required fields');
       return;
     }
-    
+
     setGenerating(true);
 
     try {
-      const qty = parseInt(quantity);
+      const qty = parseInt(quantity, 10);
       if (isNaN(qty) || qty < 1) {
         alert('Please enter a valid quantity');
         setGenerating(false);
         return;
       }
 
-      // Get current user
       const { data: { user } } = await supabaseClient().auth.getUser();
       if (!user) {
         alert('Please sign in again');
@@ -169,32 +161,36 @@ export default function GenerateLabels() {
         return;
       }
 
-      // Get company details for saving
       const { data: companyData } = await supabaseClient()
         .from('companies')
         .select('contact_person, email, phone, address')
         .eq('id', company.id)
         .single();
 
-      const gtin = `890${Math.floor(100000000000 + Math.random() * 900000000000)}`;
+      // Ensure GTIN-14
+      let currentGtin = gtin;
+      if (!currentGtin) {
+        const body = `890${Math.floor(1000000000 + Math.random() * 9000000000)}`;
+        currentGtin = makeGtin14(body);
+        setGtin(currentGtin);
+      }
 
-      const labelData = {
+      const labelData: LabelData = {
         companyName: company.company_name,
         productName: skuName,
-        batchNo: batchNo,
-        mfgDate: mfgDate,
-        expiryDate: expiryDate,
-        mrp: mrp,
-        gtin,
+        batchNo,
+        mfgDate,
+        expiryDate,
+        mrp,
+        gtin: currentGtin,
       };
 
-      console.log('Generating labels with data:', labelData);
-      console.log('Format:', manualFormat, 'Code Type:', manualCodeType, 'Quantity:', qty, 'GS1:', useGS1Format);
+      const allLabels: LabelData[] = Array(qty).fill(labelData);
 
-      // Generate and download labels
-      await downloadLabelsManual([labelData], qty, manualCodeType, manualFormat, true, false);
-      
-      // Save to product_batches table
+      // Generate & download according to format
+      await downloadLabelsManual(allLabels, manualCodeType, manualFormat, useGS1Format);
+
+      // --- Save to product_batches ---
       const { error: batchError } = await supabaseClient()
         .from('product_batches')
         .insert({
@@ -205,11 +201,11 @@ export default function GenerateLabels() {
           phone: companyData?.phone || 'N/A',
           address: companyData?.address || 'N/A',
           gst_number: company.gst_number,
-          gtin: gtin,
+          gtin: currentGtin,
           sku_name: skuName,
           batch_no: batchNo,
-          mfd: mfgDate.split('-').reverse().join('-'), // Convert DD-MM-YYYY to YYYY-MM-DD
-          expiry: expiryDate.split('-').reverse().join('-'), // Convert DD-MM-YYYY to YYYY-MM-DD
+          mfd: mfgDate.split('-').reverse().join('-'),    // DD-MM-YYYY → YYYY-MM-DD
+          expiry: expiryDate.split('-').reverse().join('-'),
           mrp: parseFloat(mrp),
           labels_count: qty,
         });
@@ -218,7 +214,7 @@ export default function GenerateLabels() {
         console.error('Error saving to product_batches:', batchError);
       }
 
-      // Save to generated_labels table
+      // --- Save to generated_labels ---
       const { error: labelError } = await supabaseClient()
         .from('generated_labels')
         .insert({
@@ -227,7 +223,7 @@ export default function GenerateLabels() {
           label_type: manualCodeType,
           format: manualFormat,
           quantity: qty,
-          gtin: gtin,
+          gtin: currentGtin,
           batch_no: batchNo,
           expiry_date: expiryDate,
         });
@@ -235,30 +231,34 @@ export default function GenerateLabels() {
       if (labelError) {
         console.error('Error saving to generated_labels:', labelError);
       }
-      
-      // Clear form after successful generation
+
+      // Clear form
       setSkuName('');
       setMfgDate('');
       setMrp('');
       setExpiryDate('');
       setBatchNo('');
       setQuantity('1');
-      
+      setGtin('');
+      setGs1PreviewString('');
+
       alert(`Successfully generated ${qty} label(s)!`);
     } catch (error) {
       console.error('Error generating labels:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      alert(`Error generating labels: ${errorMessage}\n\nPlease check the console for details.`);
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      alert(`Error generating labels: ${msg}\n\nPlease check the console for details.`);
     } finally {
       setGenerating(false);
     }
   };
 
+  // -------------------- CSV BULK --------------------
   const handleCsvUpload = () => {
     if (!csvFile || !company) {
       alert('Please select a CSV file');
       return;
     }
+
     setGenerating(true);
 
     Papa.parse(csvFile, {
@@ -273,7 +273,6 @@ export default function GenerateLabels() {
           return;
         }
 
-        // Get current user
         const { data: { user } } = await supabaseClient().auth.getUser();
         if (!user) {
           alert('Please sign in again');
@@ -281,30 +280,33 @@ export default function GenerateLabels() {
           return;
         }
 
-        // Get company details for saving
         const { data: companyData } = await supabaseClient()
           .from('companies')
           .select('contact_person, email, phone, address')
           .eq('id', company.id)
           .single();
 
-        const labels = validRows.map(row => ({
-          companyName: company.company_name,
-          productName: row.productName || "Unknown Product",
-          batchNo: row.batchNo,
-          mfgDate: row.mfgDate || new Date().toLocaleDateString('en-IN'),
-          expiryDate: row.expiryDate || "31-12-2027",
-          mrp: row.mrp || "299.00",
-          gtin: row.gtin || `890${Math.floor(100000000000 + Math.random() * 900000000000)}`,
-        }));
+        const labels: LabelData[] = validRows.map(row => {
+          const baseGtin = row.gtin && String(row.gtin).trim()
+            ? String(row.gtin).trim()
+            : `890${Math.floor(1000000000 + Math.random() * 9000000000)}`;
+          const gtin14 = makeGtin14(baseGtin);
+
+          return {
+            companyName: company.company_name,
+            productName: row.productName || 'Unknown Product',
+            batchNo: row.batchNo,
+            mfgDate: row.mfgDate || new Date().toLocaleDateString('en-IN'), // e.g. 25/11/2025 → handled by parseFlexibleDate
+            expiryDate: row.expiryDate || '31-12-2027',
+            mrp: row.mrp || '299.00',
+            gtin: gtin14,
+          };
+        });
 
         try {
-          // Generate and download labels
-          await downloadLabelsCsv(labels, csvCodeType, csvFormat, true, false);
-          
-          // Save each label batch to database
+          await downloadLabelsCsv(labels, csvCodeType, csvFormat, csvUseGS1Format);
+
           for (const label of labels) {
-            // Save to product_batches table
             const { error: batchError } = await supabaseClient()
               .from('product_batches')
               .insert({
@@ -318,7 +320,7 @@ export default function GenerateLabels() {
                 gtin: label.gtin,
                 sku_name: label.productName,
                 batch_no: label.batchNo,
-                mfd: label.mfgDate.split('-').reverse().join('-'), // Convert DD-MM-YYYY to YYYY-MM-DD
+                mfd: label.mfgDate.split('-').reverse().join('-'),
                 expiry: label.expiryDate.split('-').reverse().join('-'),
                 mrp: parseFloat(label.mrp),
                 labels_count: 1,
@@ -328,7 +330,6 @@ export default function GenerateLabels() {
               console.error('Error saving batch to database:', batchError);
             }
 
-            // Save to generated_labels table
             const { error: labelError } = await supabaseClient()
               .from('generated_labels')
               .insert({
@@ -346,7 +347,7 @@ export default function GenerateLabels() {
               console.error('Error saving label to database:', labelError);
             }
           }
-          
+
           alert(`Successfully generated ${labels.length} label(s) from CSV!`);
           setCsvFile(null);
         } catch (error) {
@@ -360,128 +361,79 @@ export default function GenerateLabels() {
         console.error('CSV parsing error:', error);
         alert('Error parsing CSV file. Please check the format.');
         setGenerating(false);
-      }
+      },
     });
   };
 
-  // Manual label generation download function
+  // -------------------- DOWNLOAD HELPERS --------------------
   const downloadLabelsManual = async (
-    labels: any[], 
-    repeatPerLabel: number, 
+    labels: LabelData[],
     codeType: 'QR' | 'CODE128' | 'DATAMATRIX',
     format: 'PDF' | 'PNG' | 'ZPL' | 'EPL',
-    useGS1: boolean = true,
-    isRxTraceProduct: boolean = false
+    useGS1: boolean
   ) => {
-    console.log('downloadLabelsManual called with:', { labels, repeatPerLabel, codeType, format, useGS1, isRxTraceProduct });
-    
     let textOutput = '';
 
-    try {
-      if (format === 'PDF' || format === 'PNG') {
-        console.log('Generating PDF/PNG with multi-code layout...');
-        
-        // Create array with repeated labels
-        const allLabels: any[] = [];
-        for (const label of labels) {
-          for (let i = 0; i < repeatPerLabel; i++) {
-            allLabels.push(label);
-          }
-        }
-        
-        console.log('Total codes to generate:', allLabels.length);
-        const pdfBlob = await generateMultiCodePDF(allLabels, codeType, useGS1, isRxTraceProduct);
-        console.log('PDF blob generated:', pdfBlob.size, 'bytes');
-        
-        triggerDownload(pdfBlob, `RxTrace_${allLabels.length}_Codes.pdf`);
-        
-      } else if (format === 'ZPL') {
-        console.log('Generating ZPL...');
-        for (const label of labels) {
-          const zpl = generateZPL(label, codeType, useGS1, isRxTraceProduct);
-          textOutput += zpl.repeat(repeatPerLabel);
-        }
-        const blob = new Blob([textOutput], { type: 'text/plain' });
-        triggerDownload(blob, `RxTrace_${labels.length * repeatPerLabel}_Labels.zpl`);
-        
-      } else if (format === 'EPL') {
-        console.log('Generating EPL...');
-        for (const label of labels) {
-          const epl = generateEPL(label, useGS1, isRxTraceProduct);
-          textOutput += epl.repeat(repeatPerLabel);
-        }
-        const blob = new Blob([textOutput], { type: 'text/plain' });
-        triggerDownload(blob, `RxTrace_${labels.length * repeatPerLabel}_Labels.epl`);
+    if (format === 'PDF' || format === 'PNG') {
+      const pdfBlob = await generateMultiCodePDF(labels, codeType, useGS1, false);
+      triggerDownload(pdfBlob, `RxTrace_${labels.length}_Codes.pdf`);
+    } else if (format === 'ZPL') {
+      for (const label of labels) {
+        const zpl = generateZPL(label, codeType, useGS1, false);
+        textOutput += zpl;
       }
-      
-      console.log('Download triggered successfully');
-    } catch (error) {
-      console.error('Error in downloadLabelsManual:', error);
-      throw error;
+      const blob = new Blob([textOutput], { type: 'text/plain' });
+      triggerDownload(blob, `RxTrace_${labels.length}_Labels.zpl`);
+    } else if (format === 'EPL') {
+      for (const label of labels) {
+        const epl = generateEPL(label, useGS1, false);
+        textOutput += epl;
+      }
+      const blob = new Blob([textOutput], { type: 'text/plain' });
+      triggerDownload(blob, `RxTrace_${labels.length}_Labels.epl`);
     }
   };
 
-  // CSV bulk label generation download function
   const downloadLabelsCsv = async (
-    labels: any[],
+    labels: LabelData[],
     codeType: 'QR' | 'CODE128' | 'DATAMATRIX',
     format: 'PDF' | 'PNG' | 'ZPL' | 'EPL',
-    useGS1: boolean = true,
-    isRxTraceProduct: boolean = false
+    useGS1: boolean
   ) => {
     let textOutput = '';
 
-    try {
-      if (format === 'PDF' || format === 'PNG') {
-        console.log('Generating CSV multi-code PDF...');
-        const pdfBlob = await generateMultiCodePDF(labels, codeType, useGS1, isRxTraceProduct);
-        triggerDownload(pdfBlob, `RxTrace_CSV_${labels.length}_Codes.pdf`);
-        
-      } else if (format === 'ZPL') {
-        for (const label of labels) {
-          const zpl = generateZPL(label, codeType, useGS1, isRxTraceProduct);
-          textOutput += zpl;
-        }
-        const blob = new Blob([textOutput], { type: 'text/plain' });
-        triggerDownload(blob, `RxTrace_CSV_${labels.length}_Labels.zpl`);
-        
-      } else if (format === 'EPL') {
-        for (const label of labels) {
-          const epl = generateEPL(label, useGS1, isRxTraceProduct);
-          textOutput += epl;
-        }
-        const blob = new Blob([textOutput], { type: 'text/plain' });
-        triggerDownload(blob, `RxTrace_CSV_${labels.length}_Labels.epl`);
+    if (format === 'PDF' || format === 'PNG') {
+      const pdfBlob = await generateMultiCodePDF(labels, codeType, useGS1, false);
+      triggerDownload(pdfBlob, `RxTrace_CSV_${labels.length}_Codes.pdf`);
+    } else if (format === 'ZPL') {
+      for (const label of labels) {
+        const zpl = generateZPL(label, codeType, useGS1, false);
+        textOutput += zpl;
       }
-    } catch (error) {
-      console.error('Error in downloadLabelsCsv:', error);
-      throw error;
+      const blob = new Blob([textOutput], { type: 'text/plain' });
+      triggerDownload(blob, `RxTrace_CSV_${labels.length}_Labels.zpl`);
+    } else if (format === 'EPL') {
+      for (const label of labels) {
+        const epl = generateEPL(label, useGS1, false);
+        textOutput += epl;
+      }
+      const blob = new Blob([textOutput], { type: 'text/plain' });
+      triggerDownload(blob, `RxTrace_CSV_${labels.length}_Labels.epl`);
     }
   };
 
   const triggerDownload = (blob: Blob, filename: string) => {
-    console.log('triggerDownload called:', { blobSize: blob.size, filename });
-    
-    try {
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      
-      // Clean up after a delay to ensure download starts
-      setTimeout(() => {
-        URL.revokeObjectURL(url);
-        console.log('Download cleanup completed');
-      }, 100);
-    } catch (error) {
-      console.error('Error in triggerDownload:', error);
-      throw error;
-    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 100);
   };
 
+  // -------------------- PRINT --------------------
   const handlePrint = async () => {
     if (!company || !skuName || !mfgDate || !mrp || !expiryDate || !batchNo || !quantity) {
       alert('Please fill all required fields before printing');
@@ -491,35 +443,35 @@ export default function GenerateLabels() {
     setGenerating(true);
 
     try {
-      const qty = parseInt(quantity);
+      const qty = parseInt(quantity, 10);
       if (isNaN(qty) || qty < 1) {
         alert('Please enter a valid quantity');
         setGenerating(false);
         return;
       }
 
-      const gtin = `890${Math.floor(100000000000 + Math.random() * 900000000000)}`;
+      let currentGtin = gtin;
+      if (!currentGtin) {
+        const body = `890${Math.floor(1000000000 + Math.random() * 9000000000)}`;
+        currentGtin = makeGtin14(body);
+        setGtin(currentGtin);
+      }
 
-      const labelData = {
+      const labelData: LabelData = {
         companyName: company.company_name,
         productName: skuName,
-        batchNo: batchNo,
-        mfgDate: mfgDate,
-        expiryDate: expiryDate,
-        mrp: mrp,
-        gtin,
+        batchNo,
+        mfgDate,
+        expiryDate,
+        mrp,
+        gtin: currentGtin,
       };
 
-      console.log('Generating PDF for printing...');
-      
-      // Create array with repeated labels for printing
-      const allLabels = Array(qty).fill(labelData);
-      const pdfBlob = await generateMultiCodePDF(allLabels, manualCodeType, true, false);
-      
-      // Open PDF in new window for printing
+      const allLabels: LabelData[] = Array(qty).fill(labelData);
+      const pdfBlob = await generateMultiCodePDF(allLabels, manualCodeType, useGS1Format, false);
+
       const url = URL.createObjectURL(pdfBlob);
       const printWindow = window.open(url, '_blank');
-      
       if (printWindow) {
         printWindow.onload = () => {
           printWindow.print();
@@ -531,27 +483,28 @@ export default function GenerateLabels() {
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (error) {
       console.error('Error printing labels:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      alert(`Error printing labels: ${errorMessage}`);
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      alert(`Error printing labels: ${msg}`);
     } finally {
       setGenerating(false);
     }
   };
 
+  // -------------------- RENDER STATES --------------------
   if (loading) return (
     <div className="text-center py-20">
       <div className="text-2xl text-gray-600 mb-4">Loading...</div>
       <div className="text-sm text-gray-500">Fetching your company details</div>
     </div>
   );
-  
+
   if (error) return (
     <div className="text-center py-20">
       <div className="text-2xl text-red-600 mb-4">{error}</div>
       <div className="text-sm text-gray-500">Redirecting...</div>
     </div>
   );
-  
+
   if (!company) return (
     <div className="text-center py-20">
       <div className="text-2xl text-red-600 mb-4">No company found</div>
@@ -559,6 +512,7 @@ export default function GenerateLabels() {
     </div>
   );
 
+  // -------------------- UI --------------------
   return (
     <div className="max-w-6xl mx-auto py-10">
       <h1 className="text-4xl font-bold text-[#0052CC] mb-2">Generate Labels</h1>
@@ -573,49 +527,47 @@ export default function GenerateLabels() {
           <form onSubmit={handleManualGenerate} className="space-y-5">
             <div>
               <Label className="text-sm font-semibold text-gray-700">SKU Name / Product Name *</Label>
-              <Input 
-                type="text" 
-                value={skuName} 
-                onChange={(e) => setSkuName(e.target.value)} 
+              <Input
+                type="text"
+                value={skuName}
+                onChange={(e) => setSkuName(e.target.value)}
                 placeholder="e.g., Paracetamol 500mg"
                 required
                 className="mt-1"
               />
             </div>
-            
+
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label className="text-sm font-semibold text-gray-700">MFG Date *</Label>
-                <Input 
-                  type="date" 
-                  value={mfgDate ? mfgDate.split('-').reverse().join('-') : ''} 
+                <Input
+                  type="date"
+                  value={mfgDate ? mfgDate.split('-').reverse().join('-') : ''}
                   onChange={(e) => {
-                    // Convert YYYY-MM-DD to DD-MM-YYYY for storage
                     if (e.target.value) {
                       const [year, month, day] = e.target.value.split('-');
                       setMfgDate(`${day}-${month}-${year}`);
                     } else {
                       setMfgDate('');
                     }
-                  }} 
+                  }}
                   required
                   className="mt-1"
                 />
               </div>
               <div>
                 <Label className="text-sm font-semibold text-gray-700">Expiry Date *</Label>
-                <Input 
-                  type="date" 
-                  value={expiryDate ? expiryDate.split('-').reverse().join('-') : ''} 
+                <Input
+                  type="date"
+                  value={expiryDate ? expiryDate.split('-').reverse().join('-') : ''}
                   onChange={(e) => {
-                    // Convert YYYY-MM-DD to DD-MM-YYYY for storage
                     if (e.target.value) {
                       const [year, month, day] = e.target.value.split('-');
                       setExpiryDate(`${day}-${month}-${year}`);
                     } else {
                       setExpiryDate('');
                     }
-                  }} 
+                  }}
                   required
                   className="mt-1"
                 />
@@ -625,10 +577,10 @@ export default function GenerateLabels() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label className="text-sm font-semibold text-gray-700">MRP (₹) *</Label>
-                <Input 
-                  type="text" 
-                  value={mrp} 
-                  onChange={(e) => setMrp(e.target.value)} 
+                <Input
+                  type="text"
+                  value={mrp}
+                  onChange={(e) => setMrp(e.target.value)}
                   placeholder="299.00"
                   required
                   className="mt-1"
@@ -636,10 +588,10 @@ export default function GenerateLabels() {
               </div>
               <div>
                 <Label className="text-sm font-semibold text-gray-700">Batch No *</Label>
-                <Input 
-                  type="text" 
-                  value={batchNo} 
-                  onChange={(e) => setBatchNo(e.target.value)} 
+                <Input
+                  type="text"
+                  value={batchNo}
+                  onChange={(e) => setBatchNo(e.target.value)}
                   placeholder="BATCH001"
                   required
                   className="mt-1"
@@ -678,11 +630,11 @@ export default function GenerateLabels() {
 
             <div>
               <Label className="text-sm font-semibold text-gray-700">Quantity *</Label>
-              <Input 
-                type="number" 
-                value={quantity} 
-                onChange={(e) => setQuantity(e.target.value)} 
-                min="1" 
+              <Input
+                type="number"
+                value={quantity}
+                onChange={(e) => setQuantity(e.target.value)}
+                min="1"
                 max="10000"
                 required
                 className="mt-1"
@@ -692,15 +644,22 @@ export default function GenerateLabels() {
             {/* GS1 Preview */}
             {gs1PreviewString && (
               <div className="mt-4 p-4 bg-blue-50 border-2 border-blue-300 rounded-lg">
-                <Label className="text-sm font-bold text-blue-900 mb-2 block">📋 GS1-Compliant Data Preview:</Label>
+                <Label className="text-sm font-bold text-blue-900 mb-2 block">
+                  📋 GS1-Compliant Data Preview:
+                </Label>
                 <div className="bg-white p-3 rounded border border-blue-200 font-mono text-sm break-all text-blue-800">
                   {gs1PreviewString}
                 </div>
                 <p className="text-xs text-blue-700 mt-2">
-                  ✓ This exact GS1 string will be encoded in your barcode/QR code
+                  ✓ This exact GS1 string will be encoded in your barcode/QR/DataMatrix
                 </p>
                 <div className="text-xs text-blue-600 mt-2 space-y-1">
-                  <div><strong>(01)</strong> = GTIN • <strong>(17)</strong> = Expiry • <strong>(10)</strong> = Batch • <strong>(11)</strong> = MFG Date</div>
+                  <div>
+                    <strong>(01)</strong> = GTIN • <strong>(17)</strong> = Expiry •{' '}
+                    <strong>(11)</strong> = MFG • <strong>(10)</strong> = Batch •{' '}
+                    <strong>(91)</strong> = MRP • <strong>(92)</strong> = SKU •{' '}
+                    <strong>(93)</strong> = Company
+                  </div>
                 </div>
               </div>
             )}
@@ -713,7 +672,7 @@ export default function GenerateLabels() {
               >
                 {generating ? 'Generating...' : 'Download Labels'}
               </Button>
-              
+
               <Button
                 type="button"
                 onClick={handlePrint}
@@ -731,7 +690,7 @@ export default function GenerateLabels() {
         {/* CSV Bulk */}
         <Card className="p-10">
           <h2 className="text-2xl font-bold mb-8 text-[#0052CC]">Bulk CSV Upload</h2>
-          
+
           <div className="space-y-5 mb-6">
             <div>
               <Label className="text-sm font-semibold text-gray-700">Code Type for CSV *</Label>
