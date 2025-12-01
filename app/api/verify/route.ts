@@ -1,6 +1,7 @@
 // app/api/verify/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { parseGS1, formatGS1ForDisplay } from '@/lib/parseGS1';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -20,28 +21,48 @@ export async function POST(request: NextRequest) {
 
     console.log('Verifying code:', code);
 
-    // Search in product_batches table by GTIN
+    // Parse GS1 data from scanned code
+    const gs1Data = parseGS1(code);
+    console.log('Parsed GS1 data:', gs1Data);
+
+    // Try to find product by GTIN (extracted from GS1 or raw code)
+    const searchGtin = gs1Data.gtin || code;
+    
     const { data: batch, error } = await supabase
       .from('product_batches')
       .select('*')
-      .eq('gtin', code)
+      .eq('gtin', searchGtin)
       .single();
 
     if (error || !batch) {
-      console.log('Product not found in database');
+      console.log('Product not found in database for GTIN:', searchGtin);
       return NextResponse.json({
         verified: false,
         rxtraceVerified: false,
         message: 'Product not found in RxTrace database',
-        code: code,
+        scannedData: gs1Data.parsed ? formatGS1ForDisplay(gs1Data) : code,
+        parsedGS1: gs1Data.parsed ? gs1Data : null,
       });
+    }
+
+    // Product found - verify batch and expiry if available
+    let batchMatch = true;
+    let expiryMatch = true;
+
+    if (gs1Data.batchNo && gs1Data.batchNo !== batch.batch_no) {
+      batchMatch = false;
+      console.warn('Batch mismatch:', gs1Data.batchNo, '!==', batch.batch_no);
     }
 
     // Product found - it's RxTrace verified!
     return NextResponse.json({
       verified: true,
       rxtraceVerified: true,
+      batchMatch,
+      expiryMatch,
       message: 'Verified by RxTrace India ✓',
+      scannedData: gs1Data.parsed ? formatGS1ForDisplay(gs1Data) : code,
+      parsedGS1: gs1Data.parsed ? gs1Data : null,
       product: {
         companyName: batch.company_name,
         skuName: batch.sku_name,

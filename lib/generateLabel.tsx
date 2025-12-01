@@ -57,6 +57,10 @@ function buildGS1String(data: LabelData, forBarcode: boolean = false): string {
   const GS = String.fromCharCode(29); // Group Separator (ASCII 29) - used in GS1 for variable length fields
   const parts: string[] = [];
   
+  console.log('=== buildGS1String called ===');
+  console.log('Input data:', JSON.stringify(data, null, 2));
+  console.log('forBarcode:', forBarcode);
+  
   // (01) GTIN - Global Trade Item Number (14 digits, pad with leading zeros)
   // Fixed length - no separator needed after this
   if (data.gtin) {
@@ -66,18 +70,28 @@ function buildGS1String(data: LabelData, forBarcode: boolean = false): string {
     } else {
       parts.push(`(01)${paddedGtin}`);
     }
+    console.log('✓ Added GTIN:', paddedGtin);
+  } else {
+    console.warn('✗ Missing GTIN');
   }
   
   // (17) Expiration Date - YYMMDD format (6 digits)
   // Fixed length - no separator needed after this
   if (data.expiryDate) {
     const [dd, mm, yyyy] = data.expiryDate.split('-');
-    const yy = yyyy.slice(-2);
-    if (forBarcode) {
-      parts.push(`17${yy}${mm}${dd}`);
+    if (!dd || !mm || !yyyy) {
+      console.error('✗ Invalid expiry date format:', data.expiryDate, 'Expected: DD-MM-YYYY');
     } else {
-      parts.push(`(17)${yy}${mm}${dd}`);
+      const yy = yyyy.slice(-2);
+      if (forBarcode) {
+        parts.push(`17${yy}${mm}${dd}`);
+      } else {
+        parts.push(`(17)${yy}${mm}${dd}`);
+      }
+      console.log('✓ Added Expiry Date:', `${yy}${mm}${dd} (from ${data.expiryDate})`);
     }
+  } else {
+    console.warn('✗ Missing Expiry Date');
   }
   
   // (10) Batch/Lot Number - Variable length
@@ -87,21 +101,32 @@ function buildGS1String(data: LabelData, forBarcode: boolean = false): string {
     if (forBarcode) {
       // Add GS separator after batch number for proper parsing
       parts.push(`10${data.batchNo}${GS}`);
+      console.log('✓ Added Batch Number:', data.batchNo, '(with GS separator)');
     } else {
       parts.push(`(10)${data.batchNo}`);
+      console.log('✓ Added Batch Number:', data.batchNo);
     }
+  } else {
+    console.warn('✗ Missing Batch Number');
   }
   
   // (11) Production/Manufacturing Date - YYMMDD format (6 digits)
   // Fixed length - no separator needed
   if (data.mfgDate) {
     const [dd, mm, yyyy] = data.mfgDate.split('-');
-    const yy = yyyy.slice(-2);
-    if (forBarcode) {
-      parts.push(`11${yy}${mm}${dd}`);
+    if (!dd || !mm || !yyyy) {
+      console.error('✗ Invalid MFG date format:', data.mfgDate, 'Expected: DD-MM-YYYY');
     } else {
-      parts.push(`(11)${yy}${mm}${dd}`);
+      const yy = yyyy.slice(-2);
+      if (forBarcode) {
+        parts.push(`11${yy}${mm}${dd}`);
+      } else {
+        parts.push(`(11)${yy}${mm}${dd}`);
+      }
+      console.log('✓ Added MFG Date:', `${yy}${mm}${dd} (from ${data.mfgDate})`);
     }
+  } else {
+    console.warn('✗ Missing MFG Date');
   }
   
   // (21) Serial Number (optional) - Variable length
