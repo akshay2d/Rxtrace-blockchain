@@ -4,7 +4,7 @@ import QRCode from 'qrcode';
 import JsBarcode from 'jsbarcode';
 import bwipjs from 'bwip-js';
 
-// Styles for compact label (only barcode, no text)
+// Styles for compact label (barcode-only layout)
 const styles = StyleSheet.create({
   page: {
     padding: 10,
@@ -13,192 +13,117 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     alignContent: 'flex-start',
   },
-  codeContainer: {
-    width: 80,  // Each code is 80x80 pts (about 28mm)
+
+  // For QR / DataMatrix (square codes)
+  codeContainerSquare: {
+    width: 80,   // ~28mm
     height: 80,
     margin: 2,
     alignItems: 'center',
     justifyContent: 'center',
   },
+
+  // For 1D barcodes (Code128 / GS1-128)
+  codeContainerBar: {
+    width: 180,  // wider for proper bar width
+    height: 70,  // taller for scanner
+    margin: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });
-
-// ===================== DATE HELPERS =====================
-
-/**
- * Parse a date string that might be:
- * - DD-MM-YYYY
- * - YYYY-MM-DD
- * - DD/MM/YYYY
- * - YYYY/MM/DD
- * and return { dd, mm, yyyy } or null if invalid.
- */
-function parseFlexibleDate(
-  input: string | undefined | null
-): { dd: string; mm: string; yyyy: string } | null {
-  if (!input) return null;
-
-  const value = input.trim();
-  if (!value) return null;
-
-  const sep = value.includes('-') ? '-' : value.includes('/') ? '/' : null;
-  if (!sep) return null;
-
-  const parts = value.split(sep);
-  if (parts.length !== 3) return null;
-
-  let dd = '';
-  let mm = '';
-  let yyyy = '';
-
-  // YYYY-MM-DD or YYYY/MM/DD
-  if (parts[0].length === 4) {
-    yyyy = parts[0];
-    mm = parts[1];
-    dd = parts[2];
-  } else if (parts[2].length === 4) {
-    // DD-MM-YYYY or DD/MM/YYYY
-    dd = parts[0];
-    mm = parts[1];
-    yyyy = parts[2];
-  } else {
-    // Fallback: treat last part as year (YY) and expand
-    dd = parts[0];
-    mm = parts[1];
-    const yy = parts[2];
-    const fullYear =
-      parseInt(yy, 10) < 50 ? 2000 + parseInt(yy, 10) : 1900 + parseInt(yy, 10);
-    yyyy = String(fullYear);
-  }
-
-  if (!dd || !mm || !yyyy) return null;
-  if (dd.length === 1) dd = `0${dd}`;
-  if (mm.length === 1) mm = `0${mm}`;
-
-  return { dd, mm, yyyy };
-}
-
-/** Convert any supported input date to GS1 YYMMDD. Returns null if invalid. */
-function toGs1Date(input: string | undefined | null): string | null {
-  const parsed = parseFlexibleDate(input);
-  if (!parsed) return null;
-  const { dd, mm, yyyy } = parsed;
-  const yy = yyyy.slice(-2);
-  return `${yy}${mm}${dd}`;
-}
-
-// ===================== GTIN HELPERS =====================
-
-/** Calculate GS1 mod-10 check digit for GTIN body (without check digit) */
-export function calcGs1CheckDigit(body: string): string {
-  const digits = body.replace(/\D/g, '').split('').map(Number).reverse();
-  let sum = 0;
-  for (let i = 0; i < digits.length; i++) {
-    sum += digits[i] * (i % 2 === 0 ? 3 : 1);
-  }
-  const mod = sum % 10;
-  return mod === 0 ? '0' : String(10 - mod);
-}
-
-/** Build a valid GTIN-14 from up to 13 digits (no check digit yet) */
-export function makeGtin14(body: string): string {
-  const clean = body.replace(/\D/g, '');
-  const withoutCheck = clean.padStart(13, '0');
-  const check = calcGs1CheckDigit(withoutCheck);
-  return withoutCheck + check;
-}
-
-// ===================== CORE LABEL TYPE =====================
 
 export interface LabelData {
   companyName: string;
-  productName: string;  // SKU / trade name
+  productName: string;
   batchNo: string;
-  mfgDate: string;      // any of: DD-MM-YYYY / YYYY-MM-DD / DD/MM/YYYY / YYYY/MM/DD
-  expiryDate: string;   // same formats
+  mfgDate: string;     // DD-MM-YYYY
+  expiryDate: string;  // DD-MM-YYYY
   mrp: string;
-  gtin: string;         // full GTIN-14 (with check digit)
+  gtin: string;        // GTIN-14 or unique identifier
   serial?: string;
 }
 
-// ===================== GS1 DATA STRING =====================
-
-const GS = String.fromCharCode(29); // Group Separator
+// ==================== GS1 FORMAT HELPERS ====================
 
 /**
- * Build GS1 string.
- *   forBarcode = false → (01)GTIN(17)...(11)...(10)...(91)...(92)...(93)...(21)...
- *   forBarcode = true  → 01GTIN17YYMMDD11YYMMDD10BATCH<GS>91MRP<GS>92SKU<GS>93COMPANY<GS>21SERIAL<GS>
+ * Build GS1-compliant data string from label data.
  *
- * AIs used:
- * - (01) GTIN-14
- * - (17) Expiry date YYMMDD
- * - (11) MFG date YYMMDD
- * - (10) Batch (variable, GS)
- * - (91) MRP (company-internal, variable, GS)
- * - (92) SKU / Product name (company-internal, variable, GS)
- * - (93) Company name (company-internal, variable, GS)
- * - (21) Serial (optional, variable, GS)
+ * Uses AIs:
+ * - (01) GTIN (14 digits)
+ * - (17) Expiration Date (YYMMDD)
+ * - (10) Batch/Lot (variable, GS-terminated)
+ * - (11) MFG date (YYMMDD)
+ * - (21) Serial (optional, GS-terminated)
+ *
+ * For barcode encoding:
+ * - `forBarcode = true` → raw AIs without parentheses + GS separators
+ * - `forBarcode = false` → human-readable "(01)...(17)..."
  */
-export function buildGS1String(data: LabelData, forBarcode: boolean): string {
+function buildGS1String(data: LabelData, forBarcode: boolean = false): string {
+  const GS = String.fromCharCode(29);
   const parts: string[] = [];
 
-  // (01) GTIN – assume gtin already has body+check; normalize to 14 digits
-  const gtinDigits = (data.gtin || '').replace(/\D/g, '');
-  const gtin14 = gtinDigits.padStart(14, '0');
-
-  if (forBarcode) {
-    parts.push(`01${gtin14}`);
-  } else {
-    parts.push(`(01)${gtin14}`);
+  // (01) GTIN - 14 digits, pad with leading zeros
+  if (data.gtin) {
+    const paddedGtin = data.gtin.padStart(14, '0');
+    if (forBarcode) {
+      parts.push(`01${paddedGtin}`);
+    } else {
+      parts.push(`(01)${paddedGtin}`);
+    }
   }
 
-  // (17) Expiry
-  const gs1Expiry = toGs1Date(data.expiryDate);
-  if (gs1Expiry) {
-    parts.push(forBarcode ? `17${gs1Expiry}` : `(17)${gs1Expiry}`);
+  // (17) Expiration Date - YYMMDD
+  if (data.expiryDate) {
+    const [dd, mm, yyyy] = data.expiryDate.split('-'); // DD-MM-YYYY
+    if (dd && mm && yyyy) {
+      const yy = yyyy.slice(-2);
+      if (forBarcode) {
+        parts.push(`17${yy}${mm}${dd}`);
+      } else {
+        parts.push(`(17)${yy}${mm}${dd}`);
+      }
+    }
   }
 
-  // (11) MFG
-  const gs1Mfg = toGs1Date(data.mfgDate);
-  if (gs1Mfg) {
-    parts.push(forBarcode ? `11${gs1Mfg}` : `(11)${gs1Mfg}`);
-  }
-
-  // (10) Batch (variable, GS)
+  // (10) Batch/Lot - variable length (GS after value in barcode mode)
   if (data.batchNo) {
-    parts.push(forBarcode ? `10${data.batchNo}${GS}` : `(10)${data.batchNo}`);
+    if (forBarcode) {
+      parts.push(`10${data.batchNo}${GS}`);
+    } else {
+      parts.push(`(10)${data.batchNo}`);
+    }
   }
 
-  // (91) MRP (variable, GS)
-  if (data.mrp) {
-    parts.push(forBarcode ? `91${data.mrp}${GS}` : `(91)${data.mrp}`);
+  // (11) MFG Date - YYMMDD
+  if (data.mfgDate) {
+    const [dd, mm, yyyy] = data.mfgDate.split('-'); // DD-MM-YYYY
+    if (dd && mm && yyyy) {
+      const yy = yyyy.slice(-2);
+      if (forBarcode) {
+        parts.push(`11${yy}${mm}${dd}`);
+      } else {
+        parts.push(`(11)${yy}${mm}${dd}`);
+      }
+    }
   }
 
-  // (92) SKU / Product (variable, GS)
-  if (data.productName) {
-    parts.push(forBarcode ? `92${data.productName}${GS}` : `(92)${data.productName}`);
-  }
-
-  // (93) Company (variable, GS)
-  if (data.companyName) {
-    parts.push(forBarcode ? `93${data.companyName}${GS}` : `(93)${data.companyName}`);
-  }
-
-  // (21) Serial (optional, variable, GS)
+  // (21) Serial (optional, GS for barcode mode if more AIs followed)
   if (data.serial) {
-    parts.push(forBarcode ? `21${data.serial}${GS}` : `(21)${data.serial}`);
+    if (forBarcode) {
+      parts.push(`21${data.serial}${GS}`);
+    } else {
+      parts.push(`(21)${data.serial}`);
+    }
   }
 
   return parts.join('');
 }
 
-/** For UI preview: human-readable GS1 string with parentheses */
-export function buildGs1DisplayString(data: LabelData): string {
-  return buildGS1String(data, false);
-}
-
 /**
- * Build RxTrace verification URL (optional mode)
+ * Build RxTrace verification URL.
+ * Encodes GTIN / Serial / Lot / Dates as query params.
  */
 function buildRxTraceURL(data: LabelData): string {
   const params = new URLSearchParams();
@@ -207,27 +132,30 @@ function buildRxTraceURL(data: LabelData): string {
   if (data.serial) params.append('sn', data.serial);
   if (data.batchNo) params.append('lot', data.batchNo);
 
-  const expParsed = parseFlexibleDate(data.expiryDate);
-  if (expParsed) {
-    params.append('exp', `${expParsed.yyyy}-${expParsed.mm}-${expParsed.dd}`);
+  // Convert DD-MM-YYYY → YYYY-MM-DD
+  if (data.expiryDate) {
+    const [dd, mm, yyyy] = data.expiryDate.split('-');
+    if (dd && mm && yyyy) {
+      params.append('exp', `${yyyy}-${mm}-${dd}`);
+    }
   }
-
-  const mfgParsed = parseFlexibleDate(data.mfgDate);
-  if (mfgParsed) {
-    params.append('mfg', `${mfgParsed.yyyy}-${mfgParsed.mm}-${mfgParsed.dd}`);
+  if (data.mfgDate) {
+    const [dd, mm, yyyy] = data.mfgDate.split('-');
+    if (dd && mm && yyyy) {
+      params.append('mfg', `${yyyy}-${mm}-${dd}`);
+    }
   }
 
   return `https://rxtrace.in/verify?${params.toString()}`;
 }
 
-// ===================== BARCODE IMAGE GENERATION =====================
+// ==================== BARCODE GENERATION ====================
 
 /**
- * Generate barcode image with GS1 support
- * @param data - Label data
- * @param type - Barcode type
- * @param useGS1Format - If true, use GS1 AIs; if false, encode plain GTIN-14
- * @param isRxTraceProduct - If true, encode RxTrace URL instead of GS1 data
+ * Generate barcode image with GS1 support.
+ * - type: 'QR' | 'CODE128' | 'DATAMATRIX'
+ * - useGS1Format: encode GS1 AIs vs plain GTIN
+ * - isRxTraceProduct: encode RxTrace URL instead of GS1 AIs
  */
 async function generateBarcodeImage(
   data: LabelData,
@@ -236,51 +164,51 @@ async function generateBarcodeImage(
   isRxTraceProduct: boolean = false
 ): Promise<string> {
   try {
+    // 1. Decide payload to encode
     let barcodeData: string;
 
     if (isRxTraceProduct) {
       barcodeData = buildRxTraceURL(data);
-      console.log('Generating RxTrace URL:', barcodeData);
     } else if (useGS1Format) {
-      barcodeData = buildGS1String(data, true); // raw GS1 data with AIs + GS
-      console.log('Generating GS1 data:', barcodeData.replace(/\x1D/g, '<GS>'));
+      barcodeData = buildGS1String(data, true); // for barcode encoding
     } else {
-      // Plain GTIN-14 only
-      const digits = (data.gtin || '').replace(/\D/g, '');
-      barcodeData = digits.padStart(14, '0');
-      console.log('Generating plain GTIN:', barcodeData);
+      barcodeData = data.gtin;
     }
 
+    // 2. QR code
     if (type === 'QR') {
       const dataUrl = await QRCode.toDataURL(barcodeData, {
         width: 300,
         margin: 1,
         errorCorrectionLevel: 'H',
       });
-      console.log('QR generated');
       return dataUrl;
     }
 
+    // 3. 1D Code128 / GS1-128
     if (type === 'CODE128') {
-      // GS1-128 with bwip-js (FNC1)
       try {
-        let text = barcodeData;
+        // Use bwip-js for GS1-128 (1D) with FNC1 prefix
+        let bwipData = barcodeData;
         if (useGS1Format && !isRxTraceProduct) {
-          text = '^FNC1' + barcodeData;
+          // ^FNC1 indicates GS1-mode to bwip-js
+          bwipData = '^FNC1' + barcodeData;
         }
 
         const canvas = bwipjs.toCanvas(document.createElement('canvas'), {
           bcid: 'gs1-128',
-          text,
-          scale: 3,
-          height: 10,
+          text: bwipData,
+          scale: 4,        // thicker bars than before
+          height: 15,      // taller bars
           includetext: false,
         });
 
-        console.log('GS1-128 generated (bwip-js)');
-        return canvas.toDataURL('image/png');
-      } catch (err) {
-        console.error('Error generating GS1-128 with bwip-js, fallback to JsBarcode:', err);
+        const dataUrl = canvas.toDataURL('image/png');
+        return dataUrl;
+      } catch (error) {
+        console.error('Error generating GS1-128 with bwip-js, fallback to JsBarcode:', error);
+
+        // Fallback to JsBarcode plain Code128
         const canvas = document.createElement('canvas');
         JsBarcode(canvas, barcodeData, {
           format: 'CODE128',
@@ -289,11 +217,12 @@ async function generateBarcodeImage(
           displayValue: false,
           margin: 5,
         });
-        console.log('GS1-128 fallback (JsBarcode)');
-        return canvas.toDataURL('image/png');
+        const dataUrl = canvas.toDataURL('image/png');
+        return dataUrl;
       }
     }
 
+    // 4. DataMatrix (2D)
     if (type === 'DATAMATRIX') {
       try {
         const canvas = bwipjs.toCanvas(document.createElement('canvas'), {
@@ -301,33 +230,44 @@ async function generateBarcodeImage(
           text: barcodeData,
           scale: 4,
         });
-        console.log('DataMatrix generated');
-        return canvas.toDataURL('image/png');
-      } catch (err) {
-        console.error('DataMatrix failed, fallback to QR:', err);
-        const dataUrl = await QRCode.toDataURL(barcodeData, {
-          width: 300,
-          margin: 1,
-          errorCorrectionLevel: 'H',
-        });
-        console.log('DataMatrix fallback QR generated');
+        const dataUrl = canvas.toDataURL('image/png');
         return dataUrl;
+      } catch (error) {
+        console.error('DataMatrix generation failed, attempting fallbacks:', error);
+
+        // Fallback 1: simpler options
+        try {
+          const canvas = bwipjs.toCanvas(document.createElement('canvas'), {
+            bcid: 'datamatrix',
+            text: barcodeData,
+          });
+          const dataUrl = canvas.toDataURL('image/png');
+          return dataUrl;
+        } catch (fallbackError) {
+          console.error('Simplified DataMatrix also failed, fallback to QR:', fallbackError);
+
+          // Final fallback: QR
+          const dataUrl = await QRCode.toDataURL(barcodeData, {
+            width: 300,
+            margin: 1,
+            errorCorrectionLevel: 'H',
+          });
+          return dataUrl;
+        }
       }
     }
 
     throw new Error('Unknown barcode type');
   } catch (error) {
     console.error('Error generating barcode image:', error);
-    throw new Error(
-      `Failed to generate barcode: ${error instanceof Error ? error.message : 'Unknown error'}`
-    );
+    throw new Error(`Failed to generate barcode: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
 
-// ===================== PDF GENERATION =====================
+// ==================== PDF GENERATION ====================
 
 /**
- * Generate PDF with single label (simple layout: only barcode, no text)
+ * Generate PDF with a single code (barcode-only label).
  */
 export async function generatePDF(
   data: LabelData,
@@ -337,12 +277,20 @@ export async function generatePDF(
 ) {
   try {
     const barcodeUrl = await generateBarcodeImage(data, codeType, useGS1Format, isRxTraceProduct);
+    const is1D = codeType === 'CODE128';
 
     const Doc = () => (
       <Document>
         <Page size="A4" style={styles.page}>
-          <View style={styles.codeContainer}>
-            <Image src={barcodeUrl} style={{ width: 76, height: 76 }} />
+          <View style={is1D ? styles.codeContainerBar : styles.codeContainerSquare}>
+            <Image
+              src={barcodeUrl}
+              style={
+                is1D
+                  ? { width: 160, height: 50 }  // wide, tall barcode
+                  : { width: 76, height: 76 }   // square 2D codes
+              }
+            />
           </View>
         </Page>
       </Document>
@@ -352,14 +300,12 @@ export async function generatePDF(
     return blob;
   } catch (error) {
     console.error('Error in generatePDF:', error);
-    throw new Error(
-      `Failed to generate PDF: ${error instanceof Error ? error.message : 'Unknown error'}`
-    );
+    throw new Error(`Failed to generate PDF: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
 
 /**
- * Generate PDF with multiple codes on one page (bulk printing)
+ * Generate PDF with multiple codes on pages (for bulk printing).
  */
 export async function generateMultiCodePDF(
   labels: LabelData[],
@@ -368,16 +314,14 @@ export async function generateMultiCodePDF(
   isRxTraceProduct: boolean = false
 ) {
   try {
-    console.log('generateMultiCodePDF called with', labels.length, 'labels, type:', codeType);
-
-    // Generate all barcode images first
     const barcodeUrls: string[] = [];
     for (const label of labels) {
       const url = await generateBarcodeImage(label, codeType, useGS1Format, isRxTraceProduct);
       barcodeUrls.push(url);
     }
 
-    const codesPerPage = 100;
+    const codesPerPage = 100; // for 2D; for 1D the actual number per page will be lower visually
+    const is1D = codeType === 'CODE128';
 
     const Doc = () => (
       <Document>
@@ -389,8 +333,18 @@ export async function generateMultiCodePDF(
           return (
             <Page key={pageIndex} size="A4" style={styles.page}>
               {pageCodes.map((url, idx) => (
-                <View key={idx} style={styles.codeContainer}>
-                  <Image src={url} style={{ width: 76, height: 76 }} />
+                <View
+                  key={idx}
+                  style={is1D ? styles.codeContainerBar : styles.codeContainerSquare}
+                >
+                  <Image
+                    src={url}
+                    style={
+                      is1D
+                        ? { width: 160, height: 50 }
+                        : { width: 76, height: 76 }
+                    }
+                  />
                 </View>
               ))}
             </Page>
@@ -403,13 +357,11 @@ export async function generateMultiCodePDF(
     return blob;
   } catch (error) {
     console.error('Error in generateMultiCodePDF:', error);
-    throw new Error(
-      `Failed to generate multi-code PDF: ${error instanceof Error ? error.message : 'Unknown error'}`
-    );
+    throw new Error(`Failed to generate multi-code PDF: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
 
-// ===================== SAVE & SHARE HELPERS =====================
+// ==================== SAVE / SHARE / PRINT HELPERS ====================
 
 export async function savePDF(blob: Blob, filename: string = 'rxtrace-label'): Promise<void> {
   try {
@@ -423,9 +375,7 @@ export async function savePDF(blob: Blob, filename: string = 'rxtrace-label'): P
     URL.revokeObjectURL(url);
   } catch (error) {
     console.error('Error saving PDF:', error);
-    throw new Error(
-      `Failed to save PDF: ${error instanceof Error ? error.message : 'Unknown error'}`
-    );
+    throw new Error(`Failed to save PDF: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
 
@@ -447,14 +397,11 @@ export async function sharePDF(
       files: [file],
     });
   } catch (error) {
-    console.error('Error sharing PDF:', error);
+    console.error('Error sharing PDF, falling back to save:', error);
     await savePDF(blob, filename);
   }
 }
 
-/**
- * Save barcode as PNG image
- */
 export async function saveAsImage(
   data: LabelData,
   type: 'QR' | 'CODE128' | 'DATAMATRIX' = 'QR',
@@ -464,7 +411,6 @@ export async function saveAsImage(
 ): Promise<void> {
   try {
     const dataUrl = await generateBarcodeImage(data, type, useGS1Format, isRxTraceProduct);
-
     const link = document.createElement('a');
     link.href = dataUrl;
     link.download = `${filename}.png`;
@@ -473,19 +419,15 @@ export async function saveAsImage(
     document.body.removeChild(link);
   } catch (error) {
     console.error('Error saving image:', error);
-    throw new Error(
-      `Failed to save image: ${error instanceof Error ? error.message : 'Unknown error'}`
-    );
+    throw new Error(`Failed to save image: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
 
-/**
- * Print PDF directly
- */
 export async function printPDF(blob: Blob): Promise<void> {
   try {
     const url = URL.createObjectURL(blob);
     const printWindow = window.open(url, '_blank');
+
     if (printWindow) {
       printWindow.onload = () => {
         printWindow.print();
@@ -493,20 +435,16 @@ export async function printPDF(blob: Blob): Promise<void> {
     } else {
       throw new Error('Failed to open print window');
     }
+
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   } catch (error) {
     console.error('Error printing PDF:', error);
-    throw new Error(
-      `Failed to print PDF: ${error instanceof Error ? error.message : 'Unknown error'}`
-    );
+    throw new Error(`Failed to print PDF: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
 
-// ===================== ZPL & EPL WITH GS1 =====================
+// ==================== ZPL & EPL GENERATION ====================
 
-/**
- * Generate ZPL (Zebra) with GS1 format
- */
 export function generateZPL(
   data: LabelData,
   codeType: 'QR' | 'CODE128' | 'DATAMATRIX' = 'QR',
@@ -520,25 +458,21 @@ export function generateZPL(
   } else if (useGS1Format) {
     barcodeData = buildGS1String(data, true);
   } else {
-    const digits = (data.gtin || '').replace(/\D/g, '');
-    barcodeData = digits.padStart(14, '0');
+    barcodeData = data.gtin;
   }
 
-  let codeZpl = '';
-
-  if (codeType === 'QR') {
-    codeZpl = `^FO80,140^BQN,2,5^FDQA,${barcodeData}^FS`;
-  } else if (codeType === 'CODE128') {
-    // For GS1-128, add FNC1 marker (>8)
-    let code128Data = barcodeData;
-    if (useGS1Format && !isRxTraceProduct) {
-      code128Data = '>8' + barcodeData;
-    }
-    codeZpl = `^FO50,150^BY3^BCN,100,Y,N,N^FD${code128Data}^FS`;
-  } else {
-    // DataMatrix
-    codeZpl = `^FO80,150^BXN,8,200^FD${barcodeData}^FS`;
+  let code128Data = barcodeData;
+  if (codeType === 'CODE128' && useGS1Format && !isRxTraceProduct) {
+    // In ZPL, >8 is FNC1 for GS1-128
+    code128Data = '>8' + barcodeData;
   }
+
+  const codeZpl =
+    codeType === 'QR'
+      ? `^FO80,140^BQN,2,5^FDQA,${barcodeData}^FS`
+      : codeType === 'CODE128'
+      ? `^FO50,150^BY3^BCN,100,Y,N,N^FD${code128Data}^FS`
+      : `^FO80,150^BXN,8,200^FD${barcodeData}^FS`;
 
   return `^XA
 ^CF0,30
@@ -551,9 +485,6 @@ ${codeZpl}
 ^XZ`;
 }
 
-/**
- * Generate EPL (Eltron/Zebra) with GS1 format
- */
 export function generateEPL(
   data: LabelData,
   useGS1Format: boolean = true,
@@ -566,8 +497,7 @@ export function generateEPL(
   } else if (useGS1Format) {
     barcodeData = buildGS1String(data, true);
   } else {
-    const digits = (data.gtin || '').replace(/\D/g, '');
-    barcodeData = digits.padStart(14, '0');
+    barcodeData = data.gtin;
   }
 
   return `N
@@ -582,16 +512,14 @@ P1
 `;
 }
 
-// ===================== HELPER EXPORTS =====================
+// ==================== HELPER EXPORTS ====================
 
 export const helpers = {
   buildGS1String,
-  buildGs1DisplayString,
   buildRxTraceURL,
-  calcGs1CheckDigit,
-  makeGtin14,
   savePDF,
   sharePDF,
   saveAsImage,
   printPDF,
 };
+
