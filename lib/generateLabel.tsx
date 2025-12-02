@@ -44,6 +44,27 @@ export interface LabelData {
   serial?: string;
 }
 
+// ==================== GTIN HELPERS ====================
+
+/** Calculate GS1 mod-10 check digit for GTIN body (without check digit) */
+export function calcGs1CheckDigit(body: string): string {
+  const digits = body.replace(/\D/g, '').split('').map(Number).reverse();
+  let sum = 0;
+  for (let i = 0; i < digits.length; i++) {
+    sum += digits[i] * (i % 2 === 0 ? 3 : 1);
+  }
+  const mod = sum % 10;
+  return mod === 0 ? '0' : String(10 - mod);
+}
+
+/** Build a valid GTIN-14 from up to 13 digits (no check digit yet) */
+export function makeGtin14(body: string): string {
+  const clean = body.replace(/\D/g, '');
+  const withoutCheck = clean.padStart(13, '0');
+  const check = calcGs1CheckDigit(withoutCheck);
+  return withoutCheck + check;
+}
+
 // ==================== GS1 FORMAT HELPERS ====================
 
 /**
@@ -119,6 +140,11 @@ function buildGS1String(data: LabelData, forBarcode: boolean = false): string {
   }
 
   return parts.join('');
+}
+
+/** For UI preview: human-readable GS1 string with parentheses */
+export function buildGs1DisplayString(data: LabelData): string {
+  return buildGS1String(data, false);
 }
 
 /**
@@ -516,7 +542,10 @@ P1
 
 export const helpers = {
   buildGS1String,
+  buildGs1DisplayString,
   buildRxTraceURL,
+  calcGs1CheckDigit,
+  makeGtin14,
   savePDF,
   sharePDF,
   saveAsImage,
