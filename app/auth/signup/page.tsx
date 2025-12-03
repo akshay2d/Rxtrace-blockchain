@@ -131,7 +131,7 @@ export default function SignUp() {
       <Card className="max-w-2xl w-full p-8 shadow-2xl">
         <CardHeader className="text-center mb-6">
           <CardTitle className="text-3xl font-bold text-[#0052CC]">Register Your Company</CardTitle>
-          <p className="text-gray-600 mt-2">GST mandatory • One-time registration</p>
+          <p className="text-gray-600 mt-2">GST optional • One-time registration</p>
         </CardHeader>
 
         <CardContent>
@@ -148,7 +148,7 @@ export default function SignUp() {
               rows={3}
               required
             />
-            <Input name="gst_number" placeholder="GST Number *" required />
+            <Input name="gst_number" placeholder="GST Number (optional)" />
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               <Input name="gtin_prefix" placeholder="GTIN Prefix (optional)" />

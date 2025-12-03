@@ -38,6 +38,7 @@ type BatchRow = {
   id: string;
   fields: Gs1Fields;
   payload: string;
+  codeType: CodeType;
 };
 
 function isoDateToYYMMDD(iso?: string): string | undefined {
@@ -131,6 +132,8 @@ function csvToRows(csvText: string, codeType: CodeType): BatchRow[] {
     const company = (row['COMPANY'] || row['company'] || '').toString().trim();
     const qtyRaw = (row['QTY'] || row['qty'] || row['Qty'] || '1').toString().trim();
     const qty = Math.max(1, parseInt(qtyRaw) || 1);
+    const codeTypeRaw = (row['CODE_TYPE'] || row['code_type'] || row['CodeType'] || '').toString().trim().toUpperCase();
+    const rowCodeType: CodeType = (codeTypeRaw === 'DATAMATRIX' || codeTypeRaw === 'DM') ? 'DATAMATRIX' : 'QR';
 
     // convert possible date formats to YYMMDD using Date parsing if needed
     const mfdYY = isoDateToYYMMDD(mfdRaw) || (mfdRaw.length === 6 ? mfdRaw : undefined);
@@ -153,7 +156,8 @@ function csvToRows(csvText: string, codeType: CodeType): BatchRow[] {
       out.push({
         id: `r${out.length + 1}`,
         fields,
-        payload
+        payload,
+        codeType: rowCodeType
       });
     }
   });
@@ -221,7 +225,8 @@ export default function Page() {
           sku: form.sku || undefined,
           company: form.company || undefined
         },
-        payload
+        payload,
+        codeType: form.codeType
       });
     }
     setBatch((s) => [...s, ...newRows]);
@@ -367,7 +372,7 @@ export default function Page() {
             </label>
 
             <button type="button" className="px-4 py-2 bg-white border rounded" onClick={() => {
-              const csv = 'GTIN,MFD,EXP,BATCH,MRP,SKU,COMPANY,QTY\n1234567890123,250101,260101,BATCH001,30.00,SKU001,Company Name,100\n1234567890124,250101,260101,BATCH002,35.00,SKU002,Company Name,50';
+              const csv = 'GTIN,MFD,EXP,BATCH,MRP,SKU,COMPANY,QTY,CODE_TYPE\n1234567890123,250101,260101,BATCH001,30.00,SKU001,Company Name,100,QR\n1234567890124,250101,260101,BATCH002,35.00,SKU002,Company Name,50,DATAMATRIX';
               const blob = new Blob([csv], { type: 'text/csv' });
               saveAs(blob, 'template.csv');
             }}>Download Template</button>
