@@ -30,6 +30,6 @@
     "**/*.ts",
     "**/*.tsx",
     ".next/types/**/*.ts"
-  ],
+, "lib/gs1Builder.js"  ],
   "exclude": ["node_modules"]
 }
