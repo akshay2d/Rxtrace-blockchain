@@ -31,6 +31,7 @@ type FormState = {
   sku: string;
   company: string;
   codeType: CodeType;
+  quantity: number;
 };
 
 type BatchRow = {
@@ -128,6 +129,8 @@ function csvToRows(csvText: string, codeType: CodeType): BatchRow[] {
     const batch = (row['BATCH'] || row['batch'] || '').toString().trim();
     const sku = (row['SKU'] || row['sku'] || '').toString().trim();
     const company = (row['COMPANY'] || row['company'] || '').toString().trim();
+    const qtyRaw = (row['QTY'] || row['qty'] || row['Qty'] || '1').toString().trim();
+    const qty = Math.max(1, parseInt(qtyRaw) || 1);
 
     // convert possible date formats to YYMMDD using Date parsing if needed
     const mfdYY = isoDateToYYMMDD(mfdRaw) || (mfdRaw.length === 6 ? mfdRaw : undefined);
@@ -144,11 +147,15 @@ function csvToRows(csvText: string, codeType: CodeType): BatchRow[] {
     };
 
     const payload = buildGs1ElementString(fields);
-    out.push({
-      id: `r${idx + 1}`,
-      fields,
-      payload
-    });
+    
+    // Generate qty copies of this row
+    for (let i = 0; i < qty; i++) {
+      out.push({
+        id: `r${out.length + 1}`,
+        fields,
+        payload
+      });
+    }
   });
 
   return out;
@@ -163,7 +170,8 @@ export default function Page() {
     mrp: '',
     sku: '',
     company: '',
-    codeType: 'QR'
+    codeType: 'QR',
+    quantity: 1
   });
 
   const [payload, setPayload] = useState<string | undefined>(undefined);
@@ -199,20 +207,24 @@ export default function Page() {
       setError('Build payload first');
       return;
     }
-    const row: BatchRow = {
-      id: `b${batch.length + 1}`,
-      fields: {
-        gtin: form.gtin,
-        mfdYYMMDD: isoDateToYYMMDD(form.mfdDate),
-        expiryYYMMDD: isoDateToYYMMDD(form.expiryDate),
-        batch: form.batch || undefined,
-        mrp: form.mrp || undefined,
-        sku: form.sku || undefined,
-        company: form.company || undefined
-      },
-      payload
-    };
-    setBatch((s) => [...s, row]);
+    const qty = Math.max(1, Math.floor(form.quantity));
+    const newRows: BatchRow[] = [];
+    for (let i = 0; i < qty; i++) {
+      newRows.push({
+        id: `b${batch.length + newRows.length + 1}`,
+        fields: {
+          gtin: form.gtin,
+          mfdYYMMDD: isoDateToYYMMDD(form.mfdDate),
+          expiryYYMMDD: isoDateToYYMMDD(form.expiryDate),
+          batch: form.batch || undefined,
+          mrp: form.mrp || undefined,
+          sku: form.sku || undefined,
+          company: form.company || undefined
+        },
+        payload
+      });
+    }
+    setBatch((s) => [...s, ...newRows]);
   }
 
   function handleCsvUpload(file: File) {
@@ -338,6 +350,11 @@ export default function Page() {
               <div className="text-sm text-gray-600">Company</div>
               <input className="mt-1 p-2 border rounded w-full" value={form.company} onChange={(e) => update('company', e.target.value)} />
             </label>
+
+            <label>
+              <div className="text-sm text-gray-600">Quantity</div>
+              <input type="number" min="1" className="mt-1 p-2 border rounded w-full" value={form.quantity} onChange={(e) => update('quantity', parseInt(e.target.value) || 1)} />
+            </label>
           </div>
 
           <div className="flex gap-2 mt-4">
@@ -348,6 +365,12 @@ export default function Page() {
               Upload CSV
               <input type="file" accept=".csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleCsvUpload(f); }} />
             </label>
+
+            <button type="button" className="px-4 py-2 bg-white border rounded" onClick={() => {
+              const csv = 'GTIN,MFD,EXP,BATCH,MRP,SKU,COMPANY,QTY\n1234567890123,250101,260101,BATCH001,30.00,SKU001,Company Name,100\n1234567890124,250101,260101,BATCH002,35.00,SKU002,Company Name,50';
+              const blob = new Blob([csv], { type: 'text/csv' });
+              saveAs(blob, 'template.csv');
+            }}>Download Template</button>
 
             <button type="button" className="px-4 py-2 bg-indigo-600 text-white rounded ml-auto" onClick={() => { setBatch([]); }}>Clear Batch</button>
           </div>
