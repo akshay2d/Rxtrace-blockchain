@@ -3,7 +3,17 @@
 import React, { useState } from 'react';
 import GenerateLabel from '@/lib/generateLabel'; // adjust path if needed
 import { buildGs1ElementString } from '@/lib/gs1Builder'; // adjust path if needed
-import type { Gs1Fields } from '@/lib/gs1Builder';
+
+// Define the type locally since gs1Builder.js is JavaScript
+type Gs1Fields = {
+  gtin: string;
+  mfdYYMMDD?: string;
+  expiryYYMMDD?: string;
+  batch?: string;
+  mrp?: string;
+  sku?: string;
+  company?: string;
+};
 
 type FormState = {
   gtin: string;

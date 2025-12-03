@@ -3,7 +3,18 @@ import QRCode from 'qrcode';
 
 // Adjust this import to your project layout.
 // If your canonical builder lives at project root lib/gs1Builder.js or .ts, update path accordingly.
-import { buildGs1ElementString, Gs1Fields } from '@/lib/gs1Builder'; // <-- adjust path if needed
+import { buildGs1ElementString } from '@/lib/gs1Builder'; // <-- adjust path if needed
+
+// Define the type locally since gs1Builder.js is JavaScript
+type Gs1Fields = {
+  gtin: string;
+  mfdYYMMDD?: string;
+  expiryYYMMDD?: string;
+  batch?: string;
+  mrp?: string;
+  sku?: string;
+  company?: string;
+};
 
 type CodeType = 'QR' | 'DATAMATRIX';
 
@@ -105,7 +116,7 @@ export default function GenerateLabel({
           bcid: 'datamatrix',       // Barcode type
           text: payload,           // Data to encode
           scale: 2,                // 1..n
-          includeText: false       // we render human-readable fields separately
+          includetext: false       // we render human-readable fields separately (lowercase for bwip-js)
         });
 
         if (onRendered) onRendered(payload);
