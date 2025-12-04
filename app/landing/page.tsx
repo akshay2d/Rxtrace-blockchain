@@ -39,33 +39,15 @@ export default function LandingPage() {
                 <span className="text-2xl font-bold text-[#0052CC]">RxTrace India</span>
               </div>
 
-              <nav className="hidden md:flex items-center gap-8">
-                {['Home', 'Features', 'How it Works', 'Pricing'].map((item) => (
-                  <a
-                    key={item}
-                    href={`#${item.toLowerCase().replace(/\s+/g, '-')}`}
-                    className="text-gray-700 hover:text-[#0052CC] font-medium transition-colors"
-                  >
-                    {item}
-                  </a>
-                ))}
-                <a
-                  href="mailto:support@rxtrace.in"
-                  className="text-gray-700 hover:text-[#0052CC] font-medium transition-colors"
-                >
-                  Contact
-                </a>
-              </nav>
-
               <div className="flex items-center gap-4">
-                <Link href="/dashboard">
-                  <Button variant="outline" className="border-[#0052CC] text-[#0052CC] hover:bg-[#0052CC] hover:text-white">
-                    My Dashboard
-                  </Button>
-                </Link>
                 <Link href="/pricing">
                   <Button variant="outline" className="border-green-600 text-green-600 hover:bg-green-600 hover:text-white">
                     Pricing
+                  </Button>
+                </Link>
+                <Link href="/dashboard">
+                  <Button variant="outline" className="border-[#0052CC] text-[#0052CC] hover:bg-[#0052CC] hover:text-white">
+                    My Dashboard
                   </Button>
                 </Link>
                 <Link href="/auth/signin">
@@ -268,18 +250,18 @@ export default function LandingPage() {
                 </div>
               </div>
               <div>
-                <h4 className="font-semibold mb-6">Stay Connected</h4>
+                <h4 className="font-semibold mb-6">Contact Us</h4>
                 <div className="flex gap-4 mb-8">
                   <a href="#" className="hover:text-orange-400 transition"><Twitter className="h-6 w-6" /></a>
                   <a href="#" className="hover:text-orange-400 transition"><Linkedin className="h-6 w-6" /></a>
                   <a href="#" className="hover:text-orange-400 transition"><Youtube className="h-6 w-6" /></a>
                 </div>
-                <form className="space-y-4">
-                  <Input placeholder="Your Name" className="bg-white/10 border-white/20 text-white placeholder:text-gray-400" />
-                  <Input placeholder="Your Email" className="bg-white/10 border-white/20 text-white placeholder:text-gray-400" />
-                  <Input placeholder="Mobile Number" className="bg-white/10 border-white/20 text-white placeholder:text-gray-400" />
-                  <Textarea placeholder="Message" rows={3} className="bg-white/10 border-white/20 text-white placeholder:text-gray-400" />
-                  <Button className="w-full bg-orange-500 hover:bg-orange-600">Send Message</Button>
+                <form action="https://docs.google.com/forms/d/e/1FAIpQLSeVg4xHAgrYxXNjpcdLQNX8wfOxd60RQv8GgUlMD6-F-J1RWQ/formResponse" method="POST" target="_blank" className="space-y-4">
+                  <Input name="entry.2005620554" placeholder="Your Name" required className="bg-white/10 border-white/20 text-white placeholder:text-gray-400" />
+                  <Input name="entry.1045781291" type="email" placeholder="Your Email" required className="bg-white/10 border-white/20 text-white placeholder:text-gray-400" />
+                  <Input name="entry.1166974658" placeholder="Mobile Number" required className="bg-white/10 border-white/20 text-white placeholder:text-gray-400" />
+                  <Textarea name="entry.839337160" placeholder="Message" rows={3} required className="bg-white/10 border-white/20 text-white placeholder:text-gray-400" />
+                  <Button type="submit" className="w-full bg-orange-500 hover:bg-orange-600">Send Message</Button>
                 </form>
               </div>
             </div>
