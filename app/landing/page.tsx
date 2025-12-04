@@ -257,10 +257,10 @@ export default function LandingPage() {
                   <a href="#" className="hover:text-orange-400 transition"><Youtube className="h-6 w-6" /></a>
                 </div>
                 <form action="https://docs.google.com/forms/d/e/1FAIpQLSeVg4xHAgrYxXNjpcdLQNX8wfOxd60RQv8GgUlMD6-F-J1RWQ/formResponse" method="POST" target="_blank" className="space-y-4">
-                  <Input name="entry.2005620554" placeholder="Your Name" required className="bg-white/10 border-white/20 text-white placeholder:text-gray-400" />
-                  <Input name="entry.1045781291" type="email" placeholder="Your Email" required className="bg-white/10 border-white/20 text-white placeholder:text-gray-400" />
-                  <Input name="entry.1166974658" placeholder="Mobile Number" required className="bg-white/10 border-white/20 text-white placeholder:text-gray-400" />
-                  <Textarea name="entry.839337160" placeholder="Message" rows={3} required className="bg-white/10 border-white/20 text-white placeholder:text-gray-400" />
+                  <Input name="entry.109322999" placeholder="Your Name" required className="bg-white/10 border-white/20 text-white placeholder:text-gray-400" />
+                  <Input name="entry.1877762347" type="email" placeholder="Your Email" required className="bg-white/10 border-white/20 text-white placeholder:text-gray-400" />
+                  <Input name="entry.1191825708" placeholder="Mobile Number" required className="bg-white/10 border-white/20 text-white placeholder:text-gray-400" />
+                  <Textarea name="entry.1986194420" placeholder="Message" rows={3} required className="bg-white/10 border-white/20 text-white placeholder:text-gray-400" />
                   <Button type="submit" className="w-full bg-orange-500 hover:bg-orange-600">Send Message</Button>
                 </form>
               </div>
