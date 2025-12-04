@@ -40,7 +40,7 @@ export default function LandingPage() {
               </div>
 
               <nav className="hidden md:flex items-center gap-8">
-                {['Home', 'Features', 'How it Works', 'Pricing', 'Contact'].map((item) => (
+                {['Home', 'Features', 'How it Works', 'Pricing'].map((item) => (
                   <a
                     key={item}
                     href={`#${item.toLowerCase().replace(/\s+/g, '-')}`}
@@ -49,6 +49,12 @@ export default function LandingPage() {
                     {item}
                   </a>
                 ))}
+                <a
+                  href="mailto:support@rxtrace.in"
+                  className="text-gray-700 hover:text-[#0052CC] font-medium transition-colors"
+                >
+                  Contact
+                </a>
               </nav>
 
               <div className="flex items-center gap-4">
@@ -271,6 +277,7 @@ export default function LandingPage() {
                 <form className="space-y-4">
                   <Input placeholder="Your Name" className="bg-white/10 border-white/20 text-white placeholder:text-gray-400" />
                   <Input placeholder="Your Email" className="bg-white/10 border-white/20 text-white placeholder:text-gray-400" />
+                  <Input placeholder="Mobile Number" className="bg-white/10 border-white/20 text-white placeholder:text-gray-400" />
                   <Textarea placeholder="Message" rows={3} className="bg-white/10 border-white/20 text-white placeholder:text-gray-400" />
                   <Button className="w-full bg-orange-500 hover:bg-orange-600">Send Message</Button>
                 </form>
