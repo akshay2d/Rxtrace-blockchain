@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { useState } from 'react';
 import { 
   ShieldCheck, 
   Zap, 
@@ -27,9 +28,51 @@ import {
 import Link from 'next/link';
 
 export default function LandingPage() {
+  const [showSuccessPopup, setShowSuccessPopup] = useState(false);
+
+  const handleFormSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const formData = new FormData(form);
+    
+    // Submit to Google Forms
+    fetch(form.action, {
+      method: 'POST',
+      body: formData,
+      mode: 'no-cors'
+    }).then(() => {
+      setShowSuccessPopup(true);
+      form.reset();
+      setTimeout(() => setShowSuccessPopup(false), 5000);
+    }).catch(() => {
+      setShowSuccessPopup(true);
+      form.reset();
+      setTimeout(() => setShowSuccessPopup(false), 5000);
+    });
+  };
+
   return (
     <>
       <div className="min-h-screen bg-white">
+        {/* Success Popup */}
+        {showSuccessPopup && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
+            <div className="bg-white rounded-lg shadow-xl p-8 max-w-md w-full text-center animate-in fade-in slide-in-from-bottom-4 duration-300">
+              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <CheckCircle className="h-10 w-10 text-green-600" />
+              </div>
+              <h3 className="text-2xl font-bold text-gray-900 mb-2">Response Submitted Successfully!</h3>
+              <p className="text-gray-600 mb-6">Thank you for contacting us. We'll get back to you soon.</p>
+              <Button 
+                onClick={() => setShowSuccessPopup(false)} 
+                className="bg-[#0052CC] hover:bg-blue-700"
+              >
+                Close
+              </Button>
+            </div>
+          </div>
+        )}
+
         {/* Header / Navbar */}
         <header className="sticky top-0 z-50 border-b bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/60">
           <div className="container mx-auto px-4">
@@ -256,7 +299,7 @@ export default function LandingPage() {
                   <a href="#" className="hover:text-orange-400 transition"><Linkedin className="h-6 w-6" /></a>
                   <a href="#" className="hover:text-orange-400 transition"><Youtube className="h-6 w-6" /></a>
                 </div>
-                <form action="https://docs.google.com/forms/d/e/1FAIpQLSeVg4xHAgrYxXNjpcdLQNX8wfOxd60RQv8GgUlMD6-F-J1RWQ/formResponse" method="POST" target="_blank" className="space-y-4">
+                <form action="https://docs.google.com/forms/d/e/1FAIpQLSeVg4xHAgrYxXNjpcdLQNX8wfOxd60RQv8GgUlMD6-F-J1RWQ/formResponse" method="POST" onSubmit={handleFormSubmit} className="space-y-4">
                   <Input name="entry.109322999" placeholder="Your Name" required className="bg-white/10 border-white/20 text-white placeholder:text-gray-400" />
                   <Input name="entry.1877762347" type="email" placeholder="Your Email" required className="bg-white/10 border-white/20 text-white placeholder:text-gray-400" />
                   <Input name="entry.1191825708" placeholder="Mobile Number" required className="bg-white/10 border-white/20 text-white placeholder:text-gray-400" />
