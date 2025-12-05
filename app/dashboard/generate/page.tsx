@@ -8,6 +8,7 @@ import { jsPDF } from 'jspdf';
 
 import GenerateLabel from '@/lib/generateLabel'; // adjust path if needed
 import { buildGs1ElementString } from '@/lib/gs1Builder'; // adjust path if needed
+import IssuePrinterSelector, { Printer } from '@/components/IssuePrinterSelector';
 
 // Define the type locally since gs1Builder.js is JavaScript
 type Gs1Fields = {
@@ -32,6 +33,7 @@ type FormState = {
   company: string;
   codeType: CodeType;
   quantity: number;
+  printerId: string;
 };
 
 type BatchRow = {
@@ -175,12 +177,27 @@ export default function Page() {
     sku: '',
     company: '',
     codeType: 'QR',
-    quantity: 1
+    quantity: 1,
+    printerId: ''
   });
 
   const [payload, setPayload] = useState<string | undefined>(undefined);
   const [batch, setBatch] = useState<BatchRow[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [printers, setPrinters] = useState<Printer[]>([]);
+
+  // Fetch printers from API
+  async function fetchPrinters() {
+    try {
+      const res = await fetch('/api/printers');
+      if (!res.ok) return [];
+      const data = await res.json();
+      setPrinters(data || []);
+      return data || [];
+    } catch {
+      return [];
+    }
+  }
 
   function update<K extends keyof FormState>(k: K, v: FormState[K]) {
     setForm((s) => ({ ...s, [k]: v }));
@@ -355,6 +372,24 @@ export default function Page() {
               <div className="text-sm text-gray-600">Company</div>
               <input className="mt-1 p-2 border rounded w-full" value={form.company} onChange={(e) => update('company', e.target.value)} />
             </label>
+
+            <div className="col-span-2">
+              <IssuePrinterSelector
+                printers={printers}
+                selectedPrinter={form.printerId || null}
+                onChange={(id) => update('printerId', id || '')}
+                fetchPrinters={fetchPrinters}
+              />
+              <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded text-sm text-blue-800">
+                <strong>📌 Printer ID Instructions:</strong>
+                <ul className="mt-1 ml-4 list-disc space-y-1">
+                  <li>Click <strong>"Select"</strong> to choose from existing printers</li>
+                  <li>Click <strong>"Create Printer"</strong> to add a new printer ID</li>
+                  <li>Printer IDs must be <strong>2-20 characters</strong>: uppercase letters (A-Z), numbers (0-9), and hyphens (-) only</li>
+                  <li>Examples: <code className="bg-white px-1 rounded">PR-01</code>, <code className="bg-white px-1 rounded">LINE-A</code>, <code className="bg-white px-1 rounded">PRINTER-123</code></li>
+                </ul>
+              </div>
+            </div>
 
             <label>
               <div className="text-sm text-gray-600">Quantity</div>
