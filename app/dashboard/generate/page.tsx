@@ -21,6 +21,7 @@ type Gs1Fields = {
   mrp?: string;
   sku?: string;
   company?: string;
+  serial?: string;
 };
 
 type CodeType = 'QR' | 'DATAMATRIX';
@@ -130,6 +131,46 @@ async function buildPdf(rows: BatchRow[], size = 250) {
 
   return doc;
 }
+
+/** parse CSV text into BatchRow[].
+  Expected headers: GTIN, SKU, MFD, EXP, BATCH, MRP, COMPANY, QTY, CODE_TYPE
+  Only Printer ID is required from form state
+  GTIN is optional - will auto-generate if blank
+*/
+async function csvToRows(csvText: string, printerId: string): Promise<BatchRow[]> {
+  const parsed = Papa.parse<Record<string, string>>(csvText, { header: true, skipEmptyLines: true });
+  const out: BatchRow[] = [];
+  
+  for (const row of parsed.data) {
+    const gtinRaw = (row['GTIN'] || row['gtin'] || '').toString().trim();
+    const gtin = gtinRaw || generateGTIN(); // Auto-generate if blank
+    const mfdRaw = (row['MFD'] || row['mfd'] || row['Mfd'] || '').toString().trim();
+    const expRaw = (row['EXP'] || row['Exp'] || row['expiry'] || '').toString().trim();
+    const mrp = (row['MRP'] || row['mrp'] || '').toString().trim();
+    const batch = (row['BATCH'] || row['batch'] || '').toString().trim();
+    const sku = (row['SKU'] || row['sku'] || '').toString().trim();
+    const companyName = (row['COMPANY'] || row['company'] || row['MANUFACTURER'] || row['manufacturer'] || '').toString().trim();
+    const qtyRaw = (row['QTY'] || row['qty'] || row['Qty'] || '1').toString().trim();
+    const qty = Math.max(1, parseInt(qtyRaw) || 1);
+    const codeTypeRaw = (row['CODE_TYPE'] || row['code_type'] || row['CodeType'] || '').toString().trim().toUpperCase();
+    const rowCodeType: CodeType = (codeTypeRaw === 'DATAMATRIX' || codeTypeRaw === 'DM') ? 'DATAMATRIX' : 'QR';
+
+    // Convert dates to ISO format for API
+    const mfdISO = mfdRaw.length === 6 ? `20${mfdRaw.slice(0,2)}-${mfdRaw.slice(2,4)}-${mfdRaw.slice(4,6)}` : mfdRaw;
+    const expISO = expRaw.length === 6 ? `20${expRaw.slice(0,2)}-${expRaw.slice(2,4)}-${expRaw.slice(4,6)}` : expRaw;
+
+    // Call /api/issues to generate unique serials for this row
+    try {
+      const res = await fetch('/api/issues', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          gtin,
+          batch,
+          mfd: mfdISO || null,
+          exp: expISO,
+          quantity: qty,
+          printer_id: printerId
         })
       });
 
@@ -150,8 +191,7 @@ async function buildPdf(rows: BatchRow[], size = 250) {
             batch: batch || undefined,
             mrp: mrp || undefined,
             sku: sku || undefined,
-            company: companyName || undefined,
-            serial: item.serial || undefined
+            company: companyName || undefined
           },
           payload: item.gs1,
           codeType: rowCodeType
@@ -286,33 +326,10 @@ export default function Page() {
       }
       
       const result = await res.json();
-<<<<<<< HEAD
-
-      // Validate API returned expected number of items and that each item has a serial
-      if (!result.items || !Array.isArray(result.items) || result.items.length !== qty) {
-        console.warn('API returned unexpected items count', { expected: qty, got: result.items?.length });
-        // proceed but surface a warning to the user
-        setError(`Warning: expected ${qty} codes but API returned ${result.items?.length || 0}`);
-      }
-
-      const newRows: BatchRow[] = result.items.map((item: any, idx: number) => {
-        // Ensure serial exists
-        const serial = item.serial || null;
-        let gs1payload = item.gs1 || '';
-
-        // If GS1 payload doesn't contain the serial (AI 21), append it
-        if (serial && !gs1payload.includes(serial)) {
-          // If gs1payload already ends with AI 21 label like '21', just append serial
-          gs1payload = gs1payload + `21${serial}`;
-        }
-
-        return ({
-=======
       console.log('API Response:', result); // Debug log
       console.log('Items count:', result.items?.length); // Debug log
       
       const newRows: BatchRow[] = result.items.map((item: any, idx: number) => ({
->>>>>>> parent of 6cc9b770 (fix: Batch preview + allow Add without Build; DataMatrix export; robust qty parsing)
         id: `b${batch.length + idx + 1}`,
         fields: {
           gtin: finalGtin,
@@ -321,10 +338,9 @@ export default function Page() {
           batch: form.batch || undefined,
           mrp: form.mrp || undefined,
           sku: form.sku || undefined,
-          company: company || undefined,
-          serial: serial || undefined
+          company: company || undefined
         },
-        payload: gs1payload, // Use GS1 payload with serial ensured
+        payload: item.gs1, // Use unique GS1 payload with serial from API
         codeType: form.codeType
       }));
       
