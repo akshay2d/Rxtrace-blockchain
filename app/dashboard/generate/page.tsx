@@ -376,7 +376,7 @@ export default function Page() {
           gs1payload = gs1payload + `21${serial}`;
         }
 
-        return {
+        return ({
         id: `b${batch.length + idx + 1}`,
         fields: {
           gtin: finalGtin,
@@ -390,8 +390,7 @@ export default function Page() {
         },
         payload: gs1payload, // Use GS1 payload with serial ensured
         codeType: form.codeType
-      };
-      });
+      }));
       
       setBatch((s) => [...s, ...newRows]);
       setError(null);
