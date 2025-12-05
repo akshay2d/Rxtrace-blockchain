@@ -4,11 +4,13 @@ import { createClient } from "@supabase/supabase-js";
 import { generateSerial, buildGs1MachinePayload, formatDateYYMMDD } from "@/utils/gs1SerialUtil";
 
 // --- Supabase Server Client (service key required) ---
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_KEY!, // NEVER expose on client side
-  { auth: { persistSession: false } }
-);
+function getSupabaseClient() {
+  return createClient(
+    process.env.SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_KEY!, // NEVER expose on client side
+    { auth: { persistSession: false } }
+  );
+}
 
 // Simple validation
 function isValidPrinterId(id: string) {
@@ -37,6 +39,7 @@ export async function POST(req: Request) {
     if (qty < 1) return NextResponse.json({ message: "Quantity must be >= 1" }, { status: 400 });
 
     const created: Array<{ serial: string; gs1: string }> = [];
+    const supabase = getSupabaseClient();
 
     // ------------------
     // GENERATE SERIALS

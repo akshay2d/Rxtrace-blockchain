@@ -3,15 +3,17 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
 // Server-side SUPABASE service role client (use env var with SERVICE ROLE KEY)
-const SUPABASE_URL = process.env.SUPABASE_URL!;
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY!;
-if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
-  throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_KEY env vars');
+function getSupabaseClient() {
+  const SUPABASE_URL = process.env.SUPABASE_URL!;
+  const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY!;
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
+    throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_KEY env vars');
+  }
+  return createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
+    // don't expose this client to browser
+    auth: { persistSession: false },
+  });
 }
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
-  // don't expose this client to browser
-  auth: { persistSession: false },
-});
 
 // Basic ID validation
 function isValidPrinterId(id: string) {
@@ -21,6 +23,7 @@ function isValidPrinterId(id: string) {
 // GET: list printers (public or admin; here we return active printers)
 export async function GET() {
   try {
+    const supabase = getSupabaseClient();
     const { data, error } = await supabase
       .from('printers')
       .select('id, name, model, location, active, created_at')
@@ -66,6 +69,7 @@ export async function POST(req: Request) {
 
     // Supabase upsert (onConflict 'id')
     // NOTE: upsert will insert or update rows with matching 'id'
+    const supabase = getSupabaseClient();
     const { data, error } = await supabase
       .from('printers')
       .upsert(rows, { onConflict: 'id' })
