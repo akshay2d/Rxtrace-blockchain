@@ -40,8 +40,10 @@ type FormState = {
 type BatchRow = {
   id: string;
   fields: Gs1Fields;
-  payload: string;
+  // codes: array of generated codes (each with serial and gs1 payload)
+  codes: Array<{ serial?: string; gs1: string }>;
   codeType: CodeType;
+  quantity: number;
 };
 
 /** Generate GTIN with optional custom prefix */
@@ -77,9 +79,9 @@ function formatDateForDisplay(iso?: string) {
  * This produces a textual ZPL template that expects the printer to handle graphic insertion by your pipeline.
  */
 function buildZplForRow(row: BatchRow) {
-  // simple text-only template with DataMatrix placeholder
+  // simple text-only template with DataMatrix placeholder (row-level helper kept for compatibility)
   const top = '^XA\n';
-  const payloadComment = `^FX Payload: ${row.payload}\n`;
+  const payloadComment = `^FX Payload: [multiple codes]\n`;
   const fieldsLines =
     `^FO50,50^A0N,30,30^FDGTIN: ${row.fields.gtin}^FS\n` +
     `^FO50,90^A0N,30,30^FDMFD: ${row.fields.mfdYYMMDD ?? ''}^FS\n` +
@@ -107,62 +109,100 @@ function buildEplForRow(row: BatchRow) {
   return lines.join('\n') + '\n';
 }
 
-/** Build a PDF of labels — each label as an A6-like box per page */
+/** Build a PDF of labels — grid layout, multiple codes per page (default 10x10 = 100 per page) */
 async function buildPdf(rows: BatchRow[], size = 250) {
-    const doc = new jsPDF({ unit: 'pt', format: 'a4' }); // using points
+  const doc = new jsPDF({ unit: 'pt', format: 'a4' }); // using points
 
-    // Render each row, embedding a PNG of the barcode (QR/DataMatrix) and human-readable fields
-    const qrcode = await import('qrcode');
-    const bwipjs = await import('bwip-js');
+  const qrcode = await import('qrcode');
+  const bwipjs = await import('bwip-js');
 
-    for (let i = 0; i < rows.length; i++) {
-      const r = rows[i];
-      doc.setFontSize(10);
-      doc.text(`GTIN: ${r.fields.gtin}`, 20, 30);
-      doc.text(`MFD: ${r.fields.mfdYYMMDD ?? ''}`, 20, 50);
-      doc.text(`EXP: ${r.fields.expiryYYMMDD ?? ''}`, 20, 70);
-      doc.text(`BATCH: ${r.fields.batch ?? ''}`, 20, 90);
-      doc.text(`MRP: ${r.fields.mrp ?? ''}`, 20, 110);
-      doc.text(`SKU: ${r.fields.sku ?? ''}`, 20, 130);
-      doc.text(`COMPANY: ${r.fields.company ?? ''}`, 20, 150);
+  // Flatten codes with parent fields
+  const items: Array<{ gs1: string; codeType: CodeType; fields: Gs1Fields; serial?: string }> = [];
+  for (let r of rows) {
+    const codes = r.codes || [];
+    for (let c of codes) {
+      items.push({ gs1: c.gs1, codeType: r.codeType, fields: r.fields, serial: c.serial });
+    }
+  }
 
-      // Render barcode image
+  // Grid configuration: 10 x 10 (100 per page)
+  const cols = 10;
+  const rowsPerPage = 10;
+  const perPage = cols * rowsPerPage;
+
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const margin = 20; // pt
+  const gap = 8; // gap between cells
+
+  const cellW = (pageW - margin * 2 - gap * (cols - 1)) / cols;
+  const cellH = (pageH - margin * 2 - gap * (rowsPerPage - 1)) / rowsPerPage;
+
+  for (let p = 0; p < items.length; p += perPage) {
+    const pageItems = items.slice(p, p + perPage);
+
+    for (let idx = 0; idx < pageItems.length; idx++) {
+      const item = pageItems[idx];
+      const col = idx % cols;
+      const row = Math.floor(idx / cols);
+      const x = margin + col * (cellW + gap);
+      const y = margin + row * (cellH + gap);
+
+      // Render barcode image into a temporary canvas/dataUrl
       let dataUrl: string | null = null;
       try {
-        if (r.codeType === 'QR') {
-          dataUrl = await (qrcode as any).toDataURL(r.payload, { margin: 1, width: 300 });
+        if (item.codeType === 'QR') {
+          dataUrl = await (qrcode as any).toDataURL(item.gs1, { margin: 1, width: Math.floor(cellW) });
         } else {
-          // DataMatrix via bwip-js to canvas
           const canvas = document.createElement('canvas');
-          canvas.width = 300;
-          canvas.height = 300;
+          // keep square sized for matrix
+          const sz = Math.floor(Math.min(cellW, cellH));
+          canvas.width = sz;
+          canvas.height = sz;
           await (bwipjs as any).toCanvas(canvas, {
             bcid: 'datamatrix',
-            text: r.payload,
-            scale: 4,
+            text: item.gs1,
+            scale: 2,
             includetext: false
           });
           dataUrl = canvas.toDataURL('image/png');
         }
       } catch (err) {
-        console.error('PDF barcode render failed for row', i, err);
+        console.error('PDF grid render failed for item', p + idx, err);
       }
 
       if (dataUrl) {
         try {
-          // Place image on the page (x, y, width, height)
-          doc.addImage(dataUrl, 'PNG', 350, 30, 180, 180);
+          // Fit image into cell, leave room for small label text underneath
+          const imgW = cellW;
+          const imgH = cellH - 14; // reserve 12-14 pt for text
+          doc.addImage(dataUrl, 'PNG', x, y, imgW, imgH);
         } catch (err) {
-          console.error('Failed to add image to PDF', err);
+          console.error('Failed to add image to PDF grid', err);
+          doc.text((item.serial || '').toString(), x + 2, y + 12);
         }
       } else {
-        doc.text(`Payload: ${r.payload}`, 20, 180);
+        doc.text((item.serial || item.gs1 || '').toString(), x + 2, y + 12);
       }
 
-      if (i < rows.length - 1) doc.addPage();
+      // Add small serial text under the image (centered)
+      try {
+        const txt = item.serial ? item.serial.toString() : '';
+        if (txt) {
+          doc.setFontSize(8);
+          const textX = x + 4;
+          const textY = y + cellH - 4;
+          doc.text(txt, textX, textY);
+        }
+      } catch (err) {
+        // ignore
+      }
     }
 
-    return doc;
+    if (p + perPage < items.length) doc.addPage();
+  }
+
+  return doc;
 }
 
 /** parse CSV text into BatchRow[].
@@ -365,19 +405,16 @@ export default function Page() {
         setError(`Warning: expected ${qty} codes but API returned ${result.items?.length || 0}`);
       }
 
-      const newRows: BatchRow[] = result.items.map((item: any, idx: number) => {
-        // Ensure serial exists
-        const serial = item.serial || null;
+      // Group returned items into one BatchRow
+      const codes = (result.items || []).map((item: any) => {
+        const serial = item.serial || undefined;
         let gs1payload = item.gs1 || '';
+        if (serial && !gs1payload.includes(serial)) gs1payload = gs1payload + `21${serial}`;
+        return { serial, gs1: gs1payload };
+      });
 
-        // If GS1 payload doesn't contain the serial (AI 21), append it
-        if (serial && !gs1payload.includes(serial)) {
-          // If gs1payload already ends with AI 21 label like '21', just append serial
-          gs1payload = gs1payload + `21${serial}`;
-        }
-
-        return {
-        id: `b${batch.length + idx + 1}`,
+      const newRow: BatchRow = {
+        id: `b${batch.length + 1}`,
         fields: {
           gtin: finalGtin,
           mfdYYMMDD: isoDateToYYMMDD(form.mfdDate),
@@ -385,15 +422,14 @@ export default function Page() {
           batch: form.batch || undefined,
           mrp: form.mrp || undefined,
           sku: form.sku || undefined,
-          company: company || undefined,
-          serial: serial || undefined
+          company: company || undefined
         },
-        payload: gs1payload, // Use GS1 payload with serial ensured
-        codeType: form.codeType
+        codes,
+        codeType: form.codeType,
+        quantity: codes.length
       };
-      });
-      
-      setBatch((s) => [...s, ...newRows]);
+
+      setBatch((s) => [...s, newRow]);
       setError(null);
     } catch (err: any) {
       setError(err?.message || 'Network error');
@@ -439,6 +475,16 @@ export default function Page() {
       setError('Batch empty');
       return;
     }
+
+    // Count total codes across all batch rows
+    const total = batch.reduce((sum, r) => sum + (r.quantity || (r.codes || []).length), 0);
+
+    // Enforce client-side safety limits: if >1000 codes, ask user to export ZIP instead
+    if (total > 1000) {
+      setError('Too many codes for a single PDF (>' + 1000 + '). Please use Export ZIP for large batches.');
+      return;
+    }
+
     const doc = await buildPdf(batch);
     const blob = doc.output('blob');
     saveAs(blob, 'labels.pdf');
@@ -449,8 +495,27 @@ export default function Page() {
       setError('Batch empty');
       return;
     }
-    const combined = batch.map(buildZplForRow).join('\n');
-    const blob = new Blob([combined], { type: 'text/plain;charset=utf-8' });
+    // Build ZPL for each code in each batch row
+    const parts: string[] = [];
+    for (let i = 0; i < batch.length; i++) {
+      const row = batch[i];
+      for (let j = 0; j < (row.codes || []).length; j++) {
+        const code = row.codes[j];
+        const top = '^XA\n';
+        const payloadComment = `^FX Payload: ${code.gs1}\n`;
+        const fieldsLines =
+          `^FO50,50^A0N,30,30^FDGTIN: ${row.fields.gtin}^FS\n` +
+          `^FO50,90^A0N,30,30^FDMFD: ${row.fields.mfdYYMMDD ?? ''}^FS\n` +
+          `^FO50,130^A0N,30,30^FDEXP: ${row.fields.expiryYYMMDD ?? ''}^FS\n` +
+          `^FO50,170^A0N,30,30^FDBATCH: ${row.fields.batch ?? ''}^FS\n` +
+          `^FO50,210^A0N,30,30^FDMRP: ${row.fields.mrp ?? ''}^FS\n` +
+          `^FO50,250^A0N,30,30^FDSKU: ${row.fields.sku ?? ''}^FS\n` +
+          `^FO50,290^A0N,30,30^FDCOMPANY: ${row.fields.company ?? ''}^FS\n`;
+        const footer = '^XZ\n';
+        parts.push(top + payloadComment + fieldsLines + footer);
+      }
+    }
+    const blob = new Blob([parts.join('\n')], { type: 'text/plain;charset=utf-8' });
     saveAs(blob, 'labels.zpl');
   }
 
@@ -459,8 +524,25 @@ export default function Page() {
       setError('Batch empty');
       return;
     }
-    const combined = batch.map(buildEplForRow).join('\n');
-    const blob = new Blob([combined], { type: 'text/plain;charset=utf-8' });
+    const parts: string[] = [];
+    for (let i = 0; i < batch.length; i++) {
+      const row = batch[i];
+      for (let j = 0; j < (row.codes || []).length; j++) {
+        const code = row.codes[j];
+        const lines = [
+          'N',
+          `A50,50,0,3,1,1,N,"GTIN:${row.fields.gtin}"`,
+          `A50,90,0,3,1,1,N,"MFD:${row.fields.mfdYYMMDD ?? ''}"`,
+          `A50,130,0,3,1,1,N,"EXP:${row.fields.expiryYYMMDD ?? ''}"`,
+          `A50,170,0,3,1,1,N,"BATCH:${row.fields.batch ?? ''}"`,
+          `A50,210,0,3,1,1,N,"MRP:${row.fields.mrp ?? ''}"`,
+          `A50,250,0,3,1,1,N,"SER:${code.serial ?? ''}"`,
+          'P1'
+        ];
+        parts.push(lines.join('\n'));
+      }
+    }
+    const blob = new Blob([parts.join('\n')], { type: 'text/plain;charset=utf-8' });
     saveAs(blob, 'labels.epl');
   }
 
@@ -473,42 +555,44 @@ export default function Page() {
     // Render each payload to dataURL. Support both QR (qrcode) and DataMatrix (bwip-js)
     const qrcode = await import('qrcode');
     const bwipjs = await import('bwip-js');
+    let fileIndex = 0;
     for (let i = 0; i < batch.length; i++) {
       const r = batch[i];
-      let dataUrl: string | null = null;
-
-      try {
-        if (r.codeType === 'QR') {
-          dataUrl = await (qrcode as any).toDataURL(r.payload, { margin: 1, width: 600 });
-        } else {
-          // DataMatrix: render to an offscreen canvas using bwip-js
-          const canvas = document.createElement('canvas');
-          // size - keep reasonable (600x600)
-          canvas.width = 600;
-          canvas.height = 600;
-          await (bwipjs as any).toCanvas(canvas, {
-            bcid: 'datamatrix',
-            text: r.payload,
-            scale: 4,
-            includetext: false
-          });
-          dataUrl = canvas.toDataURL('image/png');
-        }
-      } catch (err) {
-        console.error('Image render failed for item', i, err);
-        // fallback: render payload as text image via qrcode library encoding the payload as text QR
+      const codes = r.codes || [];
+      for (let j = 0; j < codes.length; j++) {
+        const code = codes[j];
+        let dataUrl: string | null = null;
         try {
-          dataUrl = await (qrcode as any).toDataURL(r.payload, { margin: 1, width: 600 });
-        } catch (err2) {
-          console.error('Fallback QR render failed', err2);
-          continue;
+          if (r.codeType === 'QR') {
+            dataUrl = await (qrcode as any).toDataURL(code.gs1, { margin: 1, width: 600 });
+          } else {
+            const canvas = document.createElement('canvas');
+            canvas.width = 600;
+            canvas.height = 600;
+            await (bwipjs as any).toCanvas(canvas, {
+              bcid: 'datamatrix',
+              text: code.gs1,
+              scale: 4,
+              includetext: false
+            });
+            dataUrl = canvas.toDataURL('image/png');
+          }
+        } catch (err) {
+          console.error('Image render failed for item', i, j, err);
+          try {
+            dataUrl = await (qrcode as any).toDataURL(code.gs1, { margin: 1, width: 600 });
+          } catch (err2) {
+            console.error('Fallback QR render failed', err2);
+            continue;
+          }
         }
-      }
 
-      if (!dataUrl) continue;
-      const res = await fetch(dataUrl);
-      const blob = await res.blob();
-      zip.file(`label_${i + 1}.png`, blob);
+        if (!dataUrl) continue;
+        const res = await fetch(dataUrl);
+        const blob = await res.blob();
+        fileIndex++;
+        zip.file(`label_${i + 1}_${j + 1}.png`, blob);
+      }
     }
     const content = await zip.generateAsync({ type: 'blob' });
     saveAs(content, 'labels.zip');
@@ -655,16 +739,16 @@ export default function Page() {
               {batch.map((b, idx) => (
                 <div key={b.id} className="p-2 border rounded flex justify-between items-center">
                   <div className="flex items-center gap-3">
-                    <div style={{ width: 72, height: 72, background: '#fff', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <GenerateLabel payload={b.payload} codeType={b.codeType} size={72} showText={false} />
-                    </div>
+                        <div style={{ width: 72, height: 72, background: '#fff', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <GenerateLabel payload={b.codes?.[0]?.gs1 || ''} codeType={b.codeType} size={72} showText={false} showDownload={false} />
+                        </div>
                     <div className="text-sm">
-                      <div className="font-medium">#{idx + 1} — {b.fields.gtin}</div>
-                      <div className="text-xs text-gray-500">{b.fields.batch} • {b.fields.sku} • {b.fields.company}</div>
+                          <div className="font-medium">#{idx + 1} — {b.fields.gtin} <span className="ml-2 text-xs text-gray-600">x{b.quantity || b.codes?.length || 1}</span></div>
+                          <div className="text-xs text-gray-500">{b.fields.batch} • {b.fields.sku} • {b.fields.company}</div>
                     </div>
                   </div>
                   <div className="flex gap-2">
-                    <button className="px-2 py-1 bg-slate-100 rounded text-xs" onClick={() => { navigator.clipboard?.writeText(b.payload); }}>Copy</button>
+                        <button className="px-2 py-1 bg-slate-100 rounded text-xs" onClick={() => { navigator.clipboard?.writeText(b.codes?.[0]?.gs1 || ''); }}>Copy</button>
                     <button className="px-2 py-1 bg-red-50 rounded text-xs" onClick={() => setBatch((s) => s.filter((x) => x.id !== b.id))}>Remove</button>
                   </div>
                 </div>

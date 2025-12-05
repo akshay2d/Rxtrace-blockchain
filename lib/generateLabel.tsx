@@ -15,6 +15,7 @@ type Gs1Fields = {
   mrp?: string;
   sku?: string;
   company?: string;
+  serial?: string;
 };
 
 type CodeType = 'QR' | 'DATAMATRIX';
@@ -26,6 +27,7 @@ type GenerateLabelProps = {
   size?: number;
   filename?: string;
   showText?: boolean;
+  showDownload?: boolean;
   className?: string;
 };
 
@@ -36,6 +38,7 @@ export default function GenerateLabel({
   size = 300,
   filename = 'label.png',
   showText = true,
+  showDownload = true,
   className
 }: GenerateLabelProps) {
   const [payload, setPayload] = useState<string>(payloadProp ?? '');
@@ -118,6 +121,7 @@ export default function GenerateLabel({
   const humanReadable = fields
     ? [
         ['GTIN', fields.gtin],
+        ['Serial', fields.serial ?? ''],
         ['MFD(YYMMDD)', fields.mfdYYMMDD ?? ''],
         ['EXP(YYMMDD)', fields.expiryYYMMDD ?? ''],
         ['Batch', fields.batch ?? ''],
@@ -164,20 +168,22 @@ export default function GenerateLabel({
         )}
       </div>
 
-      <button
-        onClick={downloadImage}
-        style={{
-          padding: '8px 12px',
-          borderRadius: 6,
-          background: '#111827',
-          color: 'white',
-          border: 0,
-          cursor: 'pointer',
-          marginBottom: 10
-        }}
-      >
-        Download PNG
-      </button>
+      {showDownload && (
+        <button
+          onClick={downloadImage}
+          style={{
+            padding: '8px 12px',
+            borderRadius: 6,
+            background: '#111827',
+            color: 'white',
+            border: 0,
+            cursor: 'pointer',
+            marginBottom: 10
+          }}
+        >
+          Download PNG
+        </button>
+      )}
 
       {showText && (
         <div style={{ fontSize: 13, lineHeight: 1.4 }}>
