@@ -21,7 +21,7 @@ export async function POST(req: Request) {
     if (!exp) return NextResponse.json({ message: 'Expiry required' }, { status: 400 });
     if (!printer_id) return NextResponse.json({ message: 'Printer ID required' }, { status: 400 });
 
-    const qty = Math.max(1, Math.floor(Number(quantity) || 1));
+    const qty = parseInt(quantity || '1');
     if (qty < 1 || qty > 5000) return NextResponse.json({ message: 'Quantity must be 1-5000' }, { status: 400 });
 
     const supabase = getSupabaseClient();

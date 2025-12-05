@@ -6,9 +6,11 @@ import { saveAs } from 'file-saver';
 import JSZip from 'jszip';
 import { jsPDF } from 'jspdf';
 
-import GenerateLabel from '@/lib/generateLabel'; // adjust path if needed
+import GenerateLabel from '@/lib/generateLabel'; // adjust path if needed 
 import { buildGs1ElementString } from '@/lib/gs1Builder'; // adjust path if needed
 import IssuePrinterSelector, { Printer } from '@/components/IssuePrinterSelector';
+import QRCodeComponent from '@/components/custom/QRCodeComponent';
+import DataMatrixComponent from '@/components/custom/DataMatrixComponent';
 
 // Define the type locally since gs1Builder.js is JavaScript
 type Gs1Fields = {
@@ -19,14 +21,13 @@ type Gs1Fields = {
   mrp?: string;
   sku?: string;
   company?: string;
-  serial?: string;
 };
 
 type CodeType = 'QR' | 'DATAMATRIX';
 
 type FormState = {
   gtin: string;
-  mfdDate?: string; // ISO date from <input type="date"> (YYYY-MM-DD)
+  mfdDate?: string; // ISO date from <input type="date"> (YYYY-MM-DD)     
   expiryDate?: string; // ISO date
   batch: string;
   mrp: string;
@@ -50,8 +51,7 @@ function generateGTIN(prefix?: string): string {
   const prefixLen = customPrefix.length;
   const remainingDigits = 13 - prefixLen; // GTIN-13 format
   const random = Math.floor(Math.random() * Math.pow(10, remainingDigits))
-    .toString()
-    .padStart(remainingDigits, '0');
+    .toString()                                                               .padStart(remainingDigits, '0');
   return `${customPrefix}${random}`;
 }
 
@@ -72,29 +72,30 @@ function formatDateForDisplay(iso?: string) {
   return d.toLocaleDateString();
 }
 
-/** ZPL generator: embeds DataMatrix/QR as a PNG/graphic or uses ^B0 for 1D.
- * For simplicity we embed a "GS1 payload as human text" + DataMatrix via ZPL^BX is complex without raster.
- * This produces a textual ZPL template that expects the printer to handle graphic insertion by your pipeline.
- */
+/** ZPL generator: embeds DataMatrix/QR as a PNG/graphic or uses ^B0 for 1
+D.                                                                         * For simplicity we embed a "GS1 payload as human text" + DataMatrix via 
+ZPL^BX is complex without raster.
+ * This produces a textual ZPL template that expects the printer to handle
+ graphic insertion by your pipeline.                                       */
 function buildZplForRow(row: BatchRow) {
   // simple text-only template with DataMatrix placeholder
   const top = '^XA\n';
   const payloadComment = `^FX Payload: ${row.payload}\n`;
   const fieldsLines =
-    `^FO50,50^A0N,30,30^FDGTIN: ${row.fields.gtin}^FS\n` +
-    `^FO50,90^A0N,30,30^FDMFD: ${row.fields.mfdYYMMDD ?? ''}^FS\n` +
-    `^FO50,130^A0N,30,30^FDEXP: ${row.fields.expiryYYMMDD ?? ''}^FS\n` +
-    `^FO50,170^A0N,30,30^FDBATCH: ${row.fields.batch ?? ''}^FS\n` +
+    `^FO50,50^A0N,30,30^FDGTIN: ${row.fields.gtin}^FS\n` +      
+    `^FO50,90^A0N,30,30^FDMFD: ${row.fields.mfdYYMMDD ?? ''}^FS\n` +  
+    `^FO50,130^A0N,30,30^FDEXP: ${row.fields.expiryYYMMDD ?? ''}^FS\n` +  
+    `^FO50,170^A0N,30,30^FDBATCH: ${row.fields.batch ?? ''}^FS\n` +       
     `^FO50,210^A0N,30,30^FDMRP: ${row.fields.mrp ?? ''}^FS\n` +
     `^FO50,250^A0N,30,30^FDSKU: ${row.fields.sku ?? ''}^FS\n` +
-    `^FO50,290^A0N,30,30^FDCOMPANY: ${row.fields.company ?? ''}^FS\n`;
+    `^FO50,290^A0N,30,30^FDCOMPANY: ${row.fields.company ?? ''}^FS\n`;    
   const footer = '^XZ\n';
   return top + payloadComment + fieldsLines + footer;
 }
 
 /** EPL generator: basic text template */
 function buildEplForRow(row: BatchRow) {
-  // EPL is printer-specific; a simple human-readable label template:
+  // EPL is printer-specific; a simple human-readable label template:     
   const lines = [
     'N', // clear image buffer
     `A50,50,0,3,1,1,N,"GTIN:${row.fields.gtin}"`,
@@ -107,103 +108,28 @@ function buildEplForRow(row: BatchRow) {
   return lines.join('\n') + '\n';
 }
 
-/** Build a PDF of labels — each label as an A6-like box per page */
+/** Build a PDF of labels — each label as an A6-like box per page */      
 async function buildPdf(rows: BatchRow[], size = 250) {
-    const doc = new jsPDF({ unit: 'pt', format: 'a4' }); // using points
+  const doc = new jsPDF({ unit: 'pt', format: 'a4' }); // using points    
+  // We'll render one label per PDF page for simplicity
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    // For each row, we can render payload text + human fields
+    doc.setFontSize(10);
+    doc.text(`GTIN: ${r.fields.gtin}`, 20, 30);
+    doc.text(`MFD: ${r.fields.mfdYYMMDD ?? ''}`, 20, 50);
+    doc.text(`EXP: ${r.fields.expiryYYMMDD ?? ''}`, 20, 70);
+    doc.text(`BATCH: ${r.fields.batch ?? ''}`, 20, 90);
+    doc.text(`MRP: ${r.fields.mrp ?? ''}`, 20, 110);
+    doc.text(`SKU: ${r.fields.sku ?? ''}`, 20, 130);
+    doc.text(`COMPANY: ${r.fields.company ?? ''}`, 20, 150);
+    doc.text(`Payload: ${r.payload}`, 20, 180);
 
-    // Render each row, embedding a PNG of the barcode (QR/DataMatrix) and human-readable fields
-    const qrcode = await import('qrcode');
-    const bwipjs = await import('bwip-js');
+    if (i < rows.length - 1) doc.addPage();
+  }
 
-    for (let i = 0; i < rows.length; i++) {
-      const r = rows[i];
-      doc.setFontSize(10);
-      doc.text(`GTIN: ${r.fields.gtin}`, 20, 30);
-      doc.text(`MFD: ${r.fields.mfdYYMMDD ?? ''}`, 20, 50);
-      doc.text(`EXP: ${r.fields.expiryYYMMDD ?? ''}`, 20, 70);
-      doc.text(`BATCH: ${r.fields.batch ?? ''}`, 20, 90);
-      doc.text(`MRP: ${r.fields.mrp ?? ''}`, 20, 110);
-      doc.text(`SKU: ${r.fields.sku ?? ''}`, 20, 130);
-      doc.text(`COMPANY: ${r.fields.company ?? ''}`, 20, 150);
-
-      // Render barcode image
-      let dataUrl: string | null = null;
-      try {
-        if (r.codeType === 'QR') {
-          dataUrl = await (qrcode as any).toDataURL(r.payload, { margin: 1, width: 300 });
-        } else {
-          // DataMatrix via bwip-js to canvas
-          const canvas = document.createElement('canvas');
-          canvas.width = 300;
-          canvas.height = 300;
-          await (bwipjs as any).toCanvas(canvas, {
-            bcid: 'datamatrix',
-            text: r.payload,
-            scale: 4,
-            includetext: false
-          });
-          dataUrl = canvas.toDataURL('image/png');
-        }
-      } catch (err) {
-        console.error('PDF barcode render failed for row', i, err);
-      }
-
-      if (dataUrl) {
-        try {
-          // Place image on the page (x, y, width, height)
-          doc.addImage(dataUrl, 'PNG', 350, 30, 180, 180);
-        } catch (err) {
-          console.error('Failed to add image to PDF', err);
-        }
-      } else {
-        doc.text(`Payload: ${r.payload}`, 20, 180);
-      }
-
-      if (i < rows.length - 1) doc.addPage();
-    }
-
-    return doc;
+  return doc;
 }
-
-/** parse CSV text into BatchRow[].
-  Expected headers: GTIN, SKU, MFD, EXP, BATCH, MRP, COMPANY, QTY, CODE_TYPE
-  Only Printer ID is required from form state
-  GTIN is optional - will auto-generate if blank
-*/
-async function csvToRows(csvText: string, printerId: string): Promise<BatchRow[]> {
-  const parsed = Papa.parse<Record<string, string>>(csvText, { header: true, skipEmptyLines: true });
-  const out: BatchRow[] = [];
-  
-  for (const row of parsed.data) {
-    const gtinRaw = (row['GTIN'] || row['gtin'] || '').toString().trim();
-    const gtin = gtinRaw || generateGTIN(); // Auto-generate if blank
-    const mfdRaw = (row['MFD'] || row['mfd'] || row['Mfd'] || '').toString().trim();
-    const expRaw = (row['EXP'] || row['Exp'] || row['expiry'] || '').toString().trim();
-    const mrp = (row['MRP'] || row['mrp'] || '').toString().trim();
-    const batch = (row['BATCH'] || row['batch'] || '').toString().trim();
-    const sku = (row['SKU'] || row['sku'] || '').toString().trim();
-    const companyName = (row['COMPANY'] || row['company'] || row['MANUFACTURER'] || row['manufacturer'] || '').toString().trim();
-    const qtyRaw = (row['QTY'] || row['qty'] || row['Qty'] || '1').toString().trim();
-    const qty = Math.max(1, parseInt(qtyRaw) || 1);
-    const codeTypeRaw = (row['CODE_TYPE'] || row['code_type'] || row['CodeType'] || '').toString().trim().toUpperCase();
-    const rowCodeType: CodeType = (codeTypeRaw === 'DATAMATRIX' || codeTypeRaw === 'DM') ? 'DATAMATRIX' : 'QR';
-
-    // Convert dates to ISO format for API
-    const mfdISO = mfdRaw.length === 6 ? `20${mfdRaw.slice(0,2)}-${mfdRaw.slice(2,4)}-${mfdRaw.slice(4,6)}` : mfdRaw;
-    const expISO = expRaw.length === 6 ? `20${expRaw.slice(0,2)}-${expRaw.slice(2,4)}-${expRaw.slice(4,6)}` : expRaw;
-
-    // Call /api/issues to generate unique serials for this row
-    try {
-      const res = await fetch('/api/issues', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          gtin,
-          batch,
-          mfd: mfdISO || null,
-          exp: expISO,
-          quantity: qty,
-          printer_id: printerId
         })
       });
 
@@ -322,7 +248,10 @@ export default function Page() {
   }
 
   async function handleAddToBatch() {
-    // Allow add-to-batch even if preview wasn't built; API will return GS1 payloads
+    if (!payload) {
+      setError('Build payload first');
+      return;
+    }
     if (!form.printerId) {
       setError('Please select or create a Printer ID');
       return;
@@ -357,6 +286,7 @@ export default function Page() {
       }
       
       const result = await res.json();
+<<<<<<< HEAD
 
       // Validate API returned expected number of items and that each item has a serial
       if (!result.items || !Array.isArray(result.items) || result.items.length !== qty) {
@@ -377,6 +307,12 @@ export default function Page() {
         }
 
         return ({
+=======
+      console.log('API Response:', result); // Debug log
+      console.log('Items count:', result.items?.length); // Debug log
+      
+      const newRows: BatchRow[] = result.items.map((item: any, idx: number) => ({
+>>>>>>> parent of 6cc9b770 (fix: Batch preview + allow Add without Build; DataMatrix export; robust qty parsing)
         id: `b${batch.length + idx + 1}`,
         fields: {
           gtin: finalGtin,
@@ -469,42 +405,14 @@ export default function Page() {
       return;
     }
     const zip = new JSZip();
-    // Render each payload to dataURL. Support both QR (qrcode) and DataMatrix (bwip-js)
+    // Render each payload to dataURL via GenerateLabel's QR rendering using qrcode.toDataURL
+    // We'll do a minimal generation: build GS1 string is already there; use qrcode lib directly
+    // dynamic import qrcode
     const qrcode = await import('qrcode');
-    const bwipjs = await import('bwip-js');
     for (let i = 0; i < batch.length; i++) {
       const r = batch[i];
-      let dataUrl: string | null = null;
-
-      try {
-        if (r.codeType === 'QR') {
-          dataUrl = await (qrcode as any).toDataURL(r.payload, { margin: 1, width: 600 });
-        } else {
-          // DataMatrix: render to an offscreen canvas using bwip-js
-          const canvas = document.createElement('canvas');
-          // size - keep reasonable (600x600)
-          canvas.width = 600;
-          canvas.height = 600;
-          await (bwipjs as any).toCanvas(canvas, {
-            bcid: 'datamatrix',
-            text: r.payload,
-            scale: 4,
-            includetext: false
-          });
-          dataUrl = canvas.toDataURL('image/png');
-        }
-      } catch (err) {
-        console.error('Image render failed for item', i, err);
-        // fallback: render payload as text image via qrcode library encoding the payload as text QR
-        try {
-          dataUrl = await (qrcode as any).toDataURL(r.payload, { margin: 1, width: 600 });
-        } catch (err2) {
-          console.error('Fallback QR render failed', err2);
-          continue;
-        }
-      }
-
-      if (!dataUrl) continue;
+      const dataUrl = await (qrcode as any).toDataURL(r.payload, { margin: 1, width: 300 });
+      // convert dataUrl to blob
       const res = await fetch(dataUrl);
       const blob = await res.blob();
       zip.file(`label_${i + 1}.png`, blob);
@@ -652,19 +560,24 @@ export default function Page() {
 
             <div className="space-y-2 max-h-64 overflow-auto">
               {batch.map((b, idx) => (
-                <div key={b.id} className="p-2 border rounded flex justify-between items-center">
-                  <div className="flex items-center gap-3">
-                    <div style={{ width: 72, height: 72, background: '#fff', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <GenerateLabel payload={b.payload} codeType={b.codeType} size={72} showText={false} />
-                    </div>
-                    <div className="text-sm">
+                <div key={b.id} className="p-2 border rounded">
+                  <div className="flex justify-between items-start mb-2">
+                    <div className="text-sm flex-1">
                       <div className="font-medium">#{idx + 1} — {b.fields.gtin}</div>
                       <div className="text-xs text-gray-500">{b.fields.batch} • {b.fields.sku} • {b.fields.company}</div>
+                      <div className="text-xs text-gray-400 mt-1 font-mono">{b.payload}</div>
+                    </div>
+                    <div className="flex gap-2 ml-2">
+                      <button className="px-2 py-1 bg-slate-100 rounded text-xs" onClick={() => { navigator.clipboard?.writeText(b.payload); }}>Copy</button>
+                      <button className="px-2 py-1 bg-red-50 rounded text-xs" onClick={() => setBatch((s) => s.filter((x) => x.id !== b.id))}>Remove</button>
                     </div>
                   </div>
-                  <div className="flex gap-2">
-                    <button className="px-2 py-1 bg-slate-100 rounded text-xs" onClick={() => { navigator.clipboard?.writeText(b.payload); }}>Copy</button>
-                    <button className="px-2 py-1 bg-red-50 rounded text-xs" onClick={() => setBatch((s) => s.filter((x) => x.id !== b.id))}>Remove</button>
+                  <div className="flex justify-center p-2 bg-white border rounded">
+                    {b.codeType === 'QR' ? (
+                      <QRCodeComponent value={b.payload} size={80} />
+                    ) : (
+                      <DataMatrixComponent value={b.payload} size={80} />
+                    )}
                   </div>
                 </div>
               ))}
