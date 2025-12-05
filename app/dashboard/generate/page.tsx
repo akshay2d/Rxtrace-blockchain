@@ -109,24 +109,72 @@ function buildEplForRow(row: BatchRow) {
   return lines.join('\n') + '\n';
 }
 
-/** Build a PDF of labels — each label as an A6-like box per page */      
+/** Build a PDF of labels — 10x10 grid = 100 codes per A4 page */      
 async function buildPdf(rows: BatchRow[], size = 250) {
-  const doc = new jsPDF({ unit: 'pt', format: 'a4' }); // using points    
-  // We'll render one label per PDF page for simplicity
-  for (let i = 0; i < rows.length; i++) {
-    const r = rows[i];
-    // For each row, we can render payload text + human fields
-    doc.setFontSize(10);
-    doc.text(`GTIN: ${r.fields.gtin}`, 20, 30);
-    doc.text(`MFD: ${r.fields.mfdYYMMDD ?? ''}`, 20, 50);
-    doc.text(`EXP: ${r.fields.expiryYYMMDD ?? ''}`, 20, 70);
-    doc.text(`BATCH: ${r.fields.batch ?? ''}`, 20, 90);
-    doc.text(`MRP: ${r.fields.mrp ?? ''}`, 20, 110);
-    doc.text(`SKU: ${r.fields.sku ?? ''}`, 20, 130);
-    doc.text(`COMPANY: ${r.fields.company ?? ''}`, 20, 150);
-    doc.text(`Payload: ${r.payload}`, 20, 180);
+  const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+  const qrcode = await import('qrcode');
+  const bwipjs = await import('bwip-js');
 
-    if (i < rows.length - 1) doc.addPage();
+  // Grid: 10 columns x 10 rows = 100 per page
+  const cols = 10;
+  const rowsPerPage = 10;
+  const perPage = cols * rowsPerPage;
+
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const margin = 20;
+  const gap = 5;
+
+  const cellW = (pageW - margin * 2 - gap * (cols - 1)) / cols;
+  const cellH = (pageH - margin * 2 - gap * (rowsPerPage - 1)) / rowsPerPage;
+
+  for (let p = 0; p < rows.length; p += perPage) {
+    if (p > 0) doc.addPage();
+    const pageItems = rows.slice(p, p + perPage);
+
+    for (let idx = 0; idx < pageItems.length; idx++) {
+      const item = pageItems[idx];
+      const col = idx % cols;
+      const row = Math.floor(idx / cols);
+      const x = margin + col * (cellW + gap);
+      const y = margin + row * (cellH + gap);
+
+      let dataUrl: string | null = null;
+      try {
+        if (item.codeType === 'QR') {
+          dataUrl = await (qrcode as any).toDataURL(item.payload, { margin: 1, width: Math.floor(cellW * 2) });
+        } else {
+          const canvas = document.createElement('canvas');
+          const sz = Math.floor(Math.min(cellW, cellH) * 2);
+          canvas.width = sz;
+          canvas.height = sz;
+          await (bwipjs as any).toCanvas(canvas, {
+            bcid: 'datamatrix',
+            text: item.payload,
+            scale: 3,
+            includetext: false
+          });
+          dataUrl = canvas.toDataURL('image/png');
+        }
+      } catch (err) {
+        console.error('PDF render failed for item', p + idx, err);
+      }
+
+      if (dataUrl) {
+        try {
+          const imgH = cellH - 10;
+          doc.addImage(dataUrl, 'PNG', x, y, cellW, imgH);
+        } catch (err) {
+          console.error('Failed to add image', err);
+        }
+      }
+
+      // Add serial text below image
+      if (item.fields.serial) {
+        doc.setFontSize(6);
+        doc.text(item.fields.serial.toString(), x + 2, y + cellH - 2);
+      }
+    }
   }
 
   return doc;
@@ -288,10 +336,7 @@ export default function Page() {
   }
 
   async function handleAddToBatch() {
-    if (!payload) {
-      setError('Build payload first');
-      return;
-    }
+    // Allow add-to-batch even if preview wasn't built; API will return GS1 payloads
     if (!form.printerId) {
       setError('Please select or create a Printer ID');
       return;
@@ -338,7 +383,8 @@ export default function Page() {
           batch: form.batch || undefined,
           mrp: form.mrp || undefined,
           sku: form.sku || undefined,
-          company: company || undefined
+          company: company || undefined,
+          serial: item.serial || undefined
         },
         payload: item.gs1, // Use unique GS1 payload with serial from API
         codeType: form.codeType
