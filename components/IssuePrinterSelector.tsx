@@ -3,10 +3,9 @@ import { useRouter } from "next/navigation";
 
 export type Printer = {
   id: string;
+  printer_id: string;
   name?: string;
-  model?: string;
-  location?: string;
-  active?: boolean;
+  is_active?: boolean;
 };
 
 type Props = {
@@ -101,8 +100,8 @@ export default function IssuePrinterSelector({
             >
               <option value="">-- select a printer --</option>
               {list.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.id} {p.name ? `— ${p.name}` : ""}
+                <option key={p.id} value={p.printer_id}>
+                  {p.printer_id} {p.name ? `— ${p.name}` : ""}
                 </option>
               ))}
             </select>

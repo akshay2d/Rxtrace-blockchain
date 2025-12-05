@@ -37,13 +37,6 @@ function getSupabaseClient() {
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
-function requireApiKey(req: Request) {
-  const key = req.headers.get('x-api-key');
-  if (!key || key !== process.env.API_KEY) {
-    throw new Error('Unauthorized');
-  }
-}
-
 function safeEscapeCsvValue(v: any) {
   if (v === null || v === undefined) return '';
   const s = String(v);
@@ -79,12 +72,6 @@ function isValidGtinLike(g: any) {
 }
 
 export async function POST(req: Request) {
-  try {
-    requireApiKey(req);
-  } catch (err: any) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
   try {
     const body = await req.json();
 
