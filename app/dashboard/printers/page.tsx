@@ -12,7 +12,7 @@ type Printer = {
   name?: string;
   model?: string;
   location?: string;
-  active?: boolean;
+  is_active?: boolean;
 };
 
 export default function PrintersPage() {
@@ -194,8 +194,8 @@ export default function PrintersPage() {
                       {p.model && <div className="text-xs text-gray-500">Model: {p.model}</div>}
                       {p.location && <div className="text-xs text-gray-500">Location: {p.location}</div>}
                     </div>
-                    <div className={`px-2 py-1 rounded text-xs ${p.active !== false ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}`}>
-                      {p.active !== false ? 'Active' : 'Inactive'}
+                    <div className={`px-2 py-1 rounded text-xs ${p.is_active !== false ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}`}>
+                      {p.is_active !== false ? 'Active' : 'Inactive'}
                     </div>
                   </div>
                 </div>

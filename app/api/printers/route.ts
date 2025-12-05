@@ -26,7 +26,7 @@ export async function GET() {
     const supabase = getSupabaseClient();
     const { data, error } = await supabase
       .from('printers')
-      .select('id, printer_id, name, model, location, active, created_at')
+      .select('id, printer_id, name, model, location, is_active, created_at')
       .order('printer_id', { ascending: true });
 
     if (error) {
@@ -62,7 +62,7 @@ export async function POST(req: Request) {
         name: p.name ?? null,
         model: p.model ?? null,
         location: p.location ?? null,
-        active: p.active === false ? false : true,
+        is_active: p.active === false ? false : true,
         metadata: p.metadata ?? null,
       });
     }

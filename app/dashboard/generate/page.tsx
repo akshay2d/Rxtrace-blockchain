@@ -535,7 +535,6 @@ export default function Page() {
             <strong>📋 CSV Upload Instructions:</strong>
             <ul className="mt-1 ml-4 list-disc space-y-1">
               <li><strong>Required before upload:</strong> Select Printer ID in the form above</li>
-              <li><strong>Manufacturer:</strong> Auto-fetched from your registration ({company || 'Loading...'})</li>
               <li><strong>CSV Columns:</strong> GTIN, SKU, MFD, EXP, BATCH, MRP, COMPANY, QTY, CODE_TYPE</li>
               <li><strong>GTIN:</strong> Leave blank to auto-generate (890 prefix) OR add your company prefix (3-8 digits) for custom series (e.g., 8901234...)</li>
               <li><strong>COMPANY:</strong> Your company/manufacturer/exporter name</li>

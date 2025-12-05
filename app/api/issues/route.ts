@@ -138,7 +138,7 @@ export async function POST(req: Request) {
     if (!printerRow) {
       return NextResponse.json({ error: 'printer not found' }, { status: 404 });
     }
-    if (printerRow.active === false || printerRow.is_active === false) {
+    if (printerRow.is_active === false) {
       return NextResponse.json({ error: 'printer inactive' }, { status: 403 });
     }
 
