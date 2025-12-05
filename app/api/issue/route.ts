@@ -178,7 +178,7 @@ export async function POST(req: Request) {
           expiry: expiry || null,
           serial: serial || null,
           gs1_payload: payload,
-          printer_id: printerRow.printer_id ?? String(printerRow.id),
+          printer_id: printerRow.printer_id,
           issued_by: 'api',
           issued_at: nowIso,
           manual: !!serial
@@ -230,7 +230,7 @@ export async function POST(req: Request) {
           expiry: expiry || null,
           serial,
           gs1_payload: payload,
-          printer_id: printerRow.printer_id ?? String(printerRow.id),
+          printer_id: printerRow.printer_id,
           issued_by: 'api',
           issued_at: nowIso,
           manual: false

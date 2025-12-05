@@ -1,122 +1,179 @@
 // app/api/verify/route.ts
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { parseGS1, formatGS1ForDisplay } from '@/lib/parseGS1';
+import { parseGS1, type GS1Data } from '@/lib/parseGS1';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
-
-export async function POST(request: NextRequest) {
-  try {
-    const { code } = await request.json();
-
-    if (!code) {
-      return NextResponse.json(
-        { error: 'Code is required', verified: false },
-        { status: 400 }
-      );
-    }
-
-    console.log('Verifying code:', code);
-
-    // Parse GS1 data from scanned code
-    const gs1Data = parseGS1(code);
-    console.log('Parsed GS1 data:', gs1Data);
-
-    // Try to find product by GTIN (extracted from GS1 or raw code)
-    const searchGtin = gs1Data.gtin || code;
-    
-    const { data: batch, error } = await supabase
-      .from('product_batches')
-      .select('*')
-      .eq('gtin', searchGtin)
-      .single();
-
-    if (error || !batch) {
-      console.log('Product not found in database for GTIN:', searchGtin);
-      return NextResponse.json({
-        verified: false,
-        rxtraceVerified: false,
-        message: 'Product not found in RxTrace database',
-        scannedData: gs1Data.parsed ? formatGS1ForDisplay(gs1Data) : code,
-        parsedGS1: gs1Data.parsed ? gs1Data : null,
-      });
-    }
-
-    // Product found - verify batch and expiry if available
-    let batchMatch = true;
-    let expiryMatch = true;
-
-    if (gs1Data.batchNo && gs1Data.batchNo !== batch.batch_no) {
-      batchMatch = false;
-      console.warn('Batch mismatch:', gs1Data.batchNo, '!==', batch.batch_no);
-    }
-
-    // Create complete display string with database fields + GS1 fields
-    // Format: Product Name | MRP | MFG | Expiry | Batch
-    const displayParts: string[] = [];
-    
-    if (batch.sku_name) displayParts.push(`Product: ${batch.sku_name}`);
-    if (batch.mrp) displayParts.push(`MRP: ₹${batch.mrp}`);
-    if (gs1Data.mfgDate || batch.mfd) displayParts.push(`MFG: ${gs1Data.mfgDate || batch.mfd}`);
-    if (gs1Data.expiryDate || batch.expiry) displayParts.push(`Expiry: ${gs1Data.expiryDate || batch.expiry}`);
-    if (gs1Data.batchNo || batch.batch_no) displayParts.push(`Batch: ${gs1Data.batchNo || batch.batch_no}`);
-    
-    const completeDisplay = displayParts.join(' | ');
-
-    // Product found - it's RxTrace verified!
-    return NextResponse.json({
-      verified: true,
-      rxtraceVerified: true,
-      batchMatch,
-      expiryMatch,
-      message: 'Verified by RxTrace India ✓',
-      scannedData: completeDisplay,
-      parsedGS1: gs1Data.parsed ? gs1Data : null,
-      product: {
-        companyName: batch.company_name,
-        skuName: batch.sku_name,
-        gtin: batch.gtin,
-        batchNo: batch.batch_no,
-        mfgDate: batch.mfd,
-        expiryDate: batch.expiry,
-        mrp: batch.mrp,
-        labelsCount: batch.labels_count,
-        generatedAt: batch.generated_at,
-      },
-    });
-  } catch (error) {
-    console.error('Verification error:', error);
-    return NextResponse.json(
-      {
-        error: 'Internal server error',
-        verified: false,
-        message: error instanceof Error ? error.message : 'Unknown error',
-      },
-      { status: 500 }
-    );
-  }
+// Supabase service role client (server-side only)
+function getSupabase() {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_KEY;
+  if (!url || !key) throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_KEY');
+  return createClient(url, key, { auth: { persistSession: false } });
 }
 
-// GET method for testing
-export async function GET(request: NextRequest) {
-  const searchParams = request.nextUrl.searchParams;
-  const code = searchParams.get('code');
+// If VERIFY_API_KEY is set, require it in header x-api-key — otherwise allow public
+function requireApiKeyIfConfigured(req: Request) {
+  const required = process.env.VERIFY_API_KEY;
+  if (!required) return;
+  const provided = req.headers.get('x-api-key') || '';
+  if (provided !== required) throw new Error('Unauthorized');
+}
 
-  if (!code) {
-    return NextResponse.json(
-      { error: 'Code parameter is required' },
-      { status: 400 }
-    );
+export async function POST(req: Request) {
+  try {
+    // optional api-key guard
+    requireApiKeyIfConfigured(req);
+
+    const supabase = getSupabase();
+
+    const body = await req.json().catch(() => ({}));
+    // Accept different possible property names
+    const rawInput = (body.gs1_raw || body.raw || body.code || body.qr || '').toString();
+    if (!rawInput) return NextResponse.json({ status: 'INVALID', message: 'No payload provided' }, { status: 400 });
+
+    // Parse GS1 data
+    let parsed: GS1Data | null = null;
+    let parseError: string | null = null;
+    
+    try {
+      parsed = parseGS1(rawInput);
+    } catch (e: any) {
+      parseError = e?.message || 'Parse error';
+      parsed = null;
+    }
+
+    const serial = parsed?.serialNo;
+    const gtin = parsed?.gtin;
+    const batch = parsed?.batchNo;
+    const expiry = parsed?.expiryDate;
+
+    // For logging: keep parsed object even if null
+    const parsedForLog = parsed || { parseError };
+
+    if (!serial) {
+      // cannot identify serial -> invalid scan
+      await supabase.from('scan_logs').insert([{
+        raw_scan: rawInput,
+        parsed: parsedForLog,
+        code_id: null,
+        scanner_printer_id: req.headers.get('x-printer-id') || null,
+        scanned_at: new Date().toISOString(),
+        ip: req.headers.get('x-forwarded-for') || null,
+        metadata: { status: 'INVALID', reason: 'no_serial' }
+      }]);
+      return NextResponse.json({ status: 'INVALID', message: 'Serial not found in payload', parsed }, { status: 200 });
+    }
+
+    // find code by serial (most reliable); also allow fallback on gs1_payload exact match
+    const { data: codes, error: codeErr } = await supabase
+      .from('codes')
+      .select('*')
+      .or(`serial.eq.${serial},gs1_payload.eq.${rawInput}`)
+      .limit(1);
+
+    if (codeErr) {
+      console.error('verify: codes lookup error', codeErr);
+      // log as error
+      await supabase.from('scan_logs').insert([{
+        raw_scan: rawInput,
+        parsed: parsedForLog,
+        code_id: null,
+        scanner_printer_id: req.headers.get('x-printer-id') || null,
+        scanned_at: new Date().toISOString(),
+        ip: req.headers.get('x-forwarded-for') || null,
+        metadata: { status: 'ERROR', detail: codeErr.message }
+      }]);
+      return NextResponse.json({ status: 'ERROR', message: 'Server error during code lookup' }, { status: 500 });
+    }
+
+    if (!codes || codes.length === 0) {
+      // not found -> INVALID (not issued)
+      await supabase.from('scan_logs').insert([{
+        raw_scan: rawInput,
+        parsed: parsedForLog,
+        code_id: null,
+        scanner_printer_id: req.headers.get('x-printer-id') || null,
+        scanned_at: new Date().toISOString(),
+        ip: req.headers.get('x-forwarded-for') || null,
+        metadata: { status: 'INVALID', reason: 'not_issued', serial }
+      }]);
+      return NextResponse.json({ status: 'INVALID', message: 'Code not issued', parsed }, { status: 200 });
+    }
+
+    const code = codes[0];
+
+    // check blacklist flag(s) - support multiple possible column names
+    const isBlacklisted = Boolean(code.blacklisted || code.is_blacklisted || code.blocked || code.is_blocked);
+    if (isBlacklisted) {
+      await supabase.from('scan_logs').insert([{
+        raw_scan: rawInput,
+        parsed: parsedForLog,
+        code_id: code.id,
+        scanner_printer_id: req.headers.get('x-printer-id') || null,
+        scanned_at: new Date().toISOString(),
+        ip: req.headers.get('x-forwarded-for') || null,
+        metadata: { status: 'BLACKLIST', reason: 'code_blacklisted' }
+      }]);
+      return NextResponse.json({ status: 'BLACKLIST', message: 'This code is blacklisted', parsed, code: { id: code.id, gtin: code.gtin, serial: code.serial } }, { status: 200 });
+    }
+
+    // check product disabled/discontinued flags (support multiple names)
+    const isDisabled = Boolean(code.product_disabled || code.is_disabled || code.disabled || code.product_inactive);
+    if (isDisabled) {
+      await supabase.from('scan_logs').insert([{
+        raw_scan: rawInput,
+        parsed: parsedForLog,
+        code_id: code.id,
+        scanner_printer_id: req.headers.get('x-printer-id') || null,
+        scanned_at: new Date().toISOString(),
+        ip: req.headers.get('x-forwarded-for') || null,
+        metadata: { status: 'DISCONTINUED', reason: 'product_disabled' }
+      }]);
+      return NextResponse.json({ status: 'DISCONTINUED', message: 'Product discontinued', parsed, code: { id: code.id, gtin: code.gtin, serial: code.serial } }, { status: 200 });
+    }
+
+    // Check if code was scanned earlier (duplicate)
+    const { data: priorScans, error: logErr } = await supabase
+      .from('scan_logs')
+      .select('id, scanned_at')
+      .eq('code_id', code.id)
+      .limit(1);
+
+    if (logErr) {
+      console.error('verify: scan_logs lookup error', logErr);
+    }
+
+    if (priorScans && priorScans.length > 0) {
+      // Log this duplicate scan
+      await supabase.from('scan_logs').insert([{
+        raw_scan: rawInput,
+        parsed: parsedForLog,
+        code_id: code.id,
+        scanner_printer_id: req.headers.get('x-printer-id') || null,
+        scanned_at: new Date().toISOString(),
+        ip: req.headers.get('x-forwarded-for') || null,
+        metadata: { status: 'DUPLICATE', first_scanned_at: priorScans[0].scanned_at }
+      }]);
+      return NextResponse.json({ status: 'DUPLICATE', message: 'Code already scanned', parsed, code: { id: code.id, gtin: code.gtin, serial: code.serial } }, { status: 200 });
+    }
+
+    // Otherwise first-time valid scan -> insert log and return VALID
+    await supabase.from('scan_logs').insert([{
+      raw_scan: rawInput,
+      parsed: parsedForLog,
+      code_id: code.id,
+      scanner_printer_id: req.headers.get('x-printer-id') || null,
+      scanned_at: new Date().toISOString(),
+      ip: req.headers.get('x-forwarded-for') || null,
+      metadata: { status: 'VALID' }
+    }]);
+
+    return NextResponse.json({ status: 'VALID', message: 'Code is valid', parsed, code: { id: code.id, gtin: code.gtin, serial: code.serial }, firstScan: true }, { status: 200 });
+
+  } catch (err: any) {
+    console.error('verify route error', err);
+    const msg = err?.message || 'internal_error';
+    const status = msg === 'Unauthorized' ? 401 : 500;
+    return NextResponse.json({ status: 'ERROR', message: msg }, { status });
   }
-
-  // Reuse POST logic
-  return POST(
-    new NextRequest(request.url, {
-      method: 'POST',
-      body: JSON.stringify({ code }),
-    })
-  );
 }

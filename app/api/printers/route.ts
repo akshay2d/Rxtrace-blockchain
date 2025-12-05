@@ -26,8 +26,8 @@ export async function GET() {
     const supabase = getSupabaseClient();
     const { data, error } = await supabase
       .from('printers')
-      .select('id, name, model, location, active, created_at')
-      .order('id', { ascending: true });
+      .select('id, printer_id, name, model, location, active, created_at')
+      .order('printer_id', { ascending: true });
 
     if (error) {
       console.error('Supabase GET printers error', error);
@@ -53,12 +53,12 @@ export async function POST(req: Request) {
     // normalize & validate
     const rows: any[] = [];
     for (const p of printers) {
-      const raw = (p.id || '').toString().toUpperCase().trim();
+      const raw = (p.id || p.printer_id || '').toString().toUpperCase().trim();
       if (!isValidPrinterId(raw)) {
         return NextResponse.json({ message: `Invalid printer id: ${raw}` }, { status: 400 });
       }
       rows.push({
-        id: raw,
+        printer_id: raw,
         name: p.name ?? null,
         model: p.model ?? null,
         location: p.location ?? null,
@@ -67,12 +67,12 @@ export async function POST(req: Request) {
       });
     }
 
-    // Supabase upsert (onConflict 'id')
-    // NOTE: upsert will insert or update rows with matching 'id'
+    // Supabase upsert (onConflict 'printer_id')
+    // NOTE: upsert will insert or update rows with matching 'printer_id'
     const supabase = getSupabaseClient();
     const { data, error } = await supabase
       .from('printers')
-      .upsert(rows, { onConflict: 'id' })
+      .upsert(rows, { onConflict: 'printer_id' })
       .select();
 
     if (error) {

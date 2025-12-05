@@ -8,6 +8,7 @@ import { useRouter } from 'next/navigation';
 
 type Printer = {
   id: string;
+  printer_id: string;
   name?: string;
   model?: string;
   location?: string;
@@ -188,7 +189,7 @@ export default function PrintersPage() {
                 >
                   <div className="flex items-center justify-between">
                     <div>
-                      <div className="font-medium">{p.id}</div>
+                      <div className="font-medium">{p.printer_id}</div>
                       {p.name && <div className="text-sm text-gray-600">{p.name}</div>}
                       {p.model && <div className="text-xs text-gray-500">Model: {p.model}</div>}
                       {p.location && <div className="text-xs text-gray-500">Location: {p.location}</div>}

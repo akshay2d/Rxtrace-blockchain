@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import Router from "next/router";
+import { useRouter } from "next/navigation";
 
 export type Printer = {
   id: string;
@@ -22,6 +22,7 @@ export default function IssuePrinterSelector({
   onChange,
   fetchPrinters,
 }: Props) {
+  const router = useRouter();
   const [openSelect, setOpenSelect] = useState(false);
   const [list, setList] = useState<Printer[]>(printers);
   const [loading, setLoading] = useState(false);
@@ -39,7 +40,7 @@ export default function IssuePrinterSelector({
 
   function handleCreate() {
     // navigate to the printer registration page; after create the page should redirect back
-    Router.push("/printers");
+    router.push("/dashboard/printers");
   }
 
   return (
@@ -76,7 +77,7 @@ export default function IssuePrinterSelector({
             className="px-3 py-1.5 rounded bg-blue-600 text-white text-sm"
             onClick={handleCreate}
           >
-            Create Printer
+            Create Printer ID
           </button>
         </div>
       </div>

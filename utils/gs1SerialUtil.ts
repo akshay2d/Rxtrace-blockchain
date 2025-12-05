@@ -55,9 +55,87 @@ export function generateSerial(opts: SerialOptions = {}) {
 }
 
 /** build canonical GS1 machine payload for 2D encoding (no parentheses) */
-export function buildGs1MachinePayload(params: { gtin: string; expDate: string | Date; batch: string; serial: string }) {
+export function buildGs1MachinePayload(params: { 
+  gtin: string; 
+  expDate?: string | Date; 
+  mfgDate?: string | Date; 
+  batch?: string; 
+  serial?: string;
+}) {
   const g = params.gtin.padStart(14, '0');
-  const exp = formatDateYYMMDD(params.expDate);
-  // variable-length AI (10) batch: in 2D/QR it's fine to concatenate; encoder in GS1 mode will interpret
-  return `01${g}17${exp}10${params.batch}21${params.serial}`;
+  
+  let payload = `01${g}`;
+  
+  // AI 17 - Expiry date (YYMMDD)
+  if (params.expDate) {
+    const exp = formatDateYYMMDD(params.expDate);
+    payload += `17${exp}`;
+  }
+  
+  // AI 11 - Manufacturing date (YYMMDD)
+  if (params.mfgDate) {
+    const mfg = formatDateYYMMDD(params.mfgDate);
+    payload += `11${mfg}`;
+  }
+  
+  // AI 10 - Batch/Lot (variable length)
+  if (params.batch) {
+    payload += `10${params.batch}`;
+  }
+  
+  // AI 21 - Serial number (variable length)
+  if (params.serial) {
+    payload += `21${params.serial}`;
+  } else {
+    // Auto-generate serial if not provided
+    const autoSerial = generateSerial({ prefix: 'RX', randomLen: 6 });
+    payload += `21${autoSerial}`;
+  }
+  
+  return payload;
+}
+
+/** Normalize GTIN to 14 digits */
+export function normalizeGtinTo14(gtin: string): string {
+  const digits = gtin.replace(/\D/g, '');
+  return digits.padStart(14, '0');
+}
+
+/** Generate deterministic unique serial using HMAC */
+export function generateUniqueSerial(opts: {
+  gtin: string;
+  batch?: string;
+  mfg?: string;
+  expiry?: string;
+  printerId: string;
+  counter: number;
+  length?: number;
+  secret?: string;
+}): string {
+  const secret = opts.secret || process.env.UNIQUE_CODE_SECRET || 'rxtrace-default-secret';
+  const length = opts.length || 12;
+  
+  // Build input string from all parameters
+  const input = [
+    opts.gtin,
+    opts.batch || '',
+    opts.mfg || '',
+    opts.expiry || '',
+    opts.printerId,
+    opts.counter.toString()
+  ].join('|');
+  
+  // Generate HMAC
+  const hmac = crypto.createHmac('sha256', secret);
+  hmac.update(input);
+  const hash = hmac.digest('hex');
+  
+  // Convert to base36 and take required length
+  const serial = BigInt('0x' + hash.slice(0, 16))
+    .toString(36)
+    .toUpperCase()
+    .slice(0, length)
+    .padStart(length, '0');
+  
+  return serial;
 }

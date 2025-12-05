@@ -43,6 +43,17 @@ type BatchRow = {
   codeType: CodeType;
 };
 
+/** Generate GTIN with optional custom prefix */
+function generateGTIN(prefix?: string): string {
+  const customPrefix = prefix || '890'; // Default India prefix
+  const prefixLen = customPrefix.length;
+  const remainingDigits = 13 - prefixLen; // GTIN-13 format
+  const random = Math.floor(Math.random() * Math.pow(10, remainingDigits))
+    .toString()
+    .padStart(remainingDigits, '0');
+  return `${customPrefix}${random}`;
+}
+
 function isoDateToYYMMDD(iso?: string): string | undefined {
   if (!iso) return undefined;
   const d = new Date(iso);
@@ -119,19 +130,23 @@ async function buildPdf(rows: BatchRow[], size = 250) {
 }
 
 /** parse CSV text into BatchRow[].
-  Expected headers: SKU, MFD, EXP, BATCH, MRP, QTY, CODE_TYPE
-  GTIN, Company, and Printer ID are auto-fetched from form state
+  Expected headers: GTIN, SKU, MFD, EXP, BATCH, MRP, COMPANY, QTY, CODE_TYPE
+  Only Printer ID is required from form state
+  GTIN is optional - will auto-generate if blank
 */
-async function csvToRows(csvText: string, gtin: string, company: string, printerId: string): Promise<BatchRow[]> {
+async function csvToRows(csvText: string, printerId: string): Promise<BatchRow[]> {
   const parsed = Papa.parse<Record<string, string>>(csvText, { header: true, skipEmptyLines: true });
   const out: BatchRow[] = [];
   
   for (const row of parsed.data) {
+    const gtinRaw = (row['GTIN'] || row['gtin'] || '').toString().trim();
+    const gtin = gtinRaw || generateGTIN(); // Auto-generate if blank
     const mfdRaw = (row['MFD'] || row['mfd'] || row['Mfd'] || '').toString().trim();
     const expRaw = (row['EXP'] || row['Exp'] || row['expiry'] || '').toString().trim();
     const mrp = (row['MRP'] || row['mrp'] || '').toString().trim();
     const batch = (row['BATCH'] || row['batch'] || '').toString().trim();
     const sku = (row['SKU'] || row['sku'] || '').toString().trim();
+    const companyName = (row['COMPANY'] || row['company'] || row['MANUFACTURER'] || row['manufacturer'] || '').toString().trim();
     const qtyRaw = (row['QTY'] || row['qty'] || row['Qty'] || '1').toString().trim();
     const qty = Math.max(1, parseInt(qtyRaw) || 1);
     const codeTypeRaw = (row['CODE_TYPE'] || row['code_type'] || row['CodeType'] || '').toString().trim().toUpperCase();
@@ -173,7 +188,7 @@ async function csvToRows(csvText: string, gtin: string, company: string, printer
             batch: batch || undefined,
             mrp: mrp || undefined,
             sku: sku || undefined,
-            company: company || undefined
+            company: companyName || undefined
           },
           payload: item.gs1,
           codeType: rowCodeType
@@ -205,6 +220,31 @@ export default function Page() {
   const [batch, setBatch] = useState<BatchRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [printers, setPrinters] = useState<Printer[]>([]);
+  const [company, setCompany] = useState<string>('');
+
+  // Fetch company from Supabase on mount
+  React.useEffect(() => {
+    async function fetchCompany() {
+      try {
+        const { supabaseClient } = await import('@/lib/supabase/client');
+        const { data: { user } } = await supabaseClient().auth.getUser();
+        if (user) {
+          const { data } = await supabaseClient()
+            .from('companies')
+            .select('company_name')
+            .eq('user_id', user.id)
+            .single();
+          if (data?.company_name) {
+            setCompany(data.company_name);
+            setForm(prev => ({ ...prev, company: data.company_name }));
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch company:', err);
+      }
+    }
+    fetchCompany();
+  }, []);
 
   // Fetch printers from API
   async function fetchPrinters() {
@@ -227,14 +267,15 @@ export default function Page() {
     if (e) e.preventDefault();
     setError(null);
     try {
+      const finalGtin = form.gtin || generateGTIN(); // Auto-generate if blank
       const fields: Gs1Fields = {
-        gtin: form.gtin,
+        gtin: finalGtin,
         mfdYYMMDD: isoDateToYYMMDD(form.mfdDate),
         expiryYYMMDD: isoDateToYYMMDD(form.expiryDate),
         batch: form.batch || undefined,
         mrp: form.mrp || undefined,
         sku: form.sku || undefined,
-        company: form.company || undefined
+        company: company || undefined
       };
       const built = buildGs1ElementString(fields);
       setPayload(built);
@@ -252,8 +293,13 @@ export default function Page() {
       setError('Please select or create a Printer ID');
       return;
     }
+    if (!company) {
+      setError('Company name not found. Please check your registration.');
+      return;
+    }
     
     const qty = Math.max(1, Math.floor(form.quantity));
+    const finalGtin = form.gtin || generateGTIN(); // Auto-generate if blank
     
     try {
       // Call /api/issues to generate unique serials
@@ -261,7 +307,7 @@ export default function Page() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          gtin: form.gtin,
+          gtin: finalGtin,
           batch: form.batch,
           mfd: form.mfdDate || null,
           exp: form.expiryDate,
@@ -280,13 +326,13 @@ export default function Page() {
       const newRows: BatchRow[] = result.items.map((item: any, idx: number) => ({
         id: `b${batch.length + idx + 1}`,
         fields: {
-          gtin: form.gtin,
+          gtin: finalGtin,
           mfdYYMMDD: isoDateToYYMMDD(form.mfdDate),
           expiryYYMMDD: isoDateToYYMMDD(form.expiryDate),
           batch: form.batch || undefined,
           mrp: form.mrp || undefined,
           sku: form.sku || undefined,
-          company: form.company || undefined
+          company: company || undefined
         },
         payload: item.gs1, // Use unique GS1 payload with serial from API
         codeType: form.codeType
@@ -306,8 +352,8 @@ export default function Page() {
       setError('GTIN is required. Set it in the form first.');
       return;
     }
-    if (!form.company) {
-      setError('Company name is required. Set it in the form first.');
+    if (!company) {
+      setError('Company name not found. Please check your registration.');
       return;
     }
     if (!form.printerId) {
@@ -321,7 +367,7 @@ export default function Page() {
       complete: async (results) => {
         try {
           const csvData = (results as any).data instanceof Array ? Papa.unparse(results.data) : results.data;
-          const rows = await csvToRows(csvData as string, form.gtin, form.company, form.printerId);
+          const rows = await csvToRows(csvData as string, form.printerId);
           setBatch(rows);
         } catch (e: any) {
           setError('CSV parse/build failed: ' + (e?.message || String(e)));
@@ -396,7 +442,7 @@ export default function Page() {
           <div className="grid grid-cols-2 gap-3">
             <label className="block">
               <div className="text-sm text-gray-600">GTIN</div>
-              <input className="mt-1 p-2 border rounded w-full" value={form.gtin} onChange={(e) => update('gtin', e.target.value)} />
+              <input className="mt-1 p-2 border rounded w-full" value={form.gtin} onChange={(e) => update('gtin', e.target.value)} placeholder="Leave blank to auto-generate (890...) or enter your GTIN" />
             </label>
 
             <label className="block">
@@ -432,10 +478,12 @@ export default function Page() {
               <input className="mt-1 p-2 border rounded w-full" value={form.sku} onChange={(e) => update('sku', e.target.value)} />
             </label>
 
-            <label>
+            <div>
               <div className="text-sm text-gray-600">Company</div>
-              <input className="mt-1 p-2 border rounded w-full" value={form.company} onChange={(e) => update('company', e.target.value)} />
-            </label>
+              <div className="mt-1 p-2 border rounded w-full bg-gray-50 text-gray-700">
+                {company || 'Loading from registration...'}
+              </div>
+            </div>
 
             <div className="col-span-2">
               <IssuePrinterSelector
@@ -471,9 +519,13 @@ export default function Page() {
             </label>
 
             <button type="button" className="px-4 py-2 bg-white border rounded" onClick={() => {
-              const csv = 'SKU,MFD,EXP,BATCH,MRP,QTY,CODE_TYPE\nMED-001,250101,260101,BATCH001,30.00,100,QR\nMED-002,250101,260101,BATCH002,35.00,50,DATAMATRIX';
+              if (!form.printerId) {
+                setError('Please select or create a Printer ID first');
+                return;
+              }
+              const csv = `GTIN,SKU,MFD,EXP,BATCH,MRP,COMPANY,QTY,CODE_TYPE\n,MED-001,250101,260101,BATCH001,30.00,${company || 'ABC Pharma Ltd'},100,QR\n8901234,MED-002,250101,260101,BATCH002,35.00,${company || 'XYZ Exports'},50,DATAMATRIX\n\n# Printer ID: ${form.printerId}\n# First row: GTIN left blank - will auto-generate with 890 prefix\n# Second row: GTIN with custom prefix (8901234...) - use your company prefix`;
               const blob = new Blob([csv], { type: 'text/csv' });
-              saveAs(blob, 'template.csv');
+              saveAs(blob, `template_${form.printerId}.csv`);
             }}>Download Template</button>
 
             <button type="button" className="px-4 py-2 bg-indigo-600 text-white rounded ml-auto" onClick={() => { setBatch([]); }}>Clear Batch</button>
@@ -482,11 +534,15 @@ export default function Page() {
           <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800">
             <strong>📋 CSV Upload Instructions:</strong>
             <ul className="mt-1 ml-4 list-disc space-y-1">
-              <li><strong>Required before upload:</strong> Set GTIN, Company Name, and Printer ID in the form above</li>
-              <li><strong>CSV Columns:</strong> SKU, MFD, EXP, BATCH, MRP, QTY, CODE_TYPE</li>
+              <li><strong>Required before upload:</strong> Select Printer ID in the form above</li>
+              <li><strong>Manufacturer:</strong> Auto-fetched from your registration ({company || 'Loading...'})</li>
+              <li><strong>CSV Columns:</strong> GTIN, SKU, MFD, EXP, BATCH, MRP, COMPANY, QTY, CODE_TYPE</li>
+              <li><strong>GTIN:</strong> Leave blank to auto-generate (890 prefix) OR add your company prefix (3-8 digits) for custom series (e.g., 8901234...)</li>
+              <li><strong>COMPANY:</strong> Your company/manufacturer/exporter name</li>
               <li><strong>Date Format:</strong> YYMMDD (e.g., 250101 = Jan 1, 2025) or YYYY-MM-DD</li>
-              <li><strong>CODE_TYPE:</strong> QR or DATAMATRIX</li>
-              <li>Each row generates unique serials automatically via API (21)</li>
+              <li><strong>CODE_TYPE:</strong> QR or DATAMATRIX (per row)</li>
+              <li><strong>QTY:</strong> Number of unique codes to generate per row</li>
+              <li>Example: One CSV row with QTY=1000 generates 1000 unique codes, each with unique serial number (AI 21)</li>
             </ul>
           </div>
 
