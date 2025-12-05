@@ -19,6 +19,7 @@ type Gs1Fields = {
   mrp?: string;
   sku?: string;
   company?: string;
+  serial?: string;
 };
 
 type CodeType = 'QR' | 'DATAMATRIX';
@@ -108,25 +109,60 @@ function buildEplForRow(row: BatchRow) {
 
 /** Build a PDF of labels — each label as an A6-like box per page */
 async function buildPdf(rows: BatchRow[], size = 250) {
-  const doc = new jsPDF({ unit: 'pt', format: 'a4' }); // using points
-  // We'll render one label per PDF page for simplicity
-  for (let i = 0; i < rows.length; i++) {
-    const r = rows[i];
-    // For each row, we can render payload text + human fields
-    doc.setFontSize(10);
-    doc.text(`GTIN: ${r.fields.gtin}`, 20, 30);
-    doc.text(`MFD: ${r.fields.mfdYYMMDD ?? ''}`, 20, 50);
-    doc.text(`EXP: ${r.fields.expiryYYMMDD ?? ''}`, 20, 70);
-    doc.text(`BATCH: ${r.fields.batch ?? ''}`, 20, 90);
-    doc.text(`MRP: ${r.fields.mrp ?? ''}`, 20, 110);
-    doc.text(`SKU: ${r.fields.sku ?? ''}`, 20, 130);
-    doc.text(`COMPANY: ${r.fields.company ?? ''}`, 20, 150);
-    doc.text(`Payload: ${r.payload}`, 20, 180);
+    const doc = new jsPDF({ unit: 'pt', format: 'a4' }); // using points
 
-    if (i < rows.length - 1) doc.addPage();
-  }
+    // Render each row, embedding a PNG of the barcode (QR/DataMatrix) and human-readable fields
+    const qrcode = await import('qrcode');
+    const bwipjs = await import('bwip-js');
 
-  return doc;
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      doc.setFontSize(10);
+      doc.text(`GTIN: ${r.fields.gtin}`, 20, 30);
+      doc.text(`MFD: ${r.fields.mfdYYMMDD ?? ''}`, 20, 50);
+      doc.text(`EXP: ${r.fields.expiryYYMMDD ?? ''}`, 20, 70);
+      doc.text(`BATCH: ${r.fields.batch ?? ''}`, 20, 90);
+      doc.text(`MRP: ${r.fields.mrp ?? ''}`, 20, 110);
+      doc.text(`SKU: ${r.fields.sku ?? ''}`, 20, 130);
+      doc.text(`COMPANY: ${r.fields.company ?? ''}`, 20, 150);
+
+      // Render barcode image
+      let dataUrl: string | null = null;
+      try {
+        if (r.codeType === 'QR') {
+          dataUrl = await (qrcode as any).toDataURL(r.payload, { margin: 1, width: 300 });
+        } else {
+          // DataMatrix via bwip-js to canvas
+          const canvas = document.createElement('canvas');
+          canvas.width = 300;
+          canvas.height = 300;
+          await (bwipjs as any).toCanvas(canvas, {
+            bcid: 'datamatrix',
+            text: r.payload,
+            scale: 4,
+            includetext: false
+          });
+          dataUrl = canvas.toDataURL('image/png');
+        }
+      } catch (err) {
+        console.error('PDF barcode render failed for row', i, err);
+      }
+
+      if (dataUrl) {
+        try {
+          // Place image on the page (x, y, width, height)
+          doc.addImage(dataUrl, 'PNG', 350, 30, 180, 180);
+        } catch (err) {
+          console.error('Failed to add image to PDF', err);
+        }
+      } else {
+        doc.text(`Payload: ${r.payload}`, 20, 180);
+      }
+
+      if (i < rows.length - 1) doc.addPage();
+    }
+
+    return doc;
 }
 
 /** parse CSV text into BatchRow[].
@@ -188,7 +224,8 @@ async function csvToRows(csvText: string, printerId: string): Promise<BatchRow[]
             batch: batch || undefined,
             mrp: mrp || undefined,
             sku: sku || undefined,
-            company: companyName || undefined
+            company: companyName || undefined,
+            serial: item.serial || undefined
           },
           payload: item.gs1,
           codeType: rowCodeType
@@ -320,7 +357,26 @@ export default function Page() {
       }
       
       const result = await res.json();
-      const newRows: BatchRow[] = result.items.map((item: any, idx: number) => ({
+
+      // Validate API returned expected number of items and that each item has a serial
+      if (!result.items || !Array.isArray(result.items) || result.items.length !== qty) {
+        console.warn('API returned unexpected items count', { expected: qty, got: result.items?.length });
+        // proceed but surface a warning to the user
+        setError(`Warning: expected ${qty} codes but API returned ${result.items?.length || 0}`);
+      }
+
+      const newRows: BatchRow[] = result.items.map((item: any, idx: number) => {
+        // Ensure serial exists
+        const serial = item.serial || null;
+        let gs1payload = item.gs1 || '';
+
+        // If GS1 payload doesn't contain the serial (AI 21), append it
+        if (serial && !gs1payload.includes(serial)) {
+          // If gs1payload already ends with AI 21 label like '21', just append serial
+          gs1payload = gs1payload + `21${serial}`;
+        }
+
+        return ({
         id: `b${batch.length + idx + 1}`,
         fields: {
           gtin: finalGtin,
@@ -329,9 +385,10 @@ export default function Page() {
           batch: form.batch || undefined,
           mrp: form.mrp || undefined,
           sku: form.sku || undefined,
-          company: company || undefined
+          company: company || undefined,
+          serial: serial || undefined
         },
-        payload: item.gs1, // Use unique GS1 payload with serial from API
+        payload: gs1payload, // Use GS1 payload with serial ensured
         codeType: form.codeType
       }));
       
