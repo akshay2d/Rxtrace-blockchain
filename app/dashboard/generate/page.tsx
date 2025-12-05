@@ -9,6 +9,8 @@ import { jsPDF } from 'jspdf';
 import GenerateLabel from '@/lib/generateLabel'; // adjust path if needed
 import { buildGs1ElementString } from '@/lib/gs1Builder'; // adjust path if needed
 import IssuePrinterSelector, { Printer } from '@/components/IssuePrinterSelector';
+import QRCodeComponent from '@/components/custom/QRCodeComponent';
+import DataMatrixComponent from '@/components/custom/DataMatrixComponent';
 
 // Define the type locally since gs1Builder.js is JavaScript
 type Gs1Fields = {
@@ -323,6 +325,9 @@ export default function Page() {
       }
       
       const result = await res.json();
+      console.log('API Response:', result); // Debug log
+      console.log('Items count:', result.items?.length); // Debug log
+      
       const newRows: BatchRow[] = result.items.map((item: any, idx: number) => ({
         id: `b${batch.length + idx + 1}`,
         fields: {
@@ -570,14 +575,24 @@ export default function Page() {
 
             <div className="space-y-2 max-h-64 overflow-auto">
               {batch.map((b, idx) => (
-                <div key={b.id} className="p-2 border rounded flex justify-between items-center">
-                  <div className="text-sm">
-                    <div className="font-medium">#{idx + 1} — {b.fields.gtin}</div>
-                    <div className="text-xs text-gray-500">{b.fields.batch} • {b.fields.sku} • {b.fields.company}</div>
+                <div key={b.id} className="p-2 border rounded">
+                  <div className="flex justify-between items-start mb-2">
+                    <div className="text-sm flex-1">
+                      <div className="font-medium">#{idx + 1} — {b.fields.gtin}</div>
+                      <div className="text-xs text-gray-500">{b.fields.batch} • {b.fields.sku} • {b.fields.company}</div>
+                      <div className="text-xs text-gray-400 mt-1 font-mono">{b.payload}</div>
+                    </div>
+                    <div className="flex gap-2 ml-2">
+                      <button className="px-2 py-1 bg-slate-100 rounded text-xs" onClick={() => { navigator.clipboard?.writeText(b.payload); }}>Copy</button>
+                      <button className="px-2 py-1 bg-red-50 rounded text-xs" onClick={() => setBatch((s) => s.filter((x) => x.id !== b.id))}>Remove</button>
+                    </div>
                   </div>
-                  <div className="flex gap-2">
-                    <button className="px-2 py-1 bg-slate-100 rounded text-xs" onClick={() => { navigator.clipboard?.writeText(b.payload); }}>Copy</button>
-                    <button className="px-2 py-1 bg-red-50 rounded text-xs" onClick={() => setBatch((s) => s.filter((x) => x.id !== b.id))}>Remove</button>
+                  <div className="flex justify-center p-2 bg-white border rounded">
+                    {b.codeType === 'QR' ? (
+                      <QRCodeComponent value={b.payload} size={80} />
+                    ) : (
+                      <DataMatrixComponent value={b.payload} size={80} />
+                    )}
                   </div>
                 </div>
               ))}
