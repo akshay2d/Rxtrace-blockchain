@@ -9,8 +9,6 @@ import { jsPDF } from 'jspdf';
 import GenerateLabel from '@/lib/generateLabel'; // adjust path if needed
 import { buildGs1ElementString } from '@/lib/gs1Builder'; // adjust path if needed
 import IssuePrinterSelector, { Printer } from '@/components/IssuePrinterSelector';
-import QRCodeComponent from '@/components/custom/QRCodeComponent';
-import DataMatrixComponent from '@/components/custom/DataMatrixComponent';
 
 // Define the type locally since gs1Builder.js is JavaScript
 type Gs1Fields = {
@@ -287,10 +285,7 @@ export default function Page() {
   }
 
   async function handleAddToBatch() {
-    if (!payload) {
-      setError('Build payload first');
-      return;
-    }
+    // Allow add-to-batch even if preview wasn't built; API will return GS1 payloads
     if (!form.printerId) {
       setError('Please select or create a Printer ID');
       return;
@@ -325,9 +320,6 @@ export default function Page() {
       }
       
       const result = await res.json();
-      console.log('API Response:', result); // Debug log
-      console.log('Items count:', result.items?.length); // Debug log
-      
       const newRows: BatchRow[] = result.items.map((item: any, idx: number) => ({
         id: `b${batch.length + idx + 1}`,
         fields: {
@@ -420,14 +412,42 @@ export default function Page() {
       return;
     }
     const zip = new JSZip();
-    // Render each payload to dataURL via GenerateLabel's QR rendering using qrcode.toDataURL
-    // We'll do a minimal generation: build GS1 string is already there; use qrcode lib directly
-    // dynamic import qrcode
+    // Render each payload to dataURL. Support both QR (qrcode) and DataMatrix (bwip-js)
     const qrcode = await import('qrcode');
+    const bwipjs = await import('bwip-js');
     for (let i = 0; i < batch.length; i++) {
       const r = batch[i];
-      const dataUrl = await (qrcode as any).toDataURL(r.payload, { margin: 1, width: 300 });
-      // convert dataUrl to blob
+      let dataUrl: string | null = null;
+
+      try {
+        if (r.codeType === 'QR') {
+          dataUrl = await (qrcode as any).toDataURL(r.payload, { margin: 1, width: 600 });
+        } else {
+          // DataMatrix: render to an offscreen canvas using bwip-js
+          const canvas = document.createElement('canvas');
+          // size - keep reasonable (600x600)
+          canvas.width = 600;
+          canvas.height = 600;
+          await (bwipjs as any).toCanvas(canvas, {
+            bcid: 'datamatrix',
+            text: r.payload,
+            scale: 4,
+            includetext: false
+          });
+          dataUrl = canvas.toDataURL('image/png');
+        }
+      } catch (err) {
+        console.error('Image render failed for item', i, err);
+        // fallback: render payload as text image via qrcode library encoding the payload as text QR
+        try {
+          dataUrl = await (qrcode as any).toDataURL(r.payload, { margin: 1, width: 600 });
+        } catch (err2) {
+          console.error('Fallback QR render failed', err2);
+          continue;
+        }
+      }
+
+      if (!dataUrl) continue;
       const res = await fetch(dataUrl);
       const blob = await res.blob();
       zip.file(`label_${i + 1}.png`, blob);
@@ -575,24 +595,19 @@ export default function Page() {
 
             <div className="space-y-2 max-h-64 overflow-auto">
               {batch.map((b, idx) => (
-                <div key={b.id} className="p-2 border rounded">
-                  <div className="flex justify-between items-start mb-2">
-                    <div className="text-sm flex-1">
+                <div key={b.id} className="p-2 border rounded flex justify-between items-center">
+                  <div className="flex items-center gap-3">
+                    <div style={{ width: 72, height: 72, background: '#fff', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <GenerateLabel payload={b.payload} codeType={b.codeType} size={72} showText={false} />
+                    </div>
+                    <div className="text-sm">
                       <div className="font-medium">#{idx + 1} — {b.fields.gtin}</div>
                       <div className="text-xs text-gray-500">{b.fields.batch} • {b.fields.sku} • {b.fields.company}</div>
-                      <div className="text-xs text-gray-400 mt-1 font-mono">{b.payload}</div>
-                    </div>
-                    <div className="flex gap-2 ml-2">
-                      <button className="px-2 py-1 bg-slate-100 rounded text-xs" onClick={() => { navigator.clipboard?.writeText(b.payload); }}>Copy</button>
-                      <button className="px-2 py-1 bg-red-50 rounded text-xs" onClick={() => setBatch((s) => s.filter((x) => x.id !== b.id))}>Remove</button>
                     </div>
                   </div>
-                  <div className="flex justify-center p-2 bg-white border rounded">
-                    {b.codeType === 'QR' ? (
-                      <QRCodeComponent value={b.payload} size={80} />
-                    ) : (
-                      <DataMatrixComponent value={b.payload} size={80} />
-                    )}
+                  <div className="flex gap-2">
+                    <button className="px-2 py-1 bg-slate-100 rounded text-xs" onClick={() => { navigator.clipboard?.writeText(b.payload); }}>Copy</button>
+                    <button className="px-2 py-1 bg-red-50 rounded text-xs" onClick={() => setBatch((s) => s.filter((x) => x.id !== b.id))}>Remove</button>
                   </div>
                 </div>
               ))}
