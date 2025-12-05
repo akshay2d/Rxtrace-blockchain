@@ -119,50 +119,70 @@ async function buildPdf(rows: BatchRow[], size = 250) {
 }
 
 /** parse CSV text into BatchRow[].
-  Expected headers (case-insensitive): GTIN, MFD, EXP, MRP, BATCH, SKU, COMPANY, QTY
+  Expected headers: SKU, MFD, EXP, BATCH, MRP, QTY, CODE_TYPE
+  GTIN, Company, and Printer ID are auto-fetched from form state
 */
-function csvToRows(csvText: string, codeType: CodeType): BatchRow[] {
+async function csvToRows(csvText: string, gtin: string, company: string, printerId: string): Promise<BatchRow[]> {
   const parsed = Papa.parse<Record<string, string>>(csvText, { header: true, skipEmptyLines: true });
   const out: BatchRow[] = [];
-  parsed.data.forEach((row, idx) => {
-    const gtin = (row['GTIN'] || row['gtin'] || row['Gtin'] || '').toString().trim();
-    const mfdRaw = (row['MFD'] || row['mfd'] || row['Mfd'] || row['MFD(YYYY-MM-DD)'] || '').toString().trim();
+  
+  for (const row of parsed.data) {
+    const mfdRaw = (row['MFD'] || row['mfd'] || row['Mfd'] || '').toString().trim();
     const expRaw = (row['EXP'] || row['Exp'] || row['expiry'] || '').toString().trim();
     const mrp = (row['MRP'] || row['mrp'] || '').toString().trim();
     const batch = (row['BATCH'] || row['batch'] || '').toString().trim();
     const sku = (row['SKU'] || row['sku'] || '').toString().trim();
-    const company = (row['COMPANY'] || row['company'] || '').toString().trim();
     const qtyRaw = (row['QTY'] || row['qty'] || row['Qty'] || '1').toString().trim();
     const qty = Math.max(1, parseInt(qtyRaw) || 1);
     const codeTypeRaw = (row['CODE_TYPE'] || row['code_type'] || row['CodeType'] || '').toString().trim().toUpperCase();
     const rowCodeType: CodeType = (codeTypeRaw === 'DATAMATRIX' || codeTypeRaw === 'DM') ? 'DATAMATRIX' : 'QR';
 
-    // convert possible date formats to YYMMDD using Date parsing if needed
-    const mfdYY = isoDateToYYMMDD(mfdRaw) || (mfdRaw.length === 6 ? mfdRaw : undefined);
-    const expYY = isoDateToYYMMDD(expRaw) || (expRaw.length === 6 ? expRaw : undefined);
+    // Convert dates to ISO format for API
+    const mfdISO = mfdRaw.length === 6 ? `20${mfdRaw.slice(0,2)}-${mfdRaw.slice(2,4)}-${mfdRaw.slice(4,6)}` : mfdRaw;
+    const expISO = expRaw.length === 6 ? `20${expRaw.slice(0,2)}-${expRaw.slice(2,4)}-${expRaw.slice(4,6)}` : expRaw;
 
-    const fields: Gs1Fields = {
-      gtin,
-      mfdYYMMDD: mfdYY,
-      expiryYYMMDD: expYY,
-      batch: batch || undefined,
-      mrp: mrp || undefined,
-      sku: sku || undefined,
-      company: company || undefined
-    };
-
-    const payload = buildGs1ElementString(fields);
-    
-    // Generate qty copies of this row
-    for (let i = 0; i < qty; i++) {
-      out.push({
-        id: `r${out.length + 1}`,
-        fields,
-        payload,
-        codeType: rowCodeType
+    // Call /api/issues to generate unique serials for this row
+    try {
+      const res = await fetch('/api/issues', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          gtin,
+          batch,
+          mfd: mfdISO || null,
+          exp: expISO,
+          quantity: qty,
+          printer_id: printerId
+        })
       });
+
+      if (!res.ok) {
+        throw new Error(`Failed to generate codes for row with SKU: ${sku}`);
+      }
+
+      const result = await res.json();
+      
+      // Add each unique code to batch
+      result.items.forEach((item: any) => {
+        out.push({
+          id: `r${out.length + 1}`,
+          fields: {
+            gtin,
+            mfdYYMMDD: isoDateToYYMMDD(mfdISO),
+            expiryYYMMDD: isoDateToYYMMDD(expISO),
+            batch: batch || undefined,
+            mrp: mrp || undefined,
+            sku: sku || undefined,
+            company: company || undefined
+          },
+          payload: item.gs1,
+          codeType: rowCodeType
+        });
+      });
+    } catch (err) {
+      throw new Error(`CSV row error: ${err}`);
     }
-  });
+  }
 
   return out;
 }
@@ -223,16 +243,42 @@ export default function Page() {
     }
   }
 
-  function handleAddToBatch() {
+  async function handleAddToBatch() {
     if (!payload) {
       setError('Build payload first');
       return;
     }
+    if (!form.printerId) {
+      setError('Please select or create a Printer ID');
+      return;
+    }
+    
     const qty = Math.max(1, Math.floor(form.quantity));
-    const newRows: BatchRow[] = [];
-    for (let i = 0; i < qty; i++) {
-      newRows.push({
-        id: `b${batch.length + newRows.length + 1}`,
+    
+    try {
+      // Call /api/issues to generate unique serials
+      const res = await fetch('/api/issues', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          gtin: form.gtin,
+          batch: form.batch,
+          mfd: form.mfdDate || null,
+          exp: form.expiryDate,
+          quantity: qty,
+          printer_id: form.printerId
+        })
+      });
+      
+      if (!res.ok) {
+        const data = await res.json();
+        setError(data.message || 'Failed to generate unique codes');
+        return;
+      }
+      
+      const result = await res.json();
+      const newRows: BatchRow[] = result.items.map((item: any, idx: number) => ({
+        id: `b${batch.length + idx + 1}`,
         fields: {
           gtin: form.gtin,
           mfdYYMMDD: isoDateToYYMMDD(form.mfdDate),
@@ -242,22 +288,40 @@ export default function Page() {
           sku: form.sku || undefined,
           company: form.company || undefined
         },
-        payload,
+        payload: item.gs1, // Use unique GS1 payload with serial from API
         codeType: form.codeType
-      });
+      }));
+      
+      setBatch((s) => [...s, ...newRows]);
+      setError(null);
+    } catch (err: any) {
+      setError(err?.message || 'Network error');
     }
-    setBatch((s) => [...s, ...newRows]);
   }
 
-  function handleCsvUpload(file: File) {
+  async function handleCsvUpload(file: File) {
     setError(null);
+    
+    if (!form.gtin) {
+      setError('GTIN is required. Set it in the form first.');
+      return;
+    }
+    if (!form.company) {
+      setError('Company name is required. Set it in the form first.');
+      return;
+    }
+    if (!form.printerId) {
+      setError('Printer ID is required. Select or create one first.');
+      return;
+    }
+    
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
-      complete: (results) => {
+      complete: async (results) => {
         try {
           const csvData = (results as any).data instanceof Array ? Papa.unparse(results.data) : results.data;
-          const rows = csvToRows(csvData as string, form.codeType);
+          const rows = await csvToRows(csvData as string, form.gtin, form.company, form.printerId);
           setBatch(rows);
         } catch (e: any) {
           setError('CSV parse/build failed: ' + (e?.message || String(e)));
@@ -407,12 +471,23 @@ export default function Page() {
             </label>
 
             <button type="button" className="px-4 py-2 bg-white border rounded" onClick={() => {
-              const csv = 'GTIN,MFD,EXP,BATCH,MRP,SKU,COMPANY,QTY,CODE_TYPE\n1234567890123,250101,260101,BATCH001,30.00,SKU001,Company Name,100,QR\n1234567890124,250101,260101,BATCH002,35.00,SKU002,Company Name,50,DATAMATRIX';
+              const csv = 'SKU,MFD,EXP,BATCH,MRP,QTY,CODE_TYPE\nMED-001,250101,260101,BATCH001,30.00,100,QR\nMED-002,250101,260101,BATCH002,35.00,50,DATAMATRIX';
               const blob = new Blob([csv], { type: 'text/csv' });
               saveAs(blob, 'template.csv');
             }}>Download Template</button>
 
             <button type="button" className="px-4 py-2 bg-indigo-600 text-white rounded ml-auto" onClick={() => { setBatch([]); }}>Clear Batch</button>
+          </div>
+
+          <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800">
+            <strong>📋 CSV Upload Instructions:</strong>
+            <ul className="mt-1 ml-4 list-disc space-y-1">
+              <li><strong>Required before upload:</strong> Set GTIN, Company Name, and Printer ID in the form above</li>
+              <li><strong>CSV Columns:</strong> SKU, MFD, EXP, BATCH, MRP, QTY, CODE_TYPE</li>
+              <li><strong>Date Format:</strong> YYMMDD (e.g., 250101 = Jan 1, 2025) or YYYY-MM-DD</li>
+              <li><strong>CODE_TYPE:</strong> QR or DATAMATRIX</li>
+              <li>Each row generates unique serials automatically via API (21)</li>
+            </ul>
           </div>
 
           {error && <div className="mt-3 text-red-600">{error}</div>}

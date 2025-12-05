@@ -68,7 +68,8 @@ export async function POST(req: Request) {
     // NOTE: upsert will insert or update rows with matching 'id'
     const { data, error } = await supabase
       .from('printers')
-      .upsert(rows, { onConflict: 'id', returning: 'representation' });
+      .upsert(rows, { onConflict: 'id' })
+      .select();
 
     if (error) {
       console.error('Supabase upsert printers error', error);
