@@ -9,9 +9,7 @@ import { useRouter } from 'next/navigation';
 type Printer = {
   id: string;
   printer_id: string;
-  name?: string;
-  model?: string;
-  location?: string;
+  name: string;
   is_active?: boolean;
 };
 
@@ -25,8 +23,6 @@ export default function PrintersPage() {
   // Form state
   const [formId, setFormId] = useState('');
   const [formName, setFormName] = useState('');
-  const [formModel, setFormModel] = useState('');
-  const [formLocation, setFormLocation] = useState('');
 
   useEffect(() => {
     fetchPrinters();
@@ -64,9 +60,7 @@ export default function PrintersPage() {
         body: JSON.stringify({
           printers: [{
             id,
-            name: formName || null,
-            model: formModel || null,
-            location: formLocation || null,
+            name: formName || 'Printer',
             active: true
           }]
         })
@@ -76,8 +70,6 @@ export default function PrintersPage() {
         setSuccess(`Printer "${id}" created successfully!`);
         setFormId('');
         setFormName('');
-        setFormModel('');
-        setFormLocation('');
         fetchPrinters();
         
         // Redirect back to generate page after 2 seconds
@@ -132,24 +124,6 @@ export default function PrintersPage() {
               />
             </div>
 
-            <div>
-              <label className="block text-sm font-medium mb-1">Model (optional)</label>
-              <Input
-                value={formModel}
-                onChange={(e) => setFormModel(e.target.value)}
-                placeholder="e.g. Zebra ZT230"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium mb-1">Location (optional)</label>
-              <Input
-                value={formLocation}
-                onChange={(e) => setFormLocation(e.target.value)}
-                placeholder="e.g. Factory Floor 2"
-              />
-            </div>
-
             {error && (
               <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-800">
                 {error}
@@ -191,8 +165,6 @@ export default function PrintersPage() {
                     <div>
                       <div className="font-medium">{p.printer_id}</div>
                       {p.name && <div className="text-sm text-gray-600">{p.name}</div>}
-                      {p.model && <div className="text-xs text-gray-500">Model: {p.model}</div>}
-                      {p.location && <div className="text-xs text-gray-500">Location: {p.location}</div>}
                     </div>
                     <div className={`px-2 py-1 rounded text-xs ${p.is_active !== false ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}`}>
                       {p.is_active !== false ? 'Active' : 'Inactive'}
