@@ -157,7 +157,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ status: 'DUPLICATE', message: 'Code already scanned', parsed, code: { id: code.id, gtin: code.gtin, serial: code.serial } }, { status: 200 });
     }
 
-    // Otherwise first-time valid scan -> insert log and return VALID
+    // Otherwise first-time valid scan -> insert log, update code status, and return VALID
     await supabase.from('scan_logs').insert([{
       raw_scan: rawInput,
       parsed: parsedForLog,
@@ -167,6 +167,11 @@ export async function POST(req: Request) {
       ip: req.headers.get('x-forwarded-for') || null,
       metadata: { status: 'VALID' }
     }]);
+
+    // Update code status to 'verified' after first successful scan
+    await supabase.from('codes')
+      .update({ status: 'verified', first_scanned_at: new Date().toISOString() })
+      .eq('id', code.id);
 
     return NextResponse.json({ status: 'VALID', message: 'Code is valid', parsed, code: { id: code.id, gtin: code.gtin, serial: code.serial }, firstScan: true }, { status: 200 });
 

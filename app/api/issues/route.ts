@@ -77,7 +77,8 @@ export async function POST(req: Request) {
         printer_id: printerRow.printer_id,
         issued_by: 'dashboard',
         issued_at: nowIso,
-        gs1_payload: gs1
+        gs1_payload: gs1,
+        status: 'issued'
       }]);
 
       if (error) {
