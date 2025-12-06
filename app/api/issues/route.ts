@@ -13,7 +13,7 @@ function getSupabaseClient() {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { gtin, batch, mfd, exp, quantity, printer_id } = body || {};
+    const { gtin, batch, mfd, exp, quantity, printer_id, mrp, sku, company } = body || {};
 
     // Validations
     if (!gtin) return NextResponse.json({ message: 'GTIN required' }, { status: 400 });
@@ -61,7 +61,10 @@ export async function POST(req: Request) {
         expDate: exp,
         mfgDate: mfd || undefined,
         batch,
-        serial
+        serial,
+        mrp,
+        sku,
+        company
       });
 
       // Single insert - no retry needed (deterministic = unique)

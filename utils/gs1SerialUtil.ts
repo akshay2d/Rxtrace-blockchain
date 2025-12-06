@@ -61,6 +61,9 @@ export function buildGs1MachinePayload(params: {
   mfgDate?: string | Date; 
   batch?: string; 
   serial?: string;
+  mrp?: string;
+  sku?: string;
+  company?: string;
 }) {
   const g = params.gtin.padStart(14, '0');
   
@@ -90,6 +93,21 @@ export function buildGs1MachinePayload(params: {
     // Auto-generate serial if not provided
     const autoSerial = generateSerial({ prefix: 'RX', randomLen: 6 });
     payload += `21${autoSerial}`;
+  }
+  
+  // AI 91 - MRP (variable length)
+  if (params.mrp) {
+    payload += `91${params.mrp}`;
+  }
+  
+  // AI 92 - SKU (variable length) 
+  if (params.sku) {
+    payload += `92${params.sku}`;
+  }
+  
+  // AI 93 - Company/Internal info (variable length)
+  if (params.company) {
+    payload += `93${params.company}`;
   }
   
   return payload;
