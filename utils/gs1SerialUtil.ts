@@ -65,49 +65,50 @@ export function buildGs1MachinePayload(params: {
   sku?: string;
   company?: string;
 }) {
+  const GS = String.fromCharCode(29); // Group Separator (ASCII 29)
   const g = params.gtin.padStart(14, '0');
   
   let payload = `01${g}`;
   
-  // AI 17 - Expiry date (YYMMDD)
+  // AI 17 - Expiry date (YYMMDD) - Fixed length
   if (params.expDate) {
     const exp = formatDateYYMMDD(params.expDate);
     payload += `17${exp}`;
   }
   
-  // AI 11 - Manufacturing date (YYMMDD)
+  // AI 11 - Manufacturing date (YYMMDD) - Fixed length
   if (params.mfgDate) {
     const mfg = formatDateYYMMDD(params.mfgDate);
     payload += `11${mfg}`;
   }
   
-  // AI 10 - Batch/Lot (variable length)
+  // AI 10 - Batch/Lot (variable length) - requires GS separator
   if (params.batch) {
-    payload += `10${params.batch}`;
+    payload += `10${params.batch}${GS}`;
   }
   
-  // AI 21 - Serial number (variable length)
+  // AI 21 - Serial number (variable length) - requires GS separator
   if (params.serial) {
-    payload += `21${params.serial}`;
+    payload += `21${params.serial}${GS}`;
   } else {
     // Auto-generate serial if not provided
     const autoSerial = generateSerial({ prefix: 'RX', randomLen: 6 });
-    payload += `21${autoSerial}`;
+    payload += `21${autoSerial}${GS}`;
   }
   
-  // AI 91 - MRP (variable length)
+  // AI 91 - MRP (variable length) - requires GS separator
   if (params.mrp) {
-    payload += `91${params.mrp}`;
+    payload += `91${params.mrp}${GS}`;
   }
   
-  // AI 92 - SKU (variable length) 
+  // AI 92 - SKU (variable length) - requires GS separator
   if (params.sku) {
-    payload += `92${params.sku}`;
+    payload += `92${params.sku}${GS}`;
   }
   
-  // AI 93 - Company/Internal info (variable length)
+  // AI 93 - Company/Internal info (variable length) - last field, GS optional but included for consistency
   if (params.company) {
-    payload += `93${params.company}`;
+    payload += `93${params.company}${GS}`;
   }
   
   return payload;
