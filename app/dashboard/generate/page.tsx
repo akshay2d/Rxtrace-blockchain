@@ -218,7 +218,10 @@ async function csvToRows(csvText: string, printerId: string): Promise<BatchRow[]
           mfd: mfdISO || null,
           exp: expISO,
           quantity: qty,
-          printer_id: printerId
+          printer_id: printerId,
+          mrp: mrp || undefined,
+          sku: sku || undefined,
+          company: companyName || undefined
         })
       });
 
@@ -360,7 +363,10 @@ export default function Page() {
           mfd: form.mfdDate || null,
           exp: form.expiryDate,
           quantity: qty,
-          printer_id: form.printerId
+          printer_id: form.printerId,
+          mrp: form.mrp || undefined,
+          sku: form.sku || undefined,
+          company: company || undefined
         })
       });
       
