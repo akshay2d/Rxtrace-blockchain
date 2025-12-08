@@ -121,6 +121,10 @@ export default function AdminDashboard() {
   }
 
   async function updateCodeStatus(codeId: string, newStatus: string) {
+    if (!confirm(`Are you sure you want to change the status to ${newStatus.toUpperCase()}?`)) {
+      return;
+    }
+    
     try {
       const supabase = supabaseClient();
       const { error } = await supabase
@@ -130,14 +134,14 @@ export default function AdminDashboard() {
 
       if (error) throw error;
       
-      alert(`Status updated to ${newStatus}`);
+      alert(`✓ Status successfully updated to ${newStatus.toUpperCase()}`);
       fetchData();
       if (selectedCode?.id === codeId) {
         setSelectedCode({ ...selectedCode, status: newStatus });
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error updating status:', error);
-      alert('Failed to update status');
+      alert(`✗ Failed to update status: ${error.message || 'Unknown error'}`);
     }
   }
 
@@ -278,7 +282,12 @@ export default function AdminDashboard() {
       {/* Codes Table */}
       <Card>
         <CardHeader>
-          <CardTitle>Generated Codes ({filteredCodes.length})</CardTitle>
+          <div className="flex justify-between items-center">
+            <CardTitle>Generated Codes ({filteredCodes.length})</CardTitle>
+            <div className="text-sm text-gray-600">
+              Click dropdown in Actions column to change status
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           {loading ? (
@@ -325,19 +334,21 @@ export default function AdminDashboard() {
                               setSelectedCode(code);
                               fetchScanHistory(code.id);
                             }}
+                            title="View Scan History"
                           >
-                            <Eye className="w-3 h-3" />
+                            <Eye className="w-4 h-4" />
                           </Button>
                           <select
                             value={code.status}
                             onChange={(e) => updateCodeStatus(code.id, e.target.value)}
-                            className="text-xs border rounded px-2 py-1"
+                            className="text-sm border-2 border-gray-300 rounded-md px-3 py-1 font-medium hover:border-[#0052CC] focus:border-[#0052CC] focus:ring-2 focus:ring-[#0052CC] focus:ring-opacity-20 cursor-pointer"
+                            title="Change Status"
                           >
-                            <option value="issued">Issued</option>
-                            <option value="verified">Verified</option>
-                            <option value="expired">Expired</option>
-                            <option value="blacklisted">Blacklisted</option>
-                            <option value="recalled">Recalled</option>
+                            <option value="issued">✓ Issued</option>
+                            <option value="verified">✓ Verified</option>
+                            <option value="expired">⚠ Expired</option>
+                            <option value="blacklisted">✗ Blacklisted</option>
+                            <option value="recalled">✗ Recalled</option>
                           </select>
                         </div>
                       </td>
