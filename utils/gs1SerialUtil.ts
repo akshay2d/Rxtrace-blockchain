@@ -134,14 +134,18 @@ export function generateUniqueSerial(opts: {
   const secret = opts.secret || process.env.UNIQUE_CODE_SECRET || 'rxtrace-default-secret';
   const length = opts.length || 12;
   
-  // Build input string from all parameters
+  // Add timestamp to ensure uniqueness across multiple generations
+  const timestamp = Date.now().toString();
+  
+  // Build input string from all parameters including timestamp
   const input = [
     opts.gtin,
     opts.batch || '',
     opts.mfg || '',
     opts.expiry || '',
     opts.printerId,
-    opts.counter.toString()
+    opts.counter.toString(),
+    timestamp
   ].join('|');
   
   // Generate HMAC
