@@ -80,8 +80,8 @@ If you're having trouble with **GitHub Copilot** (the AI coding assistant):
 ## Need Immediate Help?
 
 ### For RxTrace Issues:
-- Open an issue in this repository
-- Email: Check package.json or project documentation
+- Open an issue in this repository: https://github.com/akshay2d/Rxtrace-blockchain/issues
+- Documentation: Check README.md, FEATURES.md, and CONTRIBUTING.md
 
 ### For GitHub/Copilot Issues:
 - GitHub Support: https://support.github.com/
@@ -101,5 +101,5 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) if available, or follow standard GitHub
 
 ---
 
-**Last Updated**: December 2025  
+**Last Updated**: December 8, 2024  
 **Repository**: https://github.com/akshay2d/Rxtrace-blockchain

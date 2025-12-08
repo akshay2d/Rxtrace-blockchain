@@ -80,8 +80,9 @@ For these issues, please visit [GitHub Support](https://support.github.com/).
 
 3. Set up environment variables:
    ```bash
-   cp .env.local.example .env.local
-   # Edit .env.local with your Supabase credentials
+   # Create .env.local file with your Supabase credentials
+   echo "NEXT_PUBLIC_SUPABASE_URL=your-url-here" > .env.local
+   echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=your-key-here" >> .env.local
    ```
 
 4. Run development server:

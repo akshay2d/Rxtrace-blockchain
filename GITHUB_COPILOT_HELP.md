@@ -88,9 +88,11 @@ If you're having issues with:
 ## 💳 Understanding GitHub Copilot Billing
 
 ### Individual Plan
-- **Price**: $10/month or $100/year (save $20 annually)
+- **Price**: $10/month or $100/year (prices as of Dec 2024 - check GitHub for current pricing)
 - **Billing Cycle**: Monthly on the date you subscribed
-- **Free Trial**: 30 days for eligible users
+- **Free Trial**: 30 days for eligible users (eligibility varies)
+
+> **Note**: Pricing may change. Always check https://github.com/features/copilot#pricing for current rates.
 
 ### When You're Charged
 - **First charge**: After free trial ends (if applicable)

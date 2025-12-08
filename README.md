@@ -101,4 +101,4 @@ This project is for the pharmaceutical traceability platform. See documentation 
 ---
 
 **Repository**: https://github.com/akshay2d/Rxtrace-blockchain  
-**Last Updated**: December 2025
+**Last Updated**: December 8, 2024
