@@ -1,26 +1,20 @@
-// app/api/issue/route.ts
+// app/api/issue/route.ts - STATELESS CODE GENERATION (No database storage)
 // Issue endpoint for RxTrace (Next.js App Router style)
 // - accepts manual_serials[] OR (auto_count + template)
 // - uses utils/gs1SerialUtil for serial generation & payload building
-// - inserts into 'codes' table (via Supabase service role client) and returns CSV
+// - NO DATABASE INSERT - returns CSV directly
 //
 // Required env:
-//  - SUPABASE_URL
-//  - SUPABASE_SERVICE_KEY
 //  - API_KEY (simple internal guard)
 //  - OPTIONAL: UNIQUE_CODE_SECRET (for deterministic generateUniqueSerial)
-//
-// NOTE: adjust import path to your utils file location if necessary.
 
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
 import {
   buildGs1MachinePayload,
   generateUniqueSerial,
   generateSerial,
   normalizeGtinTo14
-} from '../../../utils/gs1SerialUtil'; // path from app/api/issue -> project root utils
-// If your utils live elsewhere, adjust the relative path accordingly
+} from '../../../utils/gs1SerialUtil';
 
 type ManualRow = {
   gtin: string;
@@ -29,13 +23,6 @@ type ManualRow = {
   batch?: string | null;
   serial?: string | null;
 };
-
-function getSupabaseClient() {
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_KEY;
-  if (!url || !key) throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_KEY');
-  return createClient(url, key, { auth: { persistSession: false } });
-}
 
 function requireApiKey(req: Request) {
   const key = req.headers.get('x-api-key');
@@ -100,51 +87,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Either manual_serials[] or (auto_count + template) required' }, { status: 400 });
     }
 
-    const MAX_ROWS = 5000;
+    const MAX_ROWS = 50000;
     const totalRows = manualSerials ? manualSerials.length : autoCount;
     if (totalRows <= 0 || totalRows > MAX_ROWS) {
       return NextResponse.json({ error: `row count must be 1..${MAX_ROWS}` }, { status: 400 });
     }
 
-    const supabase = getSupabaseClient();
-
-    // Find printer row: try id OR printer_id column (covers both designs)
-    let printerRow: any = null;
-    {
-      const { data: rows1, error: e1 } = await supabase
-        .from('printers')
-        .select('*')
-        .eq('id', printerIdentifier)
-        .limit(1);
-      if (e1) {
-        console.error('Supabase error finding printer by id', e1);
-        return NextResponse.json({ error: 'printer lookup failed' }, { status: 500 });
-      }
-      if (rows1 && rows1.length > 0) printerRow = rows1[0];
-    }
-    if (!printerRow) {
-      const { data: rows2, error: e2 } = await supabase
-        .from('printers')
-        .select('*')
-        .eq('printer_id', printerIdentifier)
-        .limit(1);
-      if (e2) {
-        console.error('Supabase error finding printer by printer_id', e2);
-        return NextResponse.json({ error: 'printer lookup failed' }, { status: 500 });
-      }
-      if (rows2 && rows2.length > 0) printerRow = rows2[0];
-    }
-
-    if (!printerRow) {
-      return NextResponse.json({ error: 'printer not found' }, { status: 404 });
-    }
-    if (printerRow.is_active === false) {
-      return NextResponse.json({ error: 'printer inactive' }, { status: 403 });
-    }
-
-    // Prepare rows
-    const nowIso = new Date().toISOString();
-    const rowsToInsert: any[] = [];
+    // Prepare rows (no database insert)
+    const csvRows: any[] = [];
 
     if (manualSerials) {
       for (const r of manualSerials) {
@@ -162,7 +112,7 @@ export async function POST(req: Request) {
           return NextResponse.json({ error: 'invalid serial format in manual_serials' }, { status: 400 });
         }
 
-        // Build payload; if serial not provided, buildGs1MachinePayload will auto-generate only if we pass serial undefined
+        // Build payload
         const payload = buildGs1MachinePayload({
           gtin: gtin14,
           expDate: expiry || undefined,
@@ -171,17 +121,13 @@ export async function POST(req: Request) {
           serial: serial || undefined
         });
 
-        rowsToInsert.push({
+        csvRows.push({
           gtin: gtin14,
-          batch: batch || null,
-          mfg: mfg || null,
-          expiry: expiry || null,
-          serial: serial || null,
-          gs1_payload: payload,
-          printer_id: printerRow.printer_id,
-          issued_by: 'api',
-          issued_at: nowIso,
-          manual: !!serial
+          batch: batch || '',
+          mfg: mfg || '',
+          expiry: expiry || '',
+          serial: serial || '',
+          gs1_payload: payload
         });
       }
     } else {
@@ -197,7 +143,7 @@ export async function POST(req: Request) {
       const serialOpts = template.serialOpts ?? {};
 
       for (let i = 0; i < autoCount; i++) {
-        // Prefer deterministic unique serial; fallback to random generateSerial if secret missing/throws
+        // Prefer deterministic unique serial
         let serial = null;
         try {
           serial = generateUniqueSerial({
@@ -208,10 +154,10 @@ export async function POST(req: Request) {
             printerId: String(printerIdentifier),
             counter: i,
             length: serialOpts.length ?? 12,
-            secret: serialOpts.secret // optional override
+            secret: serialOpts.secret
           });
         } catch (err) {
-          // fallback to random serial generator (non-secret)
+          // fallback to random serial generator
           serial = generateSerial({ prefix: serialOpts.prefix ?? undefined, randomLen: serialOpts.randomLen ?? 6 });
         }
 
@@ -223,44 +169,20 @@ export async function POST(req: Request) {
           serial
         });
 
-        rowsToInsert.push({
+        csvRows.push({
           gtin: gtin14,
-          batch: batch || null,
-          mfg: mfg || null,
-          expiry: expiry || null,
+          batch: batch || '',
+          mfg: mfg || '',
+          expiry: expiry || '',
           serial,
-          gs1_payload: payload,
-          printer_id: printerRow.printer_id,
-          issued_by: 'api',
-          issued_at: nowIso,
-          manual: false,
-          status: 'issued'
+          gs1_payload: payload
         });
       }
     }
 
-    // Bulk insert into codes
-    const { data: inserted, error: insertErr } = await supabase.from('codes').insert(rowsToInsert).select();
-
-    if (insertErr) {
-      console.error('Insert error', insertErr);
-      // If FK type mismatch, show hint (helpful)
-      if (insertErr.message && insertErr.message.includes('invalid input syntax for type')) {
-        return NextResponse.json({ error: 'insert_failed', detail: 'Possible type mismatch between printers.id and codes.printer_ref. Check schema.' }, { status: 500 });
-      }
-      return NextResponse.json({ error: 'insert_failed', detail: insertErr.message }, { status: 500 });
-    }
-
-    const csvRows = (inserted || []).map((r: any) => ({
-      gtin: r.gtin,
-      mfg: r.mfg,
-      expiry: r.expiry,
-      batch: r.batch,
-      serial: r.serial,
-      gs1_payload: r.gs1_payload
-    }));
-
     const csv = toCsv(csvRows);
+
+    console.log(`Generated ${csvRows.length} codes (no database storage)`);
 
     return new NextResponse(csv, {
       status: 200,

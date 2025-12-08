@@ -1,9 +1,9 @@
-// app/api/verify/route.ts
+// app/api/verify/route.ts - STATELESS VERIFICATION (No database lookup)
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { parseGS1, type GS1Data } from '@/lib/parseGS1';
 
-// Supabase service role client (server-side only)
+// Supabase service role client (server-side only) - only for logging scans
 function getSupabase() {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_KEY;
@@ -17,6 +17,41 @@ function requireApiKeyIfConfigured(req: Request) {
   if (!required) return;
   const provided = req.headers.get('x-api-key') || '';
   if (provided !== required) throw new Error('Unauthorized');
+}
+
+// Helper: Check if date is expired (format: YYMMDD or YYYY-MM-DD)
+function isExpired(expiryStr: string): boolean {
+  try {
+    let year: number, month: number, day: number;
+    
+    if (expiryStr.includes('-')) {
+      // Format: YYYY-MM-DD
+      const parts = expiryStr.split('-');
+      year = parseInt(parts[0]);
+      month = parseInt(parts[1]);
+      day = parseInt(parts[2]);
+    } else if (expiryStr.length === 6) {
+      // Format: YYMMDD
+      year = 2000 + parseInt(expiryStr.substring(0, 2));
+      month = parseInt(expiryStr.substring(2, 4));
+      day = parseInt(expiryStr.substring(4, 6));
+    } else {
+      return false; // Unknown format, assume not expired
+    }
+
+    const expiryDate = new Date(year, month - 1, day);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    return expiryDate < today;
+  } catch {
+    return false;
+  }
+}
+
+// Helper: Validate GTIN format (should be 8, 12, 13, or 14 digits)
+function isValidGTIN(gtin: string): boolean {
+  return /^\d{8}$|^\d{12}$|^\d{13}$|^\d{14}$/.test(gtin);
 }
 
 export async function POST(req: Request) {
@@ -50,8 +85,8 @@ export async function POST(req: Request) {
     // For logging: keep parsed object even if null
     const parsedForLog = parsed || { parseError };
 
-    if (!serial) {
-      // cannot identify serial -> invalid scan
+    // Validation 1: Must have serial number
+    if (!serial || !gtin) {
       await supabase.from('scan_logs').insert([{
         raw_scan: rawInput,
         parsed: parsedForLog,
@@ -59,21 +94,17 @@ export async function POST(req: Request) {
         scanner_printer_id: req.headers.get('x-printer-id') || null,
         scanned_at: new Date().toISOString(),
         ip: req.headers.get('x-forwarded-for') || null,
-        metadata: { status: 'INVALID', reason: 'no_serial' }
+        metadata: { status: 'INVALID', reason: 'missing_required_fields' }
       }]);
-      return NextResponse.json({ status: 'INVALID', message: 'Serial not found in payload', parsed }, { status: 200 });
+      return NextResponse.json({ 
+        status: 'INVALID', 
+        message: 'Invalid QR code: Missing serial or GTIN', 
+        parsed 
+      }, { status: 200 });
     }
 
-    // find code by serial (most reliable); also allow fallback on gs1_payload exact match
-    const { data: codes, error: codeErr } = await supabase
-      .from('codes')
-      .select('*')
-      .or(`serial.eq.${serial},gs1_payload.eq.${rawInput}`)
-      .limit(1);
-
-    if (codeErr) {
-      console.error('verify: codes lookup error', codeErr);
-      // log as error
+    // Validation 2: GTIN format check
+    if (!isValidGTIN(gtin)) {
       await supabase.from('scan_logs').insert([{
         raw_scan: rawInput,
         parsed: parsedForLog,
@@ -81,13 +112,17 @@ export async function POST(req: Request) {
         scanner_printer_id: req.headers.get('x-printer-id') || null,
         scanned_at: new Date().toISOString(),
         ip: req.headers.get('x-forwarded-for') || null,
-        metadata: { status: 'ERROR', detail: codeErr.message }
+        metadata: { status: 'INVALID', reason: 'invalid_gtin_format' }
       }]);
-      return NextResponse.json({ status: 'ERROR', message: 'Server error during code lookup' }, { status: 500 });
+      return NextResponse.json({ 
+        status: 'INVALID', 
+        message: 'Invalid GTIN format', 
+        parsed 
+      }, { status: 200 });
     }
 
-    if (!codes || codes.length === 0) {
-      // not found -> INVALID (not issued)
+    // Validation 3: Check expiry date
+    if (expiry && isExpired(expiry)) {
       await supabase.from('scan_logs').insert([{
         raw_scan: rawInput,
         parsed: parsedForLog,
@@ -95,85 +130,70 @@ export async function POST(req: Request) {
         scanner_printer_id: req.headers.get('x-printer-id') || null,
         scanned_at: new Date().toISOString(),
         ip: req.headers.get('x-forwarded-for') || null,
-        metadata: { status: 'INVALID', reason: 'not_issued', serial }
+        metadata: { status: 'EXPIRED', reason: 'past_expiry_date', expiry }
       }]);
-      return NextResponse.json({ status: 'INVALID', message: 'Code not issued', parsed }, { status: 200 });
+      return NextResponse.json({ 
+        status: 'EXPIRED', 
+        message: 'Product has expired', 
+        parsed,
+        expiryDate: expiry
+      }, { status: 200 });
     }
 
-    const code = codes[0];
-
-    // check blacklist flag(s) - support multiple possible column names
-    const isBlacklisted = Boolean(code.blacklisted || code.is_blacklisted || code.blocked || code.is_blocked);
-    if (isBlacklisted) {
-      await supabase.from('scan_logs').insert([{
-        raw_scan: rawInput,
-        parsed: parsedForLog,
-        code_id: code.id,
-        scanner_printer_id: req.headers.get('x-printer-id') || null,
-        scanned_at: new Date().toISOString(),
-        ip: req.headers.get('x-forwarded-for') || null,
-        metadata: { status: 'BLACKLIST', reason: 'code_blacklisted' }
-      }]);
-      return NextResponse.json({ status: 'BLACKLIST', message: 'This code is blacklisted', parsed, code: { id: code.id, gtin: code.gtin, serial: code.serial } }, { status: 200 });
-    }
-
-    // check product disabled/discontinued flags (support multiple names)
-    const isDisabled = Boolean(code.product_disabled || code.is_disabled || code.disabled || code.product_inactive);
-    if (isDisabled) {
-      await supabase.from('scan_logs').insert([{
-        raw_scan: rawInput,
-        parsed: parsedForLog,
-        code_id: code.id,
-        scanner_printer_id: req.headers.get('x-printer-id') || null,
-        scanned_at: new Date().toISOString(),
-        ip: req.headers.get('x-forwarded-for') || null,
-        metadata: { status: 'DISCONTINUED', reason: 'product_disabled' }
-      }]);
-      return NextResponse.json({ status: 'DISCONTINUED', message: 'Product discontinued', parsed, code: { id: code.id, gtin: code.gtin, serial: code.serial } }, { status: 200 });
-    }
-
-    // Check if code was scanned earlier (duplicate)
-    const { data: priorScans, error: logErr } = await supabase
+    // Check for duplicate scans (same serial scanned before)
+    const { data: priorScans } = await supabase
       .from('scan_logs')
-      .select('id, scanned_at')
-      .eq('code_id', code.id)
+      .select('id, scanned_at, metadata')
+      .eq('parsed->>serialNo', serial)
+      .order('scanned_at', { ascending: true })
       .limit(1);
-
-    if (logErr) {
-      console.error('verify: scan_logs lookup error', logErr);
-    }
 
     if (priorScans && priorScans.length > 0) {
-      // Log this duplicate scan
+      // Log duplicate scan
       await supabase.from('scan_logs').insert([{
         raw_scan: rawInput,
         parsed: parsedForLog,
-        code_id: code.id,
+        code_id: null,
         scanner_printer_id: req.headers.get('x-printer-id') || null,
         scanned_at: new Date().toISOString(),
         ip: req.headers.get('x-forwarded-for') || null,
-        metadata: { status: 'DUPLICATE', first_scanned_at: priorScans[0].scanned_at }
+        metadata: { 
+          status: 'DUPLICATE', 
+          first_scanned_at: priorScans[0].scanned_at,
+          serial 
+        }
       }]);
-      return NextResponse.json({ status: 'DUPLICATE', message: 'Code already scanned', parsed, code: { id: code.id, gtin: code.gtin, serial: code.serial } }, { status: 200 });
+      return NextResponse.json({ 
+        status: 'DUPLICATE', 
+        message: 'Code already scanned', 
+        parsed,
+        firstScanAt: priorScans[0].scanned_at
+      }, { status: 200 });
     }
 
-    // Otherwise first-time valid scan -> insert log, update code status, and return VALID
+    // All validations passed - VALID scan
     await supabase.from('scan_logs').insert([{
       raw_scan: rawInput,
       parsed: parsedForLog,
-      code_id: code.id,
+      code_id: null,
       scanner_printer_id: req.headers.get('x-printer-id') || null,
       scanned_at: new Date().toISOString(),
       ip: req.headers.get('x-forwarded-for') || null,
-      metadata: { status: 'VALID' }
+      metadata: { status: 'VALID', serial, gtin, batch, expiry }
     }]);
 
-    // Update code status to 'verified' after first successful scan
-    await supabase.from('codes')
-      .update({ status: 'verified', first_scanned_at: new Date().toISOString() })
-      .eq('id', code.id);
-
-    return NextResponse.json({ status: 'VALID', message: 'Code is valid', parsed, code: { id: code.id, gtin: code.gtin, serial: code.serial }, firstScan: true }, { status: 200 });
+    return NextResponse.json({ 
+      status: 'VALID', 
+      message: 'Authentic product', 
+      parsed,
+      product: {
+        gtin,
+        serial,
+        batch,
+        expiry
+      },
+      firstScan: true 
+    }, { status: 200 });
 
   } catch (err: any) {
     console.error('verify route error', err);
