@@ -233,7 +233,8 @@ export async function POST(req: Request) {
           printer_id: printerRow.printer_id,
           issued_by: 'api',
           issued_at: nowIso,
-          manual: false
+          manual: false,
+          status: 'issued'
         });
       }
     }

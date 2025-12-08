@@ -372,7 +372,8 @@ export default function Page() {
       
       if (!res.ok) {
         const data = await res.json();
-        setError(data.message || 'Failed to generate unique codes');
+        console.error('API Error Response:', data);
+        setError(`Failed to generate codes: ${data.message}${data.detail ? ` - ${data.detail}` : ''}${data.hint ? ` (${data.hint})` : ''}`);
         return;
       }
       

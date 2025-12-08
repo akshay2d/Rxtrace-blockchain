@@ -4,9 +4,17 @@ import { createClient } from '@supabase/supabase-js';
 import { generateUniqueSerial, buildGs1MachinePayload } from '@/utils/gs1SerialUtil';
 
 function getSupabaseClient() {
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_KEY;
-  if (!url || !key) throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_KEY');
+  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !key) {
+    console.error('Environment check:', { 
+      hasUrl: !!process.env.SUPABASE_URL, 
+      hasPublicUrl: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
+      hasServiceKey: !!process.env.SUPABASE_SERVICE_KEY,
+      hasAnonKey: !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    });
+    throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_KEY');
+  }
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
@@ -68,26 +76,36 @@ export async function POST(req: Request) {
       });
 
       // Single insert - no retry needed (deterministic = unique)
-      const { error } = await supabase.from('codes').insert([{
-        serial,
+      const insertData = {
         gtin,
         batch,
         mfg: mfd || null,
         expiry: exp,
+        serial,
+        gs1_payload: gs1,
         printer_id: printerRow.printer_id,
         issued_by: 'dashboard',
         issued_at: nowIso,
-        gs1_payload: gs1,
+        manual: false,
         status: 'issued'
-      }]);
+      };
+      
+      console.log(`Attempting insert #${i + 1}:`, insertData);
+      
+      const { error, data: insertedData } = await supabase.from('codes').insert([insertData]).select();
 
       if (error) {
         console.error('Insert error for serial', serial, error);
+        console.error('Error details:', JSON.stringify(error, null, 2));
         return NextResponse.json({ 
           message: 'Database insert failed', 
-          detail: error.message 
+          detail: error.message,
+          hint: error.hint || 'Check if codes table exists and has correct columns',
+          code: error.code
         }, { status: 500 });
       }
+      
+      console.log(`Successfully inserted serial ${serial}`, insertedData);
 
       created.push({ serial, gs1 });
     }
