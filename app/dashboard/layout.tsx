@@ -92,13 +92,6 @@ export default function DashboardLayout({
                 </Button>
               </Link>
             </li>
-            <li>
-              <Link href="/dashboard/admin">
-                <Button variant="ghost" className="w-full justify-start gap-3 text-orange-600 hover:text-orange-700">
-                  <Shield className="h-5 w-5" /> Admin Dashboard
-                </Button>
-              </Link>
-            </li>
           </ul>
         </nav>
 

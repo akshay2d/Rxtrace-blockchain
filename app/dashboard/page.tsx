@@ -24,6 +24,7 @@ export default function DashboardHome() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedScan, setSelectedScan] = useState<ScanLog | null>(null);
   const [showAnalytics, setShowAnalytics] = useState(false);
+  const [companyName, setCompanyName] = useState<string>('');
   const [stats, setStats] = useState({
     total: 0,
     valid: 0,
@@ -41,20 +42,44 @@ export default function DashboardHome() {
     try {
       const supabase = supabaseClient();
       
+      // Get current user's company
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data: company } = await supabase
+        .from('companies')
+        .select('company_name')
+        .eq('user_id', user.id)
+        .single();
+
+      if (company) {
+        setCompanyName(company.company_name);
+      }
+
+      // Fetch only problematic scans (DUPLICATE, INVALID, EXPIRED, ERROR)
+      // Note: In stateless system, we filter client-side by company name from parsed data
       const { data: logsData } = await supabase
         .from('scan_logs')
         .select('*')
+        .in('metadata->>status', ['DUPLICATE', 'INVALID', 'EXPIRED', 'ERROR'])
         .order('scanned_at', { ascending: false })
-        .limit(100);
+        .limit(500);
 
-      if (logsData) {
-        setScanLogs(logsData);
+      if (logsData && company) {
+        // Filter by company name if present in parsed data
+        const companyScans = logsData.filter(log => {
+          // Check if parsed data contains company name
+          const logCompany = log.parsed?.company || log.metadata?.company;
+          return !logCompany || logCompany === company.company_name;
+        });
+        
+        setScanLogs(companyScans);
         setStats({
-          total: logsData.length,
-          valid: logsData.filter(s => s.metadata?.status === 'VALID').length,
-          duplicate: logsData.filter(s => s.metadata?.status === 'DUPLICATE').length,
-          expired: logsData.filter(s => s.metadata?.status === 'EXPIRED').length,
-          invalid: logsData.filter(s => s.metadata?.status === 'INVALID').length
+          total: companyScans.length,
+          valid: 0, // Not showing valid for problematic view
+          duplicate: companyScans.filter(s => s.metadata?.status === 'DUPLICATE').length,
+          expired: companyScans.filter(s => s.metadata?.status === 'EXPIRED').length,
+          invalid: companyScans.filter(s => s.metadata?.status === 'INVALID').length
         });
       }
     } catch (error) {
@@ -87,36 +112,26 @@ export default function DashboardHome() {
     <div className="space-y-8">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-4xl font-bold text-[#0052CC] mb-2">Welcome back!</h1>
-          <p className="text-xl text-gray-600">Generate GS1-compliant labels in seconds</p>
+          <h1 className="text-4xl font-bold text-[#0052CC] mb-2">Welcome back{companyName ? `, ${companyName}` : ''}!</h1>
+          <p className="text-xl text-gray-600">⚠️ Showing your problematic scans (Duplicate/Invalid/Expired)</p>
         </div>
         <Button 
           onClick={() => setShowAnalytics(!showAnalytics)}
           className={showAnalytics ? 'bg-[#0052CC]' : 'bg-orange-500 hover:bg-orange-600'}
         >
-          {showAnalytics ? 'Hide' : 'View Scan Analytics'}
+          {showAnalytics ? 'Hide' : 'View'} Scan Details
         </Button>
       </div>
 
-      <div className="grid md:grid-cols-2 lg:grid-cols-5 gap-6">
+      <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-sm font-medium">Total Scans</CardTitle>
+            <CardTitle className="text-sm font-medium">Total Issues</CardTitle>
             <QrCode className="h-5 w-5 text-[#0052CC]" />
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold">{stats.total}</div>
-            <p className="text-xs text-gray-500">Last 100 scans</p>
-          </CardContent>
-        </Card>
-
-        <Card className="cursor-pointer hover:shadow-lg transition" onClick={() => setShowAnalytics(true)}>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-sm font-medium text-green-600">Valid</CardTitle>
-            <CheckCircle className="h-5 w-5 text-green-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-green-600">{stats.valid}</div>
+            <p className="text-xs text-gray-500">Problematic scans</p>
           </CardContent>
         </Card>
 
