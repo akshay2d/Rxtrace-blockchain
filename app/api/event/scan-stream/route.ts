@@ -2,8 +2,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 
-export const runtime = "edge"; // try edge for streaming if supported
-
 // Helper: format SSE record
 function sseEvent(data: any, event = "message") {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
