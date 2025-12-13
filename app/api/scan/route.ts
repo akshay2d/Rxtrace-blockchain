@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { billingConfig } from "@/app/lib/billingConfig";
-import { parseGS1 } from "@/app/lib/gs1Parser"; // your scanner parser
+import { parseGS1 } from "@/lib/parseGS1";
 
 export async function POST(req: Request) {
   try {
