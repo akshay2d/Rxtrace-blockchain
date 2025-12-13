@@ -54,8 +54,9 @@ export async function POST(req: Request) {
 
     const details: any[] = [];
     const unitIsLevel = level === "unit";
-    const genPrice = unitIsLevel ? (billingConfig.pricing.generation?.unit ?? 0) : billingConfig.pricing.generation[`${level}SSCC` as any];
-    // NOTE: billingConfig currently has boxSSCC/cartonSSCC/palletSSCC
+    const genPrice = unitIsLevel 
+      ? billingConfig.pricing.generation.unit 
+      : (billingConfig.pricing.generation as Record<string, number>)[`${level}SSCC`] ?? 0;
 
     // Process rows in transaction (batch)
     const results = await prisma.$transaction(async (tx) => {

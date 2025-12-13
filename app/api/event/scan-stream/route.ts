@@ -10,6 +10,8 @@ function sseEvent(data: any, event = "message") {
 }
 
 export async function GET(req: Request) {
+  let closed = false;
+  
   // We'll stream via ReadableStream and poll DB for new scan transactions.
   const stream = new ReadableStream({
     async start(controller) {
@@ -17,7 +19,7 @@ export async function GET(req: Request) {
         // send a welcome ping
         controller.enqueue(new TextEncoder().encode(sseEvent({ ok: true, msg: "stream-open" }, "open")));
 
-        let lastIdSeen = null; // track last billing_transactions.id we sent
+        let lastIdSeen: string | null = null; // track last billing_transactions.id we sent
         // initialize lastIdSeen to the most recent id
         try {
           const last = await prisma.billing_transactions.findFirst({
@@ -44,7 +46,7 @@ export async function GET(req: Request) {
             });
 
             // if lastIdSeen set, filter after fetching (safer across DBs)
-            const newRows = lastIdSeen ? rows.filter((r) => r.id > lastIdSeen) : rows;
+            const newRows = lastIdSeen ? rows.filter((r) => r.id > lastIdSeen!) : rows;
 
             for (const row of newRows) {
               controller.enqueue(new TextEncoder().encode(sseEvent(row, "scan")));
@@ -60,11 +62,6 @@ export async function GET(req: Request) {
 
         // start polling
         poll();
-
-        // close handling
-        controller.oncancel = () => {
-          closed = true;
-        };
       } catch (err) {
         controller.enqueue(new TextEncoder().encode(sseEvent({ error: String(err) }, "error")));
         controller.close();

@@ -85,12 +85,45 @@ model company_seats {
   @@index([company_id])
   @@schema("public")
 }
+
+// -----------------------------------
+// HANDSET TOKENS (For activation)
+// -----------------------------------
+model handset_tokens {
+  id         String   @id @default(uuid())
+  company_id String
+  token      String   @unique
+  used       Boolean  @default(false)
+  created_at DateTime @default(now())
+
+  @@index([company_id])
+  @@schema("public")
+}
+
+// -----------------------------------
+// SCAN EVENTS (Scan history log)
+// -----------------------------------
+model scan_events {
+  id          String   @id @default(uuid())
+  company_id  String
+  handset_id  String
+  scan_value  String
+  scan_type   String   // unit | box | carton | pallet
+  created_at  DateTime @default(now())
+
+  @@index([company_id])
+  @@index([handset_id])
+  @@schema("public")
+}
+
 model pallet {
   sscc         String   @id
   company_id   String
   created_at   DateTime @default(now())
   status       String   @default("ACTIVE") // ACTIVE / SHIPPED / CLOSED
   cartons      carton[] // relation
+
+  @@schema("public")
 }
 
 model carton {
@@ -101,6 +134,8 @@ model carton {
   created_at   DateTime @default(now())
   status       String   @default("ACTIVE")
   boxes        box[]
+
+  @@schema("public")
 }
 
 model box {
@@ -111,6 +146,8 @@ model box {
   created_at   DateTime @default(now())
   status       String   @default("ACTIVE")
   units        unit[]
+
+  @@schema("public")
 }
 
 model unit {
@@ -120,4 +157,6 @@ model unit {
   box          box?     @relation(fields: [box_id], references: [sscc])
   created_at   DateTime @default(now())
   status       String   @default("ACTIVE")
+
+  @@schema("public")
 }

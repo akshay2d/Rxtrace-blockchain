@@ -6,6 +6,7 @@ export const billingConfig = {
       pallet: 4.0,
     },
     generation: {
+      unit: 0.1,
       boxSSCC: 0.2,
       cartonSSCC: 1.0,
       palletSSCC: 5.0,

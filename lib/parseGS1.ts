@@ -20,6 +20,12 @@ export interface GS1Data {
   /** AI (21) - Serial Number (variable length) */
   serialNo?: string;
 
+  /** AI (00) - SSCC (Serial Shipping Container Code) for boxes/cartons/pallets */
+  sscc?: string;
+
+  /** Unit Identifier (UID) for individual units */
+  uid?: string;
+
   /** AI (91) - Internal: MRP (company-specific) */
   mrp?: string;
 

@@ -11,13 +11,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: false, error: "Missing raw | handset_id | company_id" }, { status: 400 });
 
     // 1) Check handset activation
-    const handset = await prisma.company_handsets.findUnique({ where: { handset_id } });
+    const handset = await prisma.company_handsets.findFirst({ where: { handset_id } });
     if (!handset || !handset.active)
       return NextResponse.json({ success: false, error: "Handset not active" }, { status: 403 });
 
     // 2) Check active paid head
     const heads = await prisma.company_active_heads.findUnique({ where: { company_id } });
-    if (!heads || !heads.heads?.highLevelScan)
+    const headsData = heads?.heads as any;
+    if (!heads || !headsData?.highLevelScan)
       return NextResponse.json({ success: false, error: "Scan module not enabled" }, { status: 403 });
 
     // 3) Parse GS1 payload

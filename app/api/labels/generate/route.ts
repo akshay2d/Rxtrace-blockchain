@@ -38,7 +38,7 @@ export async function POST(req: Request) {
         format: codeType === "datamatrix" ? "datamatrix" : "qrcode" 
       });
       
-      return new Response(png, {
+      return new Response(Buffer.from(png), {
         headers: {
           "Content-Type": "image/png",
           "Content-Disposition": download 
@@ -86,7 +86,7 @@ export async function POST(req: Request) {
         codeType 
       });
       
-      return new Response(pdfBuffer, {
+      return new Response(new Uint8Array(pdfBuffer), {
         headers: {
           "Content-Type": "application/pdf",
           "Content-Disposition": download 
