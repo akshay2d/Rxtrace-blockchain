@@ -116,6 +116,21 @@ model scan_events {
   @@schema("public")
 }
 
+// -----------------------------------
+// HANDSETS (Registered devices)
+// -----------------------------------
+model handsets {
+  id                 String   @id @default(uuid())
+  company_id         String
+  device_fingerprint String   @unique
+  role               String   // "UNIT_ONLY" | "HIGH_SCAN"
+  status             String   @default("ACTIVE")
+  created_at         DateTime @default(now())
+
+  @@index([company_id])
+  @@schema("public")
+}
+
 model pallet {
   sscc         String   @id
   company_id   String
