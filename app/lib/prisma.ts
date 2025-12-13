@@ -5,6 +5,4 @@ declare global {
 }
 
 export const prisma =
-  global.prisma || (global.prisma = new PrismaClient({
-    datasourceUrl: process.env.DATABASE_URL,
-  }));
+  global.prisma || (global.prisma = new PrismaClient());
