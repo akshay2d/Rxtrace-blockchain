@@ -62,12 +62,14 @@ export default function AdminDashboard() {
       
       // Fetch user's company
       const { data: { user } } = await supabase.auth.getUser();
+      console.log('User:', user?.id);
       if (user) {
-        const { data: userCompany } = await supabase
+        const { data: userCompany, error: companyError } = await supabase
           .from('companies')
           .select('id')
           .eq('user_id', user.id)
           .single();
+        console.log('User Company:', userCompany, 'Error:', companyError);
         if (userCompany) {
           setUserCompanyId(userCompany.id);
         }

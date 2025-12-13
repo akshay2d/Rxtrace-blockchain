@@ -14,6 +14,20 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "sku_id is required" }, { status: 400 });
   }
 
+  // Validate packing quantities must be > 0
+  if (!strips_per_box || Number(strips_per_box) <= 0) {
+    return NextResponse.json({ error: "strips_per_box must be greater than 0" }, { status: 400 });
+  }
+  if (!boxes_per_carton || Number(boxes_per_carton) <= 0) {
+    return NextResponse.json({ error: "boxes_per_carton must be greater than 0" }, { status: 400 });
+  }
+  if (!cartons_per_pallet || Number(cartons_per_pallet) <= 0) {
+    return NextResponse.json({ error: "cartons_per_pallet must be greater than 0" }, { status: 400 });
+  }
+  if (!sscc_company_prefix || sscc_company_prefix.trim() === "") {
+    return NextResponse.json({ error: "sscc_company_prefix is required" }, { status: 400 });
+  }
+
   // version auto-handled: use version = max(existing)+1
   const { data: existing } = await supabase
     .from("packing_rules")

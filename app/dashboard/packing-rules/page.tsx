@@ -27,7 +27,7 @@ export default function PackingRulesPage() {
         strips_per_box: Number(strips),
         boxes_per_carton: Number(boxes),
         cartons_per_pallet: Number(cartons),
-        sscc_extension_digit: Number(extDigit),
+        sscc_extension_digit: Math.floor(Math.random() * 10), // Auto-generate 0-9
         sscc_company_prefix: prefix
       })
     });
@@ -88,14 +88,6 @@ export default function PackingRulesPage() {
         value={cartons}
         onChange={e => setCartons(e.target.value)}
         placeholder="100"
-        style={{ display: "block", marginBottom: 10 }}
-      />
-
-      <label>SSCC Extension Digit (0–9)</label>
-      <input
-        value={extDigit}
-        onChange={e => setExtDigit(e.target.value)}
-        placeholder="0"
         style={{ display: "block", marginBottom: 10 }}
       />
 

@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/app/lib/prisma";
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!);
 
 export async function POST(req: Request) {
   try {
@@ -14,46 +16,27 @@ export async function POST(req: Request) {
 
     const amt = Number(amount);
 
-    // Atomic upsert + transaction log
-    const result = await prisma.$transaction(async (tx: any) => {
-      // fetch existing wallet (for balance_after)
-      const wallet = await tx.company_wallets.findUnique({ where: { company_id } });
-
-      const newBalance = (wallet?.balance ?? 0) + amt;
-
-      // upsert wallet row
-      await tx.company_wallets.upsert({
-        where: { company_id },
-        create: {
-          company_id,
-          balance: newBalance,
-        },
-        update: {
-          balance: newBalance,
-        },
-      });
-
-      // create transaction log
-      const t = await tx.billing_transactions.create({
-        data: {
-          company_id,
-          type: "topup",
-          subtype: null,
-          count: 1,
-          amount: amt,
-          balance_after: newBalance,
-        },
-      });
-
-      return { newBalance, txId: t.id };
+    // Use Supabase RPC function for atomic operation
+    const { data, error } = await supabase.rpc("wallet_update_and_record", {
+      p_company_id: company_id,
+      p_op: "TOPUP",
+      p_amount: amt,
+      p_reference: "manual_topup",
+      p_created_by: null,
     });
+
+    if (error) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    }
+
+    const result = Array.isArray(data) ? data[0] : data;
 
     return NextResponse.json({
       success: true,
       message: "Top-up successful",
       company_id,
-      balance: result.newBalance,
-      txId: result.txId,
+      balance: result?.balance_after || 0,
+      txId: result?.id,
     });
   } catch (err: any) {
     return NextResponse.json({ success: false, error: err.message || String(err) }, { status: 500 });

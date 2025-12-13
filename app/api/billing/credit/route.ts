@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/app/lib/prisma";
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!);
 
 export async function GET(req: Request) {
   try {
@@ -7,9 +9,11 @@ export async function GET(req: Request) {
     const company_id = url.searchParams.get("company_id");
     if (!company_id) return NextResponse.json({ success: false, error: "company_id is required" }, { status: 400 });
 
-    const wallet = await prisma.company_wallets.findUnique({
-      where: { company_id },
-    });
+    const { data: wallet } = await supabase
+      .from("company_wallets")
+      .select("*")
+      .eq("company_id", company_id)
+      .single();
 
     const balance = Number(wallet?.balance ?? 0);
     const credit_limit = Number(wallet?.credit_limit ?? 10000);
