@@ -92,6 +92,20 @@ export default function DashboardLayout({
                 </Button>
               </Link>
             </li>
+            <li>
+              <Link href="/dashboard/packing-rules">
+                <Button variant="ghost" className="w-full justify-start gap-3">
+                  <QrCode className="h-5 w-5" /> Packing Rules
+                </Button>
+              </Link>
+            </li>
+            <li>
+              <Link href="/dashboard/billing">
+                <Button variant="ghost" className="w-full justify-start gap-3">
+                  <BarChart3 className="h-5 w-5" /> Billing
+                </Button>
+              </Link>
+            </li>
           </ul>
         </nav>
 

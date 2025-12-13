@@ -1,0 +1,123 @@
+// -----------------------------------
+// DATABASE CONNECTION
+// -----------------------------------
+datasource db {
+  provider = "postgresql"
+  schemas  = ["public", "auth"]
+}
+
+// -----------------------------------
+// PRISMA CLIENT GENERATOR
+// -----------------------------------
+generator client {
+  provider = "prisma-client-js"
+}
+
+// -----------------------------------
+// COMPANY WALLET (Credit System)
+// -----------------------------------
+model company_wallets {
+  company_id    String   @id
+  balance       Float    @default(0)
+  credit_limit  Float    @default(10000)
+  status        String   @default("ACTIVE") // ACTIVE | FROZEN
+  updated_at    DateTime @updatedAt
+
+  @@schema("public")
+}
+
+// -----------------------------------
+// ACTIVE PAID HEADS (Modules)
+// -----------------------------------
+model company_active_heads {
+  company_id String   @id
+  heads      Json     @default("{}") // Example: { scan: true, seat: false, ... }
+  updated_at DateTime @updatedAt
+
+  @@schema("public")
+}
+
+// -----------------------------------
+// BILLING TRANSACTIONS (Audit Log)
+// -----------------------------------
+model billing_transactions {
+  id             String   @id @default(uuid())
+  company_id     String
+  type           String   // scan | generation | handset | seat | topup
+  subtype        String?  // box | carton | pallet etc.
+  count          Int      @default(1)
+  amount         Float    // total charged
+  balance_after  Float    // wallet balance after deduction
+  created_at     DateTime @default(now())
+
+  @@index([company_id])
+  @@schema("public")
+}
+
+// -----------------------------------
+// HANDSET ALLOCATION (For scanning)
+// -----------------------------------
+model company_handsets {
+  id             String   @id @default(uuid())
+  company_id     String
+  handset_id     String
+  active         Boolean  @default(true)
+  activated_at   DateTime @default(now())
+  deactivated_at DateTime?
+  monthly_fee    Float    @default(100)
+
+  @@index([company_id])
+  @@schema("public")
+}
+
+// -----------------------------------
+// SEAT ALLOCATION (For code generation)
+// -----------------------------------
+model company_seats {
+  id             String   @id @default(uuid())
+  company_id     String
+  seat_id        String
+  active         Boolean  @default(true)
+  activated_at   DateTime @default(now())
+  deactivated_at DateTime?
+  monthly_fee    Float    @default(200)
+
+  @@index([company_id])
+  @@schema("public")
+}
+model pallet {
+  sscc         String   @id
+  company_id   String
+  created_at   DateTime @default(now())
+  status       String   @default("ACTIVE") // ACTIVE / SHIPPED / CLOSED
+  cartons      carton[] // relation
+}
+
+model carton {
+  sscc         String   @id
+  company_id   String
+  pallet_id    String?
+  pallet       pallet?  @relation(fields: [pallet_id], references: [sscc])
+  created_at   DateTime @default(now())
+  status       String   @default("ACTIVE")
+  boxes        box[]
+}
+
+model box {
+  sscc         String   @id
+  company_id   String
+  carton_id    String?
+  carton       carton? @relation(fields: [carton_id], references: [sscc])
+  created_at   DateTime @default(now())
+  status       String   @default("ACTIVE")
+  units        unit[]
+}
+
+model unit {
+  uid          String   @id
+  company_id   String
+  box_id       String?
+  box          box?     @relation(fields: [box_id], references: [sscc])
+  created_at   DateTime @default(now())
+  status       String   @default("ACTIVE")
+}

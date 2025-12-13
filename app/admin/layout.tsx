@@ -81,6 +81,13 @@ export default function AdminLayout({
               </Link>
             </li>
             <li>
+              <Link href="/admin/billing">
+                <Button variant="ghost" className="w-full justify-start gap-3 hover:bg-orange-50">
+                  <BarChart className="h-5 w-5" /> Billing
+                </Button>
+              </Link>
+            </li>
+            <li>
               <Link href="/dashboard">
                 <Button variant="outline" className="w-full justify-start gap-3 mt-4 border-blue-500 text-blue-600 hover:bg-blue-50">
                   <Database className="h-5 w-5" /> User Dashboard →
