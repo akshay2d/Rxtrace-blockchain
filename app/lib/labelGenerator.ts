@@ -148,7 +148,7 @@ export async function generatePng({
       scale: 5,
       includetext: false,
       parsefnc: true,
-    }, (err: Error | null, png: Buffer) => {
+    }, (err: string | Error, png: Buffer) => {
       if (err) reject(err);
       else resolve(png);
     });
