@@ -9,19 +9,30 @@ export async function POST(req: Request) {
     if (!company_id) return NextResponse.json({ success: false, error: "company_id required" }, { status: 400 });
     if (!seat_id) return NextResponse.json({ success: false, error: "seat_id required" }, { status: 400 });
 
-    const seat = await prisma.company_seats.upsert({
-      where: { seat_id },
-      create: {
-        seat_id,
-        company_id,
-        active: true,
-        monthly_fee: 200,
-      },
-      update: {
-        active: true,
-        deactivated_at: null,
-      },
+    // Check if seat already exists
+    const existing = await prisma.company_seats.findFirst({
+      where: { seat_id, company_id }
     });
+
+    let seat;
+    if (existing) {
+      seat = await prisma.company_seats.update({
+        where: { id: existing.id },
+        data: {
+          active: true,
+          deactivated_at: null,
+        },
+      });
+    } else {
+      seat = await prisma.company_seats.create({
+        data: {
+          seat_id,
+          company_id,
+          active: true,
+          monthly_fee: 200,
+        },
+      });
+    }
 
     return NextResponse.json({ success: true, message: "Seat allocated", seat });
   } catch (err: any) {

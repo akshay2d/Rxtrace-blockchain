@@ -8,8 +8,11 @@ export async function POST(req: Request) {
 
     if (!seat_id) return NextResponse.json({ success: false, error: "seat_id required" }, { status: 400 });
 
+    const existing = await prisma.company_seats.findFirst({ where: { seat_id } });
+    if (!existing) return NextResponse.json({ success: false, error: "Seat not found" }, { status: 404 });
+
     const seat = await prisma.company_seats.update({
-      where: { seat_id },
+      where: { id: existing.id },
       data: {
         active: false,
         deactivated_at: new Date(),
