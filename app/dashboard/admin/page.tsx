@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { supabaseClient } from '@/lib/supabase/client';
 import { Search, RefreshCw, Eye, AlertCircle, Users, Activity, TrendingUp, Database } from 'lucide-react';
+import DevicesSeatsPanel from './DevicesSeatsPanel';
 
 type ScanLog = {
   id: string;
@@ -39,6 +40,7 @@ export default function AdminDashboard() {
   const [selectedScan, setSelectedScan] = useState<ScanLog | null>(null);
   const [relatedScans, setRelatedScans] = useState<ScanLog[]>([]);
   const [showOnlyProblematic, setShowOnlyProblematic] = useState(true); // Default: show only issues
+  const [userCompanyId, setUserCompanyId] = useState<string>('');
   const [stats, setStats] = useState({
     totalScans: 0,
     totalCompanies: 0,
@@ -57,6 +59,19 @@ export default function AdminDashboard() {
     setLoading(true);
     try {
       const supabase = supabaseClient();
+      
+      // Fetch user's company
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: userCompany } = await supabase
+          .from('companies')
+          .select('id')
+          .eq('user_id', user.id)
+          .single();
+        if (userCompany) {
+          setUserCompanyId(userCompany.id);
+        }
+      }
       
       // Fetch scan logs - only problematic ones (DUPLICATE, INVALID, EXPIRED, ERROR)
       let query = supabase
@@ -477,6 +492,9 @@ export default function AdminDashboard() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Handset Token Generation & Seat Allocation */}
+      {userCompanyId && <DevicesSeatsPanel companyId={userCompanyId} />}
     </div>
   );
 }

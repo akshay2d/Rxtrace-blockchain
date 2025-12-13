@@ -9,9 +9,9 @@ export async function POST(req: Request) {
   const { sku_id, strips_per_box, boxes_per_carton, cartons_per_pallet,
           sscc_extension_digit, sscc_company_prefix, created_by } = body;
 
-  // Validate required UUID field
-  if (!sku_id || sku_id === "") {
-    return NextResponse.json({ error: "sku_id is required and must be a valid UUID" }, { status: 400 });
+  // Validate required field - accepts any text string
+  if (!sku_id || sku_id.trim() === "") {
+    return NextResponse.json({ error: "sku_id is required" }, { status: 400 });
   }
 
   // version auto-handled: use version = max(existing)+1

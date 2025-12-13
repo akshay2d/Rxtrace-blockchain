@@ -106,6 +106,13 @@ function parseGS1WithParentheses(data: string): GS1Data {
     parsed: true,
   };
 
+  // (00) SSCC - 18 digits (Serial Shipping Container Code)
+  const ssccMatch = data.match(/\(00\)(\d{18})/);
+  if (ssccMatch) {
+    result.sscc = ssccMatch[1];
+    console.log('Extracted SSCC:', result.sscc);
+  }
+
   // (01) GTIN - 14 digits
   const gtinMatch = data.match(/\(01\)(\d{14})/);
   if (gtinMatch) {
