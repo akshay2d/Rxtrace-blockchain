@@ -175,3 +175,63 @@ model unit {
 
   @@schema("public")
 }
+
+// -----------------------------------
+// PACKING RULES (SSCC Hierarchy)
+// -----------------------------------
+model packing_rules {
+  id                       String   @id @default(uuid())
+  sku_id                   String
+  version                  Int      @default(1)
+  name                     String?
+  strips_per_box           Int
+  boxes_per_carton         Int
+  cartons_per_pallet       Int
+  allow_partial_last_container Boolean @default(true)
+  sscc_extension_digit     Int      @default(0) @db.SmallInt
+  sscc_company_prefix      String
+  sscc_sequence_key        String
+  meta                     Json     @default("{}")
+  created_by               String?
+  created_at               DateTime @default(now())
+
+  @@unique([sku_id, version])
+  @@schema("public")
+}
+
+model sscc_counters {
+  sequence_key String   @id
+  last_serial  BigInt   @default(0)
+  updated_at   DateTime @default(now())
+
+  @@schema("public")
+}
+
+model pallets {
+  id               String    @id @default(uuid())
+  company_id       String
+  sku_id           String?
+  packing_rule_id  String?
+  sscc             String    @unique @db.VarChar(18)
+  sscc_with_ai     String?
+  meta             Json      @default("{}")
+  created_by       String?
+  created_at       DateTime  @default(now())
+  cartons          cartons[]
+
+  @@schema("public")
+}
+
+model cartons {
+  id          String   @id @default(uuid())
+  company_id  String
+  pallet_id   String?
+  pallet      pallets? @relation(fields: [pallet_id], references: [id], onDelete: SetNull)
+  sku_id      String?
+  code        String
+  meta        Json     @default("{}")
+  created_by  String?
+  created_at  DateTime @default(now())
+
+  @@schema("public")
+}
