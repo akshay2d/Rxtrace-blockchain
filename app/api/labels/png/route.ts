@@ -9,7 +9,7 @@ export async function POST(req: Request) {
     if (!aiValues) return NextResponse.json({ success: false, error: "aiValues required" }, { status: 400 });
 
     const png = await generatePng({ aiValues, companyName, title, level, format: format === "datamatrix" ? "datamatrix" : "qrcode" });
-    return new Response(png, {
+    return new Response(Buffer.from(png), {
       status: 200,
       headers: { "Content-Type": "image/png" },
     });
