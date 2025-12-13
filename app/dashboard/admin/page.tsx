@@ -494,7 +494,17 @@ export default function AdminDashboard() {
       </Card>
 
       {/* Handset Token Generation & Seat Allocation */}
-      {userCompanyId && <DevicesSeatsPanel companyId={userCompanyId} />}
+      {userCompanyId ? (
+        <DevicesSeatsPanel companyId={userCompanyId} />
+      ) : (
+        <Card>
+          <CardContent className="p-6">
+            <div className="text-center text-gray-500">
+              Loading company information...
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
