@@ -1,18 +1,19 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Papa from 'papaparse';
 import { saveAs } from 'file-saver';
 import JSZip from 'jszip';
 import { jsPDF } from 'jspdf';
 
-import GenerateLabel from '@/lib/generateLabel'; // adjust path if needed 
-import { buildGs1ElementString } from '@/lib/gs1Builder'; // adjust path if needed
+import GenerateLabel from '@/lib/generateLabel';
+import { buildGs1ElementString } from '@/lib/gs1Builder';
 import IssuePrinterSelector, { Printer } from '@/components/IssuePrinterSelector';
 import QRCodeComponent from '@/components/custom/QRCodeComponent';
 import DataMatrixComponent from '@/components/custom/DataMatrixComponent';
+import { supabaseClient } from '@/lib/supabase/client';
 
-// Define the type locally since gs1Builder.js is JavaScript
+// ---------- types ----------
 type Gs1Fields = {
   gtin: string;
   mfdYYMMDD?: string;
@@ -28,8 +29,8 @@ type CodeType = 'QR' | 'DATAMATRIX';
 
 type FormState = {
   gtin: string;
-  mfdDate?: string; // ISO date from <input type="date"> (YYYY-MM-DD)     
-  expiryDate?: string; // ISO date
+  mfdDate?: string;
+  expiryDate?: string;
   batch: string;
   mrp: string;
   sku: string;
@@ -39,6 +40,17 @@ type FormState = {
   printerId: string;
 };
 
+type SkuRow = { id: string; sku_code: string; sku_name: string | null };
+
+type PackingRuleRow = {
+  id: string;
+  sku_id: string;
+  version: number;
+  strips_per_box: number;
+  boxes_per_carton: number;
+  cartons_per_pallet: number;
+};
+
 type BatchRow = {
   id: string;
   fields: Gs1Fields;
@@ -46,14 +58,13 @@ type BatchRow = {
   codeType: CodeType;
 };
 
-/** Generate GTIN with optional custom prefix */
-function generateGTIN(prefix?: string): string {
-  const customPrefix = prefix || '890'; // Default India prefix
-  const prefixLen = customPrefix.length;
-  const remainingDigits = 13 - prefixLen; // GTIN-13 format
+// ---------- helpers ----------
+function generateGTIN(prefix = '890'): string {
+  const remainingDigits = 13 - prefix.length;
   const random = Math.floor(Math.random() * Math.pow(10, remainingDigits))
-    .toString()                                                               .padStart(remainingDigits, '0');
-  return `${customPrefix}${random}`;
+    .toString()
+    .padStart(remainingDigits, '0');
+  return `${prefix}${random}`;
 }
 
 function isoDateToYYMMDD(iso?: string): string | undefined {
@@ -66,56 +77,41 @@ function isoDateToYYMMDD(iso?: string): string | undefined {
   return `${yy}${mm}${dd}`;
 }
 
-function formatDateForDisplay(iso?: string) {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleDateString();
-}
-
-/** ZPL generator: embeds DataMatrix/QR as a PNG/graphic or uses ^B0 for 1
-D.                                                                         * For simplicity we embed a "GS1 payload as human text" + DataMatrix via 
-ZPL^BX is complex without raster.
- * This produces a textual ZPL template that expects the printer to handle
- graphic insertion by your pipeline.                                       */
+// ---------- printers ----------
 function buildZplForRow(row: BatchRow) {
-  // simple text-only template with DataMatrix placeholder
   const top = '^XA\n';
   const payloadComment = `^FX Payload: ${row.payload}\n`;
   const fieldsLines =
-    `^FO50,50^A0N,30,30^FDGTIN: ${row.fields.gtin}^FS\n` +      
-    `^FO50,90^A0N,30,30^FDMFD: ${row.fields.mfdYYMMDD ?? ''}^FS\n` +  
-    `^FO50,130^A0N,30,30^FDEXP: ${row.fields.expiryYYMMDD ?? ''}^FS\n` +  
-    `^FO50,170^A0N,30,30^FDBATCH: ${row.fields.batch ?? ''}^FS\n` +       
+    `^FO50,50^A0N,30,30^FDGTIN: ${row.fields.gtin}^FS\n` +
+    `^FO50,90^A0N,30,30^FDMFD: ${row.fields.mfdYYMMDD ?? ''}^FS\n` +
+    `^FO50,130^A0N,30,30^FDEXP: ${row.fields.expiryYYMMDD ?? ''}^FS\n` +
+    `^FO50,170^A0N,30,30^FDBATCH: ${row.fields.batch ?? ''}^FS\n` +
     `^FO50,210^A0N,30,30^FDMRP: ${row.fields.mrp ?? ''}^FS\n` +
     `^FO50,250^A0N,30,30^FDSKU: ${row.fields.sku ?? ''}^FS\n` +
-    `^FO50,290^A0N,30,30^FDCOMPANY: ${row.fields.company ?? ''}^FS\n`;    
+    `^FO50,290^A0N,30,30^FDCOMPANY: ${row.fields.company ?? ''}^FS\n`;
   const footer = '^XZ\n';
   return top + payloadComment + fieldsLines + footer;
 }
 
-/** EPL generator: basic text template */
 function buildEplForRow(row: BatchRow) {
-  // EPL is printer-specific; a simple human-readable label template:     
   const lines = [
-    'N', // clear image buffer
+    'N',
     `A50,50,0,3,1,1,N,"GTIN:${row.fields.gtin}"`,
     `A50,90,0,3,1,1,N,"MFD:${row.fields.mfdYYMMDD ?? ''}"`,
     `A50,130,0,3,1,1,N,"EXP:${row.fields.expiryYYMMDD ?? ''}"`,
     `A50,170,0,3,1,1,N,"BATCH:${row.fields.batch ?? ''}"`,
     `A50,210,0,3,1,1,N,"MRP:${row.fields.mrp ?? ''}"`,
-    `P1` // print 1 copy
+    'P1'
   ];
   return lines.join('\n') + '\n';
 }
 
-/** Build a PDF of labels — 10x10 grid = 100 codes per A4 page */      
-async function buildPdf(rows: BatchRow[], size = 250) {
+// ---------- pdf ----------
+async function buildPdf(rows: BatchRow[]) {
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
   const qrcode = await import('qrcode');
   const bwipjs = await import('bwip-js');
 
-  // Grid: 10 columns x 10 rows = 100 per page
   const cols = 10;
   const rowsPerPage = 10;
   const perPage = cols * rowsPerPage;
@@ -140,39 +136,29 @@ async function buildPdf(rows: BatchRow[], size = 250) {
       const y = margin + row * (cellH + gap);
 
       let dataUrl: string | null = null;
-      try {
-        if (item.codeType === 'QR') {
-          dataUrl = await (qrcode as any).toDataURL(item.payload, { margin: 1, width: Math.floor(cellW * 2) });
-        } else {
-          const canvas = document.createElement('canvas');
-          const sz = Math.floor(Math.min(cellW, cellH) * 2);
-          canvas.width = sz;
-          canvas.height = sz;
-          await (bwipjs as any).toCanvas(canvas, {
-            bcid: 'datamatrix',
-            text: item.payload,
-            scale: 3,
-            includetext: false
-          });
-          dataUrl = canvas.toDataURL('image/png');
-        }
-      } catch (err) {
-        console.error('PDF render failed for item', p + idx, err);
+      if (item.codeType === 'QR') {
+        dataUrl = await (qrcode as any).toDataURL(item.payload, { margin: 1, width: Math.floor(cellW * 2) });
+      } else {
+        const canvas = document.createElement('canvas');
+        const sz = Math.floor(Math.min(cellW, cellH) * 2);
+        canvas.width = sz;
+        canvas.height = sz;
+        await (bwipjs as any).toCanvas(canvas, {
+          bcid: 'datamatrix',
+          text: item.payload,
+          scale: 3,
+          includetext: false
+        });
+        dataUrl = canvas.toDataURL('image/png');
       }
 
       if (dataUrl) {
-        try {
-          const imgH = cellH - 10;
-          doc.addImage(dataUrl, 'PNG', x, y, cellW, imgH);
-        } catch (err) {
-          console.error('Failed to add image', err);
-        }
+        doc.addImage(dataUrl, 'PNG', x, y, cellW, cellH - 10);
       }
 
-      // Add serial text below image
       if (item.fields.serial) {
         doc.setFontSize(6);
-        doc.text(item.fields.serial.toString(), x + 2, y + cellH - 2);
+        doc.text(String(item.fields.serial), x + 2, y + cellH - 2);
       }
     }
   }
@@ -180,87 +166,74 @@ async function buildPdf(rows: BatchRow[], size = 250) {
   return doc;
 }
 
-/** parse CSV text into BatchRow[].
-  Expected headers: GTIN, SKU, MFD, EXP, BATCH, MRP, COMPANY, QTY, CODE_TYPE
-  Only Printer ID is required from form state
-  GTIN is optional - will auto-generate if blank
-*/
+// ---------- csv ----------
 async function csvToRows(csvText: string, printerId: string): Promise<BatchRow[]> {
   const parsed = Papa.parse<Record<string, string>>(csvText, { header: true, skipEmptyLines: true });
   const out: BatchRow[] = [];
-  
+
   for (const row of parsed.data) {
     const gtinRaw = (row['GTIN'] || row['gtin'] || '').toString().trim();
-    const gtin = gtinRaw || generateGTIN(); // Auto-generate if blank
-    const mfdRaw = (row['MFD'] || row['mfd'] || row['Mfd'] || '').toString().trim();
-    const expRaw = (row['EXP'] || row['Exp'] || row['expiry'] || '').toString().trim();
+    const gtin = gtinRaw || generateGTIN();
+    const mfdRaw = (row['MFD'] || row['mfd'] || '').toString().trim();
+    const expRaw = (row['EXP'] || row['exp'] || '').toString().trim();
     const mrp = (row['MRP'] || row['mrp'] || '').toString().trim();
     const batch = (row['BATCH'] || row['batch'] || '').toString().trim();
     const sku = (row['SKU'] || row['sku'] || '').toString().trim();
-    const companyName = (row['COMPANY'] || row['company'] || row['MANUFACTURER'] || row['manufacturer'] || '').toString().trim();
-    const qtyRaw = (row['QTY'] || row['qty'] || row['Qty'] || '1').toString().trim();
-    const qty = Math.max(1, parseInt(qtyRaw) || 1);
-    const codeTypeRaw = (row['CODE_TYPE'] || row['code_type'] || row['CodeType'] || '').toString().trim().toUpperCase();
-    const rowCodeType: CodeType = (codeTypeRaw === 'DATAMATRIX' || codeTypeRaw === 'DM') ? 'DATAMATRIX' : 'QR';
+    const companyName = (row['COMPANY'] || row['company'] || '').toString().trim();
+    const qty = Math.max(1, parseInt((row['QTY'] || '1').toString(), 10) || 1);
+    const rowCodeType: CodeType =
+      ((row['CODE_TYPE'] || '').toString().toUpperCase() === 'DATAMATRIX') ? 'DATAMATRIX' : 'QR';
 
-    // Convert dates to ISO format for API
     const mfdISO = mfdRaw.length === 6 ? `20${mfdRaw.slice(0,2)}-${mfdRaw.slice(2,4)}-${mfdRaw.slice(4,6)}` : mfdRaw;
     const expISO = expRaw.length === 6 ? `20${expRaw.slice(0,2)}-${expRaw.slice(2,4)}-${expRaw.slice(4,6)}` : expRaw;
 
-    // Call /api/issues to generate unique serials for this row
-    try {
-      const res = await fetch('/api/issues', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+    const res = await fetch('/api/issues', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        gtin,
+        batch,
+        mfd: mfdISO || null,
+        exp: expISO,
+        quantity: qty,
+        printer_id: printerId,
+        mrp: mrp || undefined,
+        sku: sku || undefined,
+        company: companyName || undefined
+      })
+    });
+
+    if (!res.ok) {
+      throw new Error(`Failed to generate codes for SKU: ${sku}`);
+    }
+
+    const result = await res.json();
+    result.items.forEach((item: any) => {
+      out.push({
+        id: `r${out.length + 1}`,
+        fields: {
           gtin,
-          batch,
-          mfd: mfdISO || null,
-          exp: expISO,
-          quantity: qty,
-          printer_id: printerId,
+          mfdYYMMDD: isoDateToYYMMDD(mfdISO),
+          expiryYYMMDD: isoDateToYYMMDD(expISO),
+          batch: batch || undefined,
           mrp: mrp || undefined,
           sku: sku || undefined,
-          company: companyName || undefined
-        })
+          company: companyName || undefined,
+          serial: item.serial
+        },
+        payload: item.gs1,
+        codeType: rowCodeType
       });
-
-      if (!res.ok) {
-        throw new Error(`Failed to generate codes for row with SKU: ${sku}`);
-      }
-
-      const result = await res.json();
-      
-      // Add each unique code to batch
-      result.items.forEach((item: any) => {
-        out.push({
-          id: `r${out.length + 1}`,
-          fields: {
-            gtin,
-            mfdYYMMDD: isoDateToYYMMDD(mfdISO),
-            expiryYYMMDD: isoDateToYYMMDD(expISO),
-            batch: batch || undefined,
-            mrp: mrp || undefined,
-            sku: sku || undefined,
-            company: companyName || undefined
-          },
-          payload: item.gs1,
-          codeType: rowCodeType
-        });
-      });
-    } catch (err) {
-      throw new Error(`CSV row error: ${err}`);
-    }
+    });
   }
 
   return out;
 }
 
+// ---------- page ----------
 export default function Page() {
   const [form, setForm] = useState<FormState>({
     gtin: '1234567890123',
-    mfdDate: undefined,
-    expiryDate: undefined,
     batch: '',
     mrp: '',
     sku: '',
@@ -270,397 +243,502 @@ export default function Page() {
     printerId: ''
   });
 
-  const [payload, setPayload] = useState<string | undefined>(undefined);
+  const [payload, setPayload] = useState<string>();
   const [batch, setBatch] = useState<BatchRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [printers, setPrinters] = useState<Printer[]>([]);
   const [company, setCompany] = useState<string>('');
+  const [companyId, setCompanyId] = useState<string>('');
+  const [skus, setSkus] = useState<SkuRow[]>([]);
+  const [selectedSkuId, setSelectedSkuId] = useState<string>('');
+  const [packingRules, setPackingRules] = useState<PackingRuleRow[]>([]);
+  const [selectedPackingRuleId, setSelectedPackingRuleId] = useState<string>('');
 
-  // Fetch company from Supabase on mount
-  React.useEffect(() => {
-    async function fetchCompany() {
-      try {
-        const { supabaseClient } = await import('@/lib/supabase/client');
-        const { data: { user } } = await supabaseClient().auth.getUser();
-        if (user) {
-          const { data } = await supabaseClient()
-            .from('companies')
-            .select('company_name')
-            .eq('user_id', user.id)
-            .single();
-          if (data?.company_name) {
-            setCompany(data.company_name);
-            setForm(prev => ({ ...prev, company: data.company_name }));
-          }
+  useEffect(() => {
+    (async () => {
+      const { data: { user } } = await supabaseClient().auth.getUser();
+      if (user) {
+        const { data } = await supabaseClient()
+          .from('companies')
+          .select('id, company_name')
+          .eq('user_id', user.id)
+          .single();
+        if (data?.company_name) {
+          setCompany(data.company_name);
+          setCompanyId(data.id);
+          setForm(prev => ({ ...prev, company: data.company_name }));
         }
-      } catch (err) {
-        console.error('Failed to fetch company:', err);
       }
-    }
-    fetchCompany();
+    })();
   }, []);
 
-  // Fetch printers from API
-  async function fetchPrinters() {
-    try {
-      const res = await fetch('/api/printers');
-      if (!res.ok) return [];
-      const data = await res.json();
-      setPrinters(data || []);
-      return data || [];
-    } catch {
-      return [];
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/api/skus', { cache: 'no-store' });
+        if (!res.ok) return;
+        const out = await res.json();
+        const list = (out?.skus ?? []) as SkuRow[];
+        setSkus(Array.isArray(list) ? list : []);
+        if (!selectedSkuId && Array.isArray(list) && list.length) {
+          setSelectedSkuId(list[0].id);
+        }
+      } catch {
+        // ignore
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const sku = skus.find((s) => s.id === selectedSkuId);
+    if (sku?.sku_code) {
+      setForm((prev) => ({ ...prev, sku: sku.sku_code }));
+      void ensureSkuMaster(sku.sku_code);
     }
+
+    (async () => {
+      if (!companyId || !selectedSkuId) {
+        setPackingRules([]);
+        setSelectedPackingRuleId('');
+        return;
+      }
+
+      try {
+        const res = await fetch(
+          `/api/packing-rules?company_id=${encodeURIComponent(companyId)}&sku_id=${encodeURIComponent(selectedSkuId)}`,
+          { cache: 'no-store' }
+        );
+        const out = await res.json();
+        const rules = (out?.rules ?? []) as PackingRuleRow[];
+        if (Array.isArray(rules)) {
+          setPackingRules(rules);
+          setSelectedPackingRuleId(rules[0]?.id ?? '');
+        } else {
+          setPackingRules([]);
+          setSelectedPackingRuleId('');
+        }
+      } catch {
+        setPackingRules([]);
+        setSelectedPackingRuleId('');
+      }
+    })();
+  }, [companyId, selectedSkuId, skus]);
+
+  async function ensureSkuMaster(skuCode: string) {
+    const sku_code = (skuCode || '').trim();
+    if (!sku_code) return;
+
+    try {
+      await fetch('/api/skus/ensure', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sku_code }),
+      });
+    } catch {
+      // non-blocking
+    }
+  }
+
+  async function fetchPrinters(): Promise<Printer[]> {
+    const res = await fetch('/api/printers');
+    if (res.ok) {
+      const data = await res.json();
+      setPrinters(data);
+      return data;
+    }
+    return [];
   }
 
   function update<K extends keyof FormState>(k: K, v: FormState[K]) {
-    setForm((s) => ({ ...s, [k]: v }));
+    setForm(s => ({ ...s, [k]: v }));
   }
 
-  function handleBuild(e?: React.FormEvent) {
-    if (e) e.preventDefault();
-    setError(null);
+  function handleBuild() {
     try {
-      const finalGtin = form.gtin || generateGTIN(); // Auto-generate if blank
-      const fields: Gs1Fields = {
-        gtin: finalGtin,
+      void ensureSkuMaster(form.sku);
+      const built = buildGs1ElementString({
+        gtin: form.gtin || generateGTIN(),
         mfdYYMMDD: isoDateToYYMMDD(form.mfdDate),
         expiryYYMMDD: isoDateToYYMMDD(form.expiryDate),
         batch: form.batch || undefined,
         mrp: form.mrp || undefined,
         sku: form.sku || undefined,
         company: company || undefined
-      };
-      const built = buildGs1ElementString(fields);
+      });
       setPayload(built);
-    } catch (err: any) {
-      setError(err?.message || String(err));
+      setError(null);
+    } catch (e: any) {
+      setError(e.message);
     }
   }
 
   async function handleAddToBatch() {
-    // Allow add-to-batch even if preview wasn't built; API will return GS1 payloads
-    if (!form.printerId) {
-      setError('Please select or create a Printer ID');
-      return;
-    }
-    if (!company) {
-      setError('Company name not found. Please check your registration.');
+    if (!payload) {
+      setError('Build payload first before adding to batch');
       return;
     }
     
-    const qty = Math.max(1, Math.floor(form.quantity));
-    const finalGtin = form.gtin || generateGTIN(); // Auto-generate if blank
-    
-    try {
-      // Call /api/issues to generate unique serials
-      const res = await fetch('/api/issues', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          gtin: finalGtin,
-          batch: form.batch,
-          mfd: form.mfdDate || null,
-          exp: form.expiryDate,
-          quantity: qty,
-          printer_id: form.printerId,
-          mrp: form.mrp || undefined,
-          sku: form.sku || undefined,
-          company: company || undefined
-        })
+    // Generate multiple items based on quantity
+    const newRows: BatchRow[] = [];
+    for (let i = 0; i < form.quantity; i++) {
+      const serialNumber = Math.floor(Math.random() * 100000000).toString().padStart(8, '0');
+      const itemPayload = buildGs1ElementString({
+        gtin: form.gtin || generateGTIN(),
+        mfdYYMMDD: isoDateToYYMMDD(form.mfdDate),
+        expiryYYMMDD: isoDateToYYMMDD(form.expiryDate),
+        batch: form.batch || undefined,
+        mrp: form.mrp || undefined,
+        sku: form.sku || undefined,
+        company: company || undefined,
+        serial: serialNumber
       });
       
-      if (!res.ok) {
-        const data = await res.json();
-        console.error('API Error Response:', data);
-        setError(`Failed to generate codes: ${data.message}${data.detail ? ` - ${data.detail}` : ''}${data.hint ? ` (${data.hint})` : ''}`);
-        return;
-      }
-      
-      const result = await res.json();
-      console.log('API Response:', result); // Debug log
-      console.log('Items count:', result.items?.length); // Debug log
-      
-      const newRows: BatchRow[] = result.items.map((item: any, idx: number) => ({
-        id: `b${batch.length + idx + 1}`,
+      newRows.push({
+        id: `b${batch.length + i + 1}`,
         fields: {
-          gtin: finalGtin,
+          gtin: form.gtin || generateGTIN(),
           mfdYYMMDD: isoDateToYYMMDD(form.mfdDate),
           expiryYYMMDD: isoDateToYYMMDD(form.expiryDate),
           batch: form.batch || undefined,
           mrp: form.mrp || undefined,
           sku: form.sku || undefined,
           company: company || undefined,
-          serial: item.serial || undefined
+          serial: serialNumber
         },
-        payload: item.gs1, // Use unique GS1 payload with serial from API
+        payload: itemPayload,
         codeType: form.codeType
-      }));
-      
-      setBatch((s) => [...s, ...newRows]);
-      setError(null);
-    } catch (err: any) {
-      setError(err?.message || 'Network error');
+      });
     }
-  }
-
-  async function handleCsvUpload(file: File) {
+    
+    setBatch(s => [...s, ...newRows]);
     setError(null);
-    
-    if (!form.gtin) {
-      setError('GTIN is required. Set it in the form first.');
-      return;
-    }
-    if (!company) {
-      setError('Company name not found. Please check your registration.');
-      return;
-    }
-    if (!form.printerId) {
-      setError('Printer ID is required. Select or create one first.');
-      return;
-    }
-    
-    Papa.parse(file, {
-      header: true,
-      skipEmptyLines: true,
-      complete: async (results) => {
-        try {
-          const csvData = (results as any).data instanceof Array ? Papa.unparse(results.data) : results.data;
-          const rows = await csvToRows(csvData as string, form.printerId);
-          setBatch(rows);
-        } catch (e: any) {
-          setError('CSV parse/build failed: ' + (e?.message || String(e)));
-        }
-      },
-      error: (err) => {
-        setError('CSV upload failed: ' + err.message);
-      }
-    });
   }
 
   async function handleExportPdf() {
-    if (!batch.length) {
-      setError('Batch empty');
-      return;
-    }
+    if (!batch.length) return;
     const doc = await buildPdf(batch);
-    const blob = doc.output('blob');
-    saveAs(blob, 'labels.pdf');
+    saveAs(doc.output('blob'), 'labels.pdf');
   }
 
   async function handleExportZpl() {
-    if (!batch.length) {
-      setError('Batch empty');
-      return;
-    }
-    const combined = batch.map(buildZplForRow).join('\n');
-    const blob = new Blob([combined], { type: 'text/plain;charset=utf-8' });
-    saveAs(blob, 'labels.zpl');
+    if (!batch.length) return;
+    saveAs(new Blob([batch.map(buildZplForRow).join('\n')], { type: 'text/plain' }), 'labels.zpl');
   }
 
   async function handleExportEpl() {
-    if (!batch.length) {
-      setError('Batch empty');
-      return;
-    }
-    const combined = batch.map(buildEplForRow).join('\n');
-    const blob = new Blob([combined], { type: 'text/plain;charset=utf-8' });
-    saveAs(blob, 'labels.epl');
+    if (!batch.length) return;
+    saveAs(new Blob([batch.map(buildEplForRow).join('\n')], { type: 'text/plain' }), 'labels.epl');
   }
 
   async function handleExportZipImages() {
-    if (!batch.length) {
-      setError('Batch empty');
-      return;
-    }
+    if (!batch.length) return;
     const zip = new JSZip();
-    // Render each payload to dataURL via GenerateLabel's QR rendering using qrcode.toDataURL
-    // We'll do a minimal generation: build GS1 string is already there; use qrcode lib directly
-    // dynamic import qrcode
     const qrcode = await import('qrcode');
     for (let i = 0; i < batch.length; i++) {
-      const r = batch[i];
-      const dataUrl = await (qrcode as any).toDataURL(r.payload, { margin: 1, width: 300 });
-      // convert dataUrl to blob
-      const res = await fetch(dataUrl);
-      const blob = await res.blob();
+      const dataUrl = await (qrcode as any).toDataURL(batch[i].payload, { margin: 1, width: 300 });
+      const blob = await (await fetch(dataUrl)).blob();
       zip.file(`label_${i + 1}.png`, blob);
     }
-    const content = await zip.generateAsync({ type: 'blob' });
-    saveAs(content, 'labels.zip');
+    saveAs(await zip.generateAsync({ type: 'blob' }), 'labels.zip');
   }
 
-  const batchCount = batch.length;
-
   return (
-    <main className="p-6">
-      <h1 className="text-2xl font-semibold mb-4">Generate Labels — GS1 (QR / DataMatrix)</h1>
+    <main className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-8">
+      <div className="max-w-7xl mx-auto">
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-slate-900 mb-2">Label Generation</h1>
+          <p className="text-slate-600">Generate GS1-compliant QR codes and DataMatrix labels for pharmaceutical products</p>
+        </div>
 
-      <div className="grid grid-cols-3 gap-6">
-        <form className="col-span-2 bg-white p-4 rounded shadow" onSubmit={(e) => { e.preventDefault(); handleBuild(); }}>
-          <div className="grid grid-cols-2 gap-3">
-            <label className="block">
-              <div className="text-sm text-gray-600">GTIN</div>
-              <input className="mt-1 p-2 border rounded w-full" value={form.gtin} onChange={(e) => update('gtin', e.target.value)} placeholder="Leave blank to auto-generate (890...) or enter your GTIN" />
-            </label>
-
-            <label className="block">
-              <div className="text-sm text-gray-600">Code Type</div>
-              <select className="mt-1 p-2 border rounded w-full" value={form.codeType} onChange={(e) => update('codeType', e.target.value as CodeType)}>
-                <option value="QR">QR</option>
-                <option value="DATAMATRIX">DataMatrix</option>
-              </select>
-            </label>
-
-            <label>
-              <div className="text-sm text-gray-600">Manufacture Date (calendar)</div>
-              <input type="date" className="mt-1 p-2 border rounded w-full" value={form.mfdDate ?? ''} onChange={(e) => update('mfdDate', e.target.value)} />
-            </label>
-
-            <label>
-              <div className="text-sm text-gray-600">Expiry Date (calendar)</div>
-              <input type="date" className="mt-1 p-2 border rounded w-full" value={form.expiryDate ?? ''} onChange={(e) => update('expiryDate', e.target.value)} />
-            </label>
-
-            <label>
-              <div className="text-sm text-gray-600">Batch / Lot</div>
-              <input className="mt-1 p-2 border rounded w-full" value={form.batch} onChange={(e) => update('batch', e.target.value)} />
-            </label>
-
-            <label>
-              <div className="text-sm text-gray-600">MRP (Rs, e.g. 30 or 30.00)</div>
-              <input className="mt-1 p-2 border rounded w-full" value={form.mrp} onChange={(e) => update('mrp', e.target.value)} />
-            </label>
-
-            <label>
-              <div className="text-sm text-gray-600">SKU</div>
-              <input className="mt-1 p-2 border rounded w-full" value={form.sku} onChange={(e) => update('sku', e.target.value)} />
-            </label>
-
-            <div>
-              <div className="text-sm text-gray-600">Company</div>
-              <div className="mt-1 p-2 border rounded w-full bg-gray-50 text-gray-700">
-                {company || 'Loading from registration...'}
-              </div>
-            </div>
-
-            <div className="col-span-2">
-              <IssuePrinterSelector
-                printers={printers}
-                selectedPrinter={form.printerId || null}
-                onChange={(id) => update('printerId', id || '')}
-                fetchPrinters={fetchPrinters}
-              />
-              <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded text-sm text-blue-800">
-                <strong>📌 Printer ID Instructions:</strong>
-                <ul className="mt-1 ml-4 list-disc space-y-1">
-                  <li>Click <strong>"Select"</strong> to choose from existing printers</li>
-                  <li>Click <strong>"Create Printer"</strong> to add a new printer ID</li>
-                  <li>Printer IDs must be <strong>2-20 characters</strong>: uppercase letters (A-Z), numbers (0-9), and hyphens (-) only</li>
-                  <li>Examples: <code className="bg-white px-1 rounded">PR-01</code>, <code className="bg-white px-1 rounded">LINE-A</code>, <code className="bg-white px-1 rounded">PRINTER-123</code></li>
-                </ul>
-              </div>
-            </div>
-
-            <label>
-              <div className="text-sm text-gray-600">Quantity</div>
-              <input type="number" min="1" className="mt-1 p-2 border rounded w-full" value={form.quantity} onChange={(e) => update('quantity', parseInt(e.target.value) || 1)} />
-            </label>
-          </div>
-
-          <div className="flex gap-2 mt-4">
-            <button type="submit" className="px-4 py-2 bg-slate-800 text-white rounded" onClick={handleBuild}>Build & Preview</button>
-            <button type="button" className="px-4 py-2 bg-slate-600 text-white rounded" onClick={handleAddToBatch}>Add to Batch</button>
-
-            <label className="px-4 py-2 bg-white border rounded cursor-pointer">
-              Upload CSV
-              <input type="file" accept=".csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleCsvUpload(f); }} />
-            </label>
-
-            <button type="button" className="px-4 py-2 bg-white border rounded" onClick={() => {
-              if (!form.printerId) {
-                setError('Please select or create a Printer ID first');
-                return;
-              }
-              const csv = `GTIN,SKU,MFD,EXP,BATCH,MRP,COMPANY,QTY,CODE_TYPE\n,MED-001,250101,260101,BATCH001,30.00,${company || 'ABC Pharma Ltd'},100,QR\n8901234,MED-002,250101,260101,BATCH002,35.00,${company || 'XYZ Exports'},50,DATAMATRIX\n\n# Printer ID: ${form.printerId}\n# First row: GTIN left blank - will auto-generate with 890 prefix\n# Second row: GTIN with custom prefix (8901234...) - use your company prefix`;
-              const blob = new Blob([csv], { type: 'text/csv' });
-              saveAs(blob, `template_${form.printerId}.csv`);
-            }}>Download Template</button>
-
-            <button type="button" className="px-4 py-2 bg-indigo-600 text-white rounded ml-auto" onClick={() => { setBatch([]); }}>Clear Batch</button>
-          </div>
-
-          <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800">
-            <strong>📋 CSV Upload Instructions:</strong>
-            <ul className="mt-1 ml-4 list-disc space-y-1">
-              <li><strong>Required before upload:</strong> Select Printer ID in the form above</li>
-              <li><strong>CSV Columns:</strong> GTIN, SKU, MFD, EXP, BATCH, MRP, COMPANY, QTY, CODE_TYPE</li>
-              <li><strong>GTIN:</strong> Leave blank to auto-generate (890 prefix) OR add your company prefix (3-8 digits) for custom series (e.g., 8901234...)</li>
-              <li><strong>COMPANY:</strong> Your company/manufacturer/exporter name</li>
-              <li><strong>Date Format:</strong> YYMMDD (e.g., 250101 = Jan 1, 2025) or YYYY-MM-DD</li>
-              <li><strong>CODE_TYPE:</strong> QR or DATAMATRIX (per row)</li>
-              <li><strong>QTY:</strong> Number of unique codes to generate per row</li>
-              <li>Example: One CSV row with QTY=1000 generates 1000 unique codes, each with unique serial number (AI 21)</li>
-            </ul>
-          </div>
-
-          {error && <div className="mt-3 text-red-600">{error}</div>}
-          <div className="mt-4">
-            <div className="text-sm text-gray-500">Payload (built):</div>
-            <pre className="p-2 bg-gray-50 rounded text-xs overflow-auto">{payload || 'No payload yet'}</pre>
-          </div>
-        </form>
-
-        <div className="col-span-1">
-          <div className="bg-white p-4 rounded shadow mb-4">
-            <div className="font-medium mb-2">Preview</div>
-            {payload ? (
-              <GenerateLabel payload={payload} codeType={form.codeType} size={300} filename={`label_${form.gtin || 'unknown'}.png`} showText={true} />
-            ) : (
-              <div className="p-6 border rounded text-sm text-gray-500">Build a payload to preview here.</div>
-            )}
-          </div>
-
-          <div className="bg-white p-3 rounded shadow">
-            <div className="flex items-center justify-between mb-3">
-              <div className="font-medium">Batch ({batchCount})</div>
-              <div className="text-xs text-gray-500">Ready to export</div>
-            </div>
-
-            <div className="space-y-2 max-h-64 overflow-auto">
-              {batch.map((b, idx) => (
-                <div key={b.id} className="p-2 border rounded">
-                  <div className="flex justify-between items-start mb-2">
-                    <div className="text-sm flex-1">
-                      <div className="font-medium">#{idx + 1} — {b.fields.gtin}</div>
-                      <div className="text-xs text-gray-500">{b.fields.batch} • {b.fields.sku} • {b.fields.company}</div>
-                      <div className="text-xs text-gray-400 mt-1 font-mono">{b.payload}</div>
-                    </div>
-                    <div className="flex gap-2 ml-2">
-                      <button className="px-2 py-1 bg-slate-100 rounded text-xs" onClick={() => { navigator.clipboard?.writeText(b.payload); }}>Copy</button>
-                      <button className="px-2 py-1 bg-red-50 rounded text-xs" onClick={() => setBatch((s) => s.filter((x) => x.id !== b.id))}>Remove</button>
-                    </div>
-                  </div>
-                  <div className="flex justify-center p-2 bg-white border rounded">
-                    {b.codeType === 'QR' ? (
-                      <QRCodeComponent value={b.payload} size={80} />
-                    ) : (
-                      <DataMatrixComponent value={b.payload} size={80} />
-                    )}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Form Section */}
+          <form className="lg:col-span-2 space-y-6" onSubmit={e => { e.preventDefault(); handleBuild(); }}>
+            {/* Product Identification */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+              <h2 className="text-lg font-semibold text-slate-900 mb-4 flex items-center gap-2">
+                <span className="w-8 h-8 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center text-sm font-bold">1</span>
+                Product Identification
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">GTIN (13 digits)</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={form.gtin}
+                      onChange={e => update('gtin', e.target.value)}
+                      className="flex-1 px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
+                      placeholder="1234567890123"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => update('gtin', generateGTIN())}
+                      className="px-4 py-2.5 bg-slate-600 text-white rounded-lg hover:bg-slate-700 transition font-medium whitespace-nowrap"
+                    >
+                      Auto Generate
+                    </button>
                   </div>
                 </div>
-              ))}
-              {batch.length === 0 && <div className="text-sm text-gray-500">Batch is empty. Add items from the form or via CSV upload.</div>}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Batch Number</label>
+                  <input
+                    type="text"
+                    value={form.batch}
+                    onChange={e => update('batch', e.target.value)}
+                    className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
+                    placeholder="LOT123"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">SKU</label>
+                  <select
+                    value={selectedSkuId}
+                    onChange={e => setSelectedSkuId(e.target.value)}
+                    className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition bg-white"
+                  >
+                    {skus.length === 0 && (
+                      <option value="">No SKUs found</option>
+                    )}
+                    {skus.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.sku_code}{s.sku_name ? ` - ${s.sku_name}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Company Name</label>
+                  <input
+                    type="text"
+                    value={form.company}
+                    onChange={e => update('company', e.target.value)}
+                    className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
+                    placeholder="Company Name"
+                  />
+                </div>
+              </div>
             </div>
 
-            <div className="mt-3 flex flex-col gap-2">
-              <button className="px-3 py-2 bg-blue-600 text-white rounded" onClick={handleExportPdf}>Export PDF</button>
-              <button className="px-3 py-2 bg-emerald-600 text-white rounded" onClick={handleExportZipImages}>Export ZIP (PNGs)</button>
-              <button className="px-3 py-2 bg-gray-800 text-white rounded" onClick={handleExportZpl}>Export ZPL (text)</button>
-              <button className="px-3 py-2 bg-gray-700 text-white rounded" onClick={handleExportEpl}>Export EPL (text)</button>
+            {/* Date & Pricing Information */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+              <h2 className="text-lg font-semibold text-slate-900 mb-4 flex items-center gap-2">
+                <span className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center text-sm font-bold">2</span>
+                Date & Pricing Information
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Manufacturing Date</label>
+                  <input
+                    type="date"
+                    value={form.mfdDate || ''}
+                    onChange={e => update('mfdDate', e.target.value)}
+                    className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Expiry Date</label>
+                  <input
+                    type="date"
+                    value={form.expiryDate || ''}
+                    onChange={e => update('expiryDate', e.target.value)}
+                    className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">MRP (₹)</label>
+                  <input
+                    type="text"
+                    value={form.mrp}
+                    onChange={e => update('mrp', e.target.value)}
+                    className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
+                    placeholder="100.00"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Label Configuration */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+              <h2 className="text-lg font-semibold text-slate-900 mb-4 flex items-center gap-2">
+                <span className="w-8 h-8 rounded-lg bg-purple-100 text-purple-600 flex items-center justify-center text-sm font-bold">3</span>
+                Label Configuration
+              </h2>
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Code Type</label>
+                    <select
+                      value={form.codeType}
+                      onChange={e => update('codeType', e.target.value as CodeType)}
+                      className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition bg-white"
+                    >
+                      <option value="QR">QR Code</option>
+                      <option value="DATAMATRIX">DataMatrix</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Quantity</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={form.quantity}
+                      onChange={e => update('quantity', parseInt(e.target.value) || 1)}
+                      className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Packaging Rule</label>
+                  <select
+                    value={selectedPackingRuleId}
+                    onChange={e => setSelectedPackingRuleId(e.target.value)}
+                    className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition bg-white"
+                    disabled={!selectedSkuId || packingRules.length === 0}
+                  >
+                    {packingRules.length === 0 ? (
+                      <option value="">No rule for this SKU</option>
+                    ) : (
+                      packingRules.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          v{r.version}: {r.strips_per_box}/{r.boxes_per_carton}/{r.cartons_per_pallet}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Printer (Optional)</label>
+                  <IssuePrinterSelector
+                    printers={printers}
+                    selectedPrinter={form.printerId}
+                    onChange={v => update('printerId', v || '')}
+                    fetchPrinters={fetchPrinters}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-3">
+              <button type="submit" className="flex-1 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium shadow-sm hover:shadow-md">
+                Build Payload
+              </button>
+              <button
+                type="button"
+                onClick={handleAddToBatch}
+                className="flex-1 px-6 py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition font-medium shadow-sm hover:shadow-md"
+              >
+                Add to Batch
+              </button>
+            </div>
+          </form>
+
+          {/* Preview & Batch Section */}
+          <div className="lg:col-span-1 space-y-6">
+            {/* Live Preview */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <div className="w-2 h-2 rounded-full bg-green-500"></div>
+                <h3 className="font-semibold text-slate-900">Live Preview</h3>
+              </div>
+              {payload ? (
+                <div className="border-2 border-dashed border-slate-200 rounded-lg p-4 bg-slate-50">
+                  <div className="flex items-center justify-center overflow-hidden">
+                    <GenerateLabel payload={payload} codeType={form.codeType} size={240} filename={`label_${form.gtin || 'unknown'}.png`} showText />
+                  </div>
+                </div>
+              ) : (
+                <div className="border-2 border-dashed border-slate-200 rounded-lg p-8 text-center">
+                  <div className="text-slate-400 mb-2">
+                    <svg className="w-12 h-12 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                    </svg>
+                  </div>
+                  <p className="text-sm text-slate-500">Build a payload to preview your label</p>
+                </div>
+              )}
+            </div>
+
+            {/* Batch Queue */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-semibold text-slate-900">Batch Queue</h3>
+                <span className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm font-medium">{batch.length} items</span>
+              </div>
+
+              <div className="space-y-3 max-h-80 overflow-auto mb-4">
+                {batch.length === 0 ? (
+                  <div className="text-center py-8 text-slate-400">
+                    <svg className="w-10 h-10 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+                    </svg>
+                    <p className="text-sm">No labels in batch</p>
+                  </div>
+                ) : (
+                  batch.map((b, idx) => (
+                    <div key={b.id} className="p-3 border border-slate-200 rounded-lg hover:border-slate-300 transition bg-slate-50">
+                      <div className="text-xs font-mono text-slate-600 mb-2 break-all line-clamp-2">{b.payload}</div>
+                      <div className="flex justify-center py-2 bg-white rounded overflow-hidden">
+                        {b.codeType === 'QR'
+                          ? <QRCodeComponent value={b.payload} size={70} />
+                          : <DataMatrixComponent value={b.payload} size={70} />}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {batch.length > 0 && (
+                <div className="space-y-2 pt-4 border-t border-slate-200">
+                  <button 
+                    className="w-full px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium flex items-center justify-center gap-2"
+                    onClick={handleExportPdf}
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                    </svg>
+                    Export PDF
+                  </button>
+                  <button 
+                    className="w-full px-4 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition font-medium flex items-center justify-center gap-2"
+                    onClick={handleExportZipImages}
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                    Export ZIP (PNGs)
+                  </button>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button 
+                      className="px-4 py-2.5 bg-slate-800 text-white rounded-lg hover:bg-slate-900 transition font-medium text-sm"
+                      onClick={handleExportZpl}
+                    >
+                      ZPL
+                    </button>
+                    <button 
+                      className="px-4 py-2.5 bg-slate-700 text-white rounded-lg hover:bg-slate-800 transition font-medium text-sm"
+                      onClick={handleExportEpl}
+                    >
+                      EPL
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
+
+          {error && (
+          <div className="mt-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+            <div className="flex gap-3">
+              <svg className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+              </svg>
+              <p className="text-red-800 font-medium">{error}</p>
+            </div>
+          </div>
+        )}
       </div>
     </main>
   );

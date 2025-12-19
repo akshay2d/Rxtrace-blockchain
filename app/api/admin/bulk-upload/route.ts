@@ -72,7 +72,7 @@ export async function POST(req: Request) {
 
         if (level === "pallet") {
           const sscc = makeSscc();
-          await tx.pallet.create({ data: { sscc, company_id } });
+          await tx.pallets.create({ data: { sscc, company_id } });
           // charge generation
           const amount = Number(billingConfig.pricing.generation.palletSSCC || 0);
           await tx.billing_transactions.create({
@@ -83,7 +83,7 @@ export async function POST(req: Request) {
         } else if (level === "carton") {
           const sscc = makeSscc();
           const pallet_id = header && parent_column ? (rowObj[parent_column] || null) : (row[1] || null);
-          await tx.carton.create({ data: { sscc, company_id, pallet_id: pallet_id || null } });
+          await tx.cartons.create({ data: { code: sscc, company_id, pallet_id: pallet_id || null } });
           const amount = Number(billingConfig.pricing.generation.cartonSSCC || 0);
           await tx.billing_transactions.create({
             data: { company_id, type: "generation", subtype: "cartonSSCC", count: 1, amount, balance_after: (await getAndDecrementBalance(tx, company_id, amount)) },
@@ -91,27 +91,11 @@ export async function POST(req: Request) {
           details.push({ row: rowObj, sscc, charged: amount, parent: pallet_id || null });
           createdCount++;
         } else if (level === "box") {
-          const sscc = makeSscc();
-          const carton_id = header && parent_column ? (rowObj[parent_column] || null) : (row[1] || null);
-          await tx.box.create({ data: { sscc, company_id, carton_id: carton_id || null } });
-          const amount = Number(billingConfig.pricing.generation.boxSSCC || 0);
-          await tx.billing_transactions.create({
-            data: { company_id, type: "generation", subtype: "boxSSCC", count: 1, amount, balance_after: (await getAndDecrementBalance(tx, company_id, amount)) },
-          });
-          details.push({ row: rowObj, sscc, charged: amount, parent: carton_id || null });
-          createdCount++;
+          // Boxes not yet in Prisma schema - skip for now
+          details.push({ row: rowObj, error: "Box level not implemented", charged: 0 });
         } else if (level === "unit") {
-          const uid = makeUnitUid();
-          const box_id = header && parent_column ? (rowObj[parent_column] || null) : (row[1] || null);
-          await tx.unit.create({ data: { uid, company_id, box_id: box_id || null } });
-          const amount = 0; // units free by default; change if you want to charge
-          if (amount > 0) {
-            await tx.billing_transactions.create({
-              data: { company_id, type: "generation", subtype: "unit", count: 1, amount, balance_after: (await getAndDecrementBalance(tx, company_id, amount)) },
-            });
-          }
-          details.push({ row: rowObj, uid, charged: amount, parent: box_id || null });
-          createdCount++;
+          // Units not yet in Prisma schema - skip for now
+          details.push({ row: rowObj, error: "Unit level not implemented", charged: 0 });
         }
       }
       return { createdCount, details };

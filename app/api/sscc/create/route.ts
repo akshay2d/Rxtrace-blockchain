@@ -7,17 +7,84 @@ const supabase = createClient(
 );
 
 export async function POST(req: Request) {
-  const { sku_id, packing_rule_id, company_id, pallet_count } = await req.json();
+  const body = await req.json();
+  const { sku_id, packing_rule_id, company_id, pallet_count } = body;
+
+  if (!company_id) {
+    return NextResponse.json({ error: "company_id is required" }, { status: 400 });
+  }
+
+  if (!sku_id) {
+    return NextResponse.json({ error: "sku_id is required" }, { status: 400 });
+  }
+
+  const count = Math.max(1, Number(pallet_count) || 1);
+
+  // sku_id can be either SKU master UUID or a human-readable sku_code from CSV.
+  const isUuid = (value: string) =>
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      value
+    );
+
+  let skuUuid = sku_id as string;
+  if (!isUuid(skuUuid)) {
+    const skuCode = String(skuUuid).trim().toUpperCase();
+
+    // Resolve if exists
+    const { data: skuRow, error: skuErr } = await supabase
+      .from("skus")
+      .select("id")
+      .eq("company_id", company_id)
+      .eq("sku_code", skuCode)
+      .maybeSingle();
+
+    if (skuErr) {
+      return NextResponse.json(
+        { error: skuErr.message ?? "Failed to resolve SKU" },
+        { status: 400 }
+      );
+    }
+
+    // If missing, create it (so CSV usage populates SKU Master)
+    if (!skuRow?.id) {
+      const { data: created, error: createErr } = await supabase
+        .from("skus")
+        .upsert(
+          { company_id, sku_code: skuCode, sku_name: null, deleted_at: null },
+          { onConflict: "company_id,sku_code" }
+        )
+        .select("id")
+        .single();
+
+      if (createErr || !created?.id) {
+        return NextResponse.json(
+          { error: createErr?.message ?? `Failed to create SKU in SKU master: ${skuCode}` },
+          { status: 400 }
+        );
+      }
+
+      skuUuid = created.id;
+    } else {
+      skuUuid = skuRow.id;
+    }
+  }
 
   // 1) Get packing rule
-  const { data: rule, error: ruleErr } = await supabase
-    .from("packing_rules")
-    .select("*")
-    .eq("id", packing_rule_id)
-    .single();
+  const ruleQuery = supabase.from("packing_rules").select("*");
+  const { data: rule, error: ruleErr } = packing_rule_id
+    ? await ruleQuery.eq("id", packing_rule_id).single()
+    : await ruleQuery
+        .eq("company_id", company_id)
+        .eq("sku_id", skuUuid)
+        .order("version", { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
   if (ruleErr || !rule) {
-    return NextResponse.json({ error: "Packing rule not found" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Packing rule not found for selected SKU" },
+      { status: 400 }
+    );
   }
 
   const prefix = rule.sscc_company_prefix;
@@ -26,14 +93,14 @@ export async function POST(req: Request) {
   // 2) Reserve serial numbers (atomic allocator)
   const { data: alloc } = await supabase.rpc("allocate_sscc_serials", {
     p_sequence_key: prefix,
-    p_count: pallet_count,
+    p_count: count,
   });
 
   const firstSerial = alloc;
 
   // 3) Generate all SSCCs using serials
   const ssccList = [];
-  for (let i = 0; i < pallet_count; i++) {
+  for (let i = 0; i < count; i++) {
     const serial = firstSerial + i;
 
     const { data: ssccGen } = await supabase.rpc("make_sscc", {
@@ -48,8 +115,8 @@ export async function POST(req: Request) {
   // 4) Insert pallets
   const rows = ssccList.map((sscc) => ({
     company_id,
-    sku_id,
-    packing_rule_id,
+    sku_id: skuUuid,
+    packing_rule_id: rule.id,
     sscc,
     sscc_with_ai: `(00)${sscc}`,
   }));

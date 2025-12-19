@@ -94,7 +94,51 @@ Parse and extract data from scanned GS1 barcodes.
 
 ---
 
-### 5. **Product Verification API**
+### 5. **Professional SSCC Bulk Label Generator** ⭐ NEW
+Enterprise-grade bulk generation of Serial Shipping Container Codes (SSCC) for pallet-level tracking with full GS1 compliance.
+
+**Features:**
+- **Packing Rule Configuration**: Define 3-level packaging hierarchy
+  - Strips per Box
+  - Boxes per Carton
+  - Cartons per Pallet
+- **Bulk Generation**: Generate 1-10,000 SSCC labels in seconds
+- **CSV Upload**: Import SKU lists with quantities for automated bulk processing
+- **Dual Code Types**: Support for both QR Code and DataMatrix formats
+- **Live Preview**: Real-time visualization of generated labels
+
+**Export Formats:**
+- **📕 PDF**: Multi-label grid layout (12 per page, A4 format)
+- **🖼️ PNG**: High-resolution individual images
+- **🖨️ ZPL**: Zebra printer-ready format with embedded barcodes
+- **📄 EPL**: Eltron printer format for industrial applications
+- **📦 ZIP**: Compressed archive of all PNG images
+
+**Technical Implementation:**
+- 18-digit GS1 SSCC format: `Extension(1) + Company Prefix(7-9) + Serial + Check Digit(1)`
+- Atomic serial number allocation (thread-safe)
+- GS1 Mod-10 check digit calculation
+- Application Identifier (00) compliance: `(00)SSCC`
+- Database integration with packing hierarchy
+
+**CSV Template:**
+```csv
+SKU,QUANTITY
+SKU001,5
+SKU002,10
+PROD-XYZ,25
+```
+
+**Use Cases:**
+- Warehouse pallet labeling
+- Export/import container tracking
+- Supply chain logistics
+- Distribution center operations
+- Compliance with GS1 standards
+
+---
+
+### 6. **Product Verification API**
 Verify product authenticity by scanning generated labels.
 
 **Endpoint:** `/api/verify`
@@ -396,7 +440,18 @@ Auto-generated GTINs use the `890` prefix (commonly used for internal/test purpo
 
 ## 🔄 Version History
 
-### v1.0.0 (Current)
+### v2.0.0 (Current) - December 15, 2025
+- ✅ **Professional SSCC Bulk Generator** (NEW)
+  - Enterprise-grade bulk SSCC label generation
+  - 5 export formats: PDF, PNG, ZPL, EPL, ZIP
+  - CSV upload for bulk operations
+  - QR & DataMatrix support
+  - Live preview with professional SaaS UI
+- ✅ Packaging hierarchy configuration
+- ✅ Atomic SSCC serial allocation
+- ✅ GS1-compliant SSCC generation with check digits
+
+### v1.0.0 - December 1, 2025
 - ✅ GS1-compliant label generation
 - ✅ Manual and CSV upload
 - ✅ QR, Code 128, DataMatrix support
@@ -407,6 +462,6 @@ Auto-generated GTINs use the `890` prefix (commonly used for internal/test purpo
 
 ---
 
-**Last Updated**: December 1, 2025
+**Last Updated**: December 15, 2025
 **Maintained By**: RxTrace India Development Team
 **Contact**: Available through platform

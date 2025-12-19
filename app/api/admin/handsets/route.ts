@@ -1,22 +1,61 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_KEY!
+);
 
 export async function GET(req: Request) {
   try {
-    const { searchParams } = new URL(req.url);
-    const company_id = searchParams.get("company_id");
-
-    if (!company_id) {
-      return NextResponse.json({ error: "company_id required" }, { status: 400 });
+    const authHeader = req.headers.get("authorization");
+    if (!authHeader) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const handsets = await prisma.company_handsets.findMany({
-      where: { company_id },
-      orderBy: { activated_at: "desc" },
+    const accessToken = authHeader.replace("Bearer ", "");
+
+    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+
+    if (error || !user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const company = await prisma.companies.findFirst({
+      where: { user_id: user.id },
+      select: { id: true }
     });
 
-    return NextResponse.json({ handsets });
+    if (!company) {
+      return NextResponse.json({ error: "Company not found" }, { status: 404 });
+    }
+
+    const activeHandsets = await prisma.handsets.count({
+      where: {
+        company_id: company.id,
+        status: "ACTIVE"
+      }
+    });
+
+    const activeToken = await prisma.handset_tokens.findFirst({
+      where: {
+        company_id: company.id,
+        used: false
+      },
+      orderBy: { created_at: "desc" },
+      select: { token: true }
+    });
+
+    return NextResponse.json({
+      scanning_on: !!activeToken,
+      active_handsets: activeHandsets,
+      token: activeToken?.token || null
+    });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message || String(err) }, { status: 500 });
+    return NextResponse.json(
+      { error: err.message || "Failed" },
+      { status: 500 }
+    );
   }
 }

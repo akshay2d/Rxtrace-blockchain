@@ -1,23 +1,98 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
+import crypto from "crypto";
+import { createClient } from "@supabase/supabase-js";
 
-export async function GET(req: Request) {
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_KEY!
+);
+
+export async function POST(req: Request) {
   try {
-    const { searchParams } = new URL(req.url);
-    const company_id = searchParams.get("company_id");
-
-    if (!company_id) {
-      return NextResponse.json({ error: "company_id required" }, { status: 400 });
+    const authHeader = req.headers.get("authorization");
+    if (!authHeader) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const tokens = await prisma.handset_tokens.findMany({
-      where: { company_id },
-      orderBy: { created_at: "desc" },
-      take: 20,
+    const accessToken = authHeader.replace("Bearer ", "");
+    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+
+    if (error || !user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const company = await prisma.companies.findFirst({
+      where: { user_id: user.id },
+      select: { id: true }
     });
 
-    return NextResponse.json({ tokens });
+    if (!company) {
+      return NextResponse.json({ error: "Company not found" }, { status: 404 });
+    }
+
+    const token = crypto.randomBytes(24).toString("hex");
+
+    const row = await prisma.handset_tokens.create({
+      data: {
+        company_id: company.id,
+        token,
+        high_scan: true, // auto-enabled as per your rule
+      },
+    });
+
+    return NextResponse.json(row);
   } catch (err: any) {
-    return NextResponse.json({ error: err.message || String(err) }, { status: 500 });
+    return NextResponse.json(
+      { error: err.message || "Failed to generate token" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(req: Request) {
+  try {
+    const authHeader = req.headers.get("authorization");
+    if (!authHeader) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const accessToken = authHeader.replace("Bearer ", "");
+    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+
+    if (error || !user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const company = await prisma.companies.findFirst({
+      where: { user_id: user.id },
+      select: { id: true }
+    });
+
+    if (!company) {
+      return NextResponse.json({ error: "Company not found" }, { status: 404 });
+    }
+
+    // Mark all unused tokens as used (invalidate them)
+    const result = await prisma.handset_tokens.updateMany({
+      where: {
+        company_id: company.id,
+        used: false
+      },
+      data: {
+        used: true
+      }
+    });
+
+    return NextResponse.json({ 
+      success: true, 
+      invalidated: result.count,
+      message: `Invalidated ${result.count} active token(s)` 
+    });
+  } catch (err: any) {
+    return NextResponse.json(
+      { error: err.message || "Failed to invalidate tokens" },
+      { status: 500 }
+    );
   }
 }

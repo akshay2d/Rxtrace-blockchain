@@ -1,116 +1,172 @@
-"use client";
+'use client';
 
-import { useState } from "react";
+import { useEffect, useState } from 'react';
+import WalletSummaryCard from './WalletSummaryCard';
+import LiveUsageMeter from './LiveUsageMeter';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 
 export default function BillingPage() {
-  const [companyId, setCompanyId] = useState("00000000-0000-0000-0000-000000000001");
-  const [wallet, setWallet] = useState<any | null>(null);
+  const [wallet, setWallet] = useState<any>(null);
   const [loading, setLoading] = useState(false);
-  const [opAmount, setOpAmount] = useState("");
-  const [opType, setOpType] = useState<"CHARGE" | "TOPUP">("CHARGE");
-  const [ref, setRef] = useState("");
-  const [msg, setMsg] = useState<string | null>(null);
+  const [amount, setAmount] = useState('');
+  const [message, setMessage] = useState<string | null>(null);
+  const [companyId, setCompanyId] = useState<string>('');
 
   async function fetchWallet() {
     setLoading(true);
-    setMsg(null);
-    setWallet(null);
+    setMessage(null);
     try {
-      const res = await fetch(`/api/billing/wallet?company_id=${encodeURIComponent(companyId)}`);
+      if (!companyId) {
+        throw new Error('Company ID not found. Please refresh the page.');
+      }
+
+      const res = await fetch(`/api/billing/wallet?company_id=${companyId}`);
       const body = await res.json();
-      if (!res.ok) setMsg(JSON.stringify(body));
-      else setWallet(body);
-    } catch (e: any) {
-      setMsg(String(e));
+      if (!res.ok) throw new Error(body.error || 'Failed to load wallet');
+      setWallet(body);
+    } catch (err: any) {
+      setMessage(err.message || String(err));
     } finally {
       setLoading(false);
     }
   }
 
-  async function applyOp() {
-    setMsg(null);
-    if (!companyId || !opAmount || Number(opAmount) <= 0) {
-      setMsg("company_id and positive amount required");
-      return;
-    }
+  async function loadCompany() {
     try {
-      const res = await fetch("/api/billing/update", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          company_id: companyId,
-          op: opType,
-          amount: Number(opAmount),
-          reference: ref || null,
-          created_by: null
-        })
-      });
-      const body = await res.json();
-      if (!res.ok) setMsg(JSON.stringify(body));
-      else {
-        setMsg("Operation successful");
-        // show returned result
-        setWallet(body.result ?? body);
+      const { supabaseClient } = await import('@/lib/supabase/client');
+      const { data: { user } } = await supabaseClient().auth.getUser();
+      
+      if (!user) {
+        setMessage('Please log in to view billing information');
+        return;
       }
-    } catch (e: any) {
-      setMsg(String(e));
+
+      const { data: company } = await supabaseClient()
+        .from('companies')
+        .select('id, company_name')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (company?.id) {
+        setCompanyId(company.id);
+      } else {
+        setMessage('Company profile not found. Please complete your registration.');
+      }
+    } catch (err: any) {
+      setMessage(err.message || 'Failed to load company information');
     }
   }
 
+  async function addFunds() {
+    setMessage(null);
+    if (!amount || Number(amount) <= 0) {
+      setMessage('Enter a valid amount');
+      return;
+    }
+
+    if (!companyId) {
+      setMessage('Company ID not found. Please refresh the page.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await fetch('/api/billing/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          company_id: companyId,
+          op: 'TOPUP',
+          amount: Number(amount),
+        }),
+      });
+
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || 'Top-up failed');
+
+      setAmount('');
+      setMessage('✅ Funds added successfully!');
+      await fetchWallet(); // real-time refresh
+    } catch (err: any) {
+      setMessage(err.message || String(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadCompany();
+  }, []);
+
+  useEffect(() => {
+    if (companyId) {
+      fetchWallet();
+    }
+  }, [companyId]);
+
   return (
-    <div style={{ padding: 16, maxWidth: 760 }}>
-      <h2>Billing — Wallet</h2>
+    <div className="space-y-6 max-w-5xl">
+      <h1 className="text-2xl font-bold">Billing & Usage</h1>
 
-      <div style={{ marginBottom: 12 }}>
-        <label>Company ID</label>
-        <input value={companyId} onChange={e => setCompanyId(e.target.value)} style={{ width: "100%", marginTop: 6 }} />
-      </div>
-
-      <div style={{ marginBottom: 12 }}>
-        <button onClick={fetchWallet} disabled={loading} style={{ padding: "8px 12px" }}>
-          {loading ? "Loading…" : "Refresh Wallet"}
-        </button>
-      </div>
-
-      {msg && <div style={{ color: "crimson", marginBottom: 12, whiteSpace: "pre-wrap" }}>{msg}</div>}
-
-      {wallet && (
-        <div style={{ border: "1px solid #e6e6e6", padding: 12, marginBottom: 12 }}>
-          <div><strong>Company:</strong> {wallet.company_id}</div>
-          <div><strong>Balance:</strong> ₹{Number(wallet.balance).toFixed(2)}</div>
-          <div><strong>Credit limit:</strong> ₹{Number(wallet.credit_limit).toFixed(2)}</div>
-          <div><strong>Status:</strong> {wallet.status}</div>
-          <div><strong>Updated:</strong> {new Date(wallet.updated_at).toLocaleString()}</div>
+      {message && (
+        <div className={`p-4 rounded-lg border ${
+          message.includes('✅') 
+            ? 'bg-green-50 border-green-200 text-green-800'
+            : 'bg-red-50 border-red-200 text-red-800'
+        }`}>
+          {message}
         </div>
       )}
 
-      <h3>Apply Charge / Top-up</h3>
-
-      <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-        <select value={opType} onChange={e => setOpType(e.target.value as any)}>
-          <option value="CHARGE">CHARGE (deduct)</option>
-          <option value="TOPUP">TOPUP (add)</option>
-        </select>
-
-        <input
-          placeholder="Amount (e.g. 1500)"
-          value={opAmount}
-          onChange={e => setOpAmount(e.target.value)}
-          style={{ flex: 1 }}
+      {/* Wallet Summary */}
+      {wallet && (
+        <WalletSummaryCard
+          balance={wallet.balance}
+          creditLimit={wallet.credit_limit}
+          status={wallet.status}
+          companyName={wallet.company_name}
         />
-      </div>
+      )}
 
-      <div style={{ marginBottom: 12 }}>
-        <input placeholder="Reference (optional)" value={ref} onChange={e => setRef(e.target.value)} style={{ width: "100%" }} />
-      </div>
+      {/* Live Usage Meter */}
+      {companyId && wallet && (
+        <LiveUsageMeter
+          companyId={companyId}
+          balance={wallet.balance}
+          refreshInterval={30000}
+        />
+      )}
 
-      <div>
-        <button onClick={applyOp} style={{ padding: "8px 14px" }}>Apply</button>
-      </div>
+      {/* Add Funds */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Add Funds</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <Input
+            type="number"
+            placeholder="Amount (₹)"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            min="1"
+            disabled={loading}
+          />
+          <Button 
+            onClick={addFunds} 
+            disabled={loading || !companyId}
+            className="w-full"
+          >
+            {loading ? 'Processing...' : 'Add Balance'}
+          </Button>
+          <p className="text-xs text-gray-500">
+            Funds are added instantly. Charges are applied automatically on usage.
+          </p>
+        </CardContent>
+      </Card>
 
-      <div style={{ marginTop: 16, color: "#666" }}>
-        Note: charges set wallet status to FROZEN if balance {"<="} 0. Use TOPUP to add funds.
-      </div>
+      {loading && !wallet && <div className="text-sm text-gray-500">Loading wallet information…</div>}
     </div>
   );
 }

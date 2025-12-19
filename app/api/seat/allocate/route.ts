@@ -1,37 +1,27 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/app/lib/prisma";
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!);
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { company_id, seat_id } = body;
+    const { company_id } = body;
 
     if (!company_id) return NextResponse.json({ success: false, error: "company_id required" }, { status: 400 });
-    if (!seat_id) return NextResponse.json({ success: false, error: "seat_id required" }, { status: 400 });
 
-    // Check if seat already exists
-    const existing = await prisma.company_seats.findFirst({
-      where: { seat_id, company_id }
-    });
+    // Create a new seat for the company
+    const { data: seat, error } = await supabase
+      .from("seats")
+      .insert({
+        company_id,
+        active: true,
+      })
+      .select()
+      .single();
 
-    let seat;
-    if (existing) {
-      seat = await prisma.company_seats.update({
-        where: { id: existing.id },
-        data: {
-          active: true,
-          deactivated_at: null,
-        },
-      });
-    } else {
-      seat = await prisma.company_seats.create({
-        data: {
-          seat_id,
-          company_id,
-          active: true,
-          monthly_fee: 200,
-        },
-      });
+    if (error) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
     }
 
     return NextResponse.json({ success: true, message: "Seat allocated", seat });

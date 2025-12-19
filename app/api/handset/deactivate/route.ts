@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/app/lib/prisma";
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!);
 
 export async function POST(req: Request) {
   try {
@@ -9,18 +11,16 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "handset_id required" }, { status: 400 });
     }
 
-    const existing = await prisma.company_handsets.findFirst({ where: { handset_id } });
-    if (!existing) {
-      return NextResponse.json({ error: "Handset not found" }, { status: 404 });
-    }
+    const { data: handset, error } = await supabase
+      .from("handsets")
+      .update({ status: "INACTIVE" })
+      .eq("id", handset_id)
+      .select()
+      .single();
 
-    const handset = await prisma.company_handsets.update({
-      where: { id: existing.id },
-      data: {
-        active: false,
-        deactivated_at: new Date(),
-      },
-    });
+    if (error || !handset) {
+      return NextResponse.json({ error: error?.message || "Handset not found" }, { status: 404 });
+    }
 
     return NextResponse.json({ success: true, handset });
   } catch (err: any) {

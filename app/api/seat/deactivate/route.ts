@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/app/lib/prisma";
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!);
 
 export async function POST(req: Request) {
   try {
@@ -8,16 +10,16 @@ export async function POST(req: Request) {
 
     if (!seat_id) return NextResponse.json({ success: false, error: "seat_id required" }, { status: 400 });
 
-    const existing = await prisma.company_seats.findFirst({ where: { seat_id } });
-    if (!existing) return NextResponse.json({ success: false, error: "Seat not found" }, { status: 404 });
+    const { data: seat, error } = await supabase
+      .from("seats")
+      .update({ active: false })
+      .eq("id", seat_id)
+      .select()
+      .single();
 
-    const seat = await prisma.company_seats.update({
-      where: { id: existing.id },
-      data: {
-        active: false,
-        deactivated_at: new Date(),
-      },
-    });
+    if (error || !seat) {
+      return NextResponse.json({ success: false, error: error?.message || "Seat not found" }, { status: 404 });
+    }
 
     return NextResponse.json({ success: true, message: "Seat deactivated", seat });
   } catch (err: any) {

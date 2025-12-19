@@ -1,0 +1,147 @@
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+import { supabaseServer } from "@/lib/supabase/server";
+
+const supabaseAdmin = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_KEY!,
+  { auth: { persistSession: false } }
+);
+
+function normalizeSkuCode(value: unknown) {
+  return String(value ?? "")
+    .trim()
+    .toUpperCase();
+}
+
+function normalizeText(value: unknown) {
+  const v = String(value ?? "").trim();
+  return v.length ? v : null;
+}
+
+async function requireCompanyId() {
+  const { data: { user } } = await supabaseServer().auth.getUser();
+  if (!user) {
+    return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
+  }
+
+  const { data: company, error } = await supabaseAdmin
+    .from("companies")
+    .select("id")
+    .eq("user_id", user.id)
+    .single();
+
+  if (error || !company?.id) {
+    return { error: NextResponse.json({ error: "Company profile not found" }, { status: 400 }) };
+  }
+
+  return { companyId: company.id };
+}
+
+export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+  const auth = await requireCompanyId();
+  if ("error" in auth) return auth.error;
+
+  const body = await req.json();
+  const sku_code = normalizeSkuCode(body.sku_code);
+  const sku_name = normalizeText(body.sku_name);
+
+  if (!sku_code || !sku_name) {
+    return NextResponse.json(
+      { error: "sku_code and sku_name are required" },
+      { status: 400 }
+    );
+  }
+
+  const category = normalizeText(body.category);
+  const description = normalizeText(body.description);
+
+  const { data: existingSku, error: fetchErr } = await supabaseAdmin
+    .from("skus")
+    .select("id")
+    .eq("id", params.id)
+    .eq("company_id", auth.companyId)
+    .is("deleted_at", null)
+    .maybeSingle();
+
+  if (fetchErr) {
+    return NextResponse.json({ error: fetchErr.message }, { status: 400 });
+  }
+
+  if (!existingSku?.id) {
+    return NextResponse.json({ error: "SKU not found" }, { status: 404 });
+  }
+
+  const { data: dup, error: dupErr } = await supabaseAdmin
+    .from("skus")
+    .select("id")
+    .eq("company_id", auth.companyId)
+    .eq("sku_code", sku_code)
+    .is("deleted_at", null)
+    .neq("id", params.id)
+    .maybeSingle();
+
+  if (dupErr) {
+    return NextResponse.json({ error: dupErr.message }, { status: 400 });
+  }
+
+  if (dup?.id) {
+    return NextResponse.json(
+      { error: `SKU code already exists: ${sku_code}` },
+      { status: 409 }
+    );
+  }
+
+  const { data: updated, error } = await supabaseAdmin
+    .from("skus")
+    .update({
+      sku_code,
+      sku_name,
+      category,
+      description,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", params.id)
+    .eq("company_id", auth.companyId)
+    .select("id, company_id, sku_code, sku_name, category, description, created_at, updated_at")
+    .single();
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 400 });
+  }
+
+  return NextResponse.json({ sku: updated });
+}
+
+export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
+  const auth = await requireCompanyId();
+  if ("error" in auth) return auth.error;
+
+  const { data: sku, error: fetchErr } = await supabaseAdmin
+    .from("skus")
+    .select("id")
+    .eq("id", params.id)
+    .eq("company_id", auth.companyId)
+    .is("deleted_at", null)
+    .maybeSingle();
+
+  if (fetchErr) {
+    return NextResponse.json({ error: fetchErr.message }, { status: 400 });
+  }
+
+  if (!sku?.id) {
+    return NextResponse.json({ error: "SKU not found" }, { status: 404 });
+  }
+
+  const { error } = await supabaseAdmin
+    .from("skus")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("id", params.id)
+    .eq("company_id", auth.companyId);
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 400 });
+  }
+
+  return NextResponse.json({ success: true });
+}

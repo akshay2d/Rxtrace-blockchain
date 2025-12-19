@@ -206,6 +206,13 @@ function parseGS1WithoutParentheses(data: string): GS1Data {
     console.log('Found AI:', ai, 'at position', position - 2);
 
     switch (ai) {
+      case '00': { // SSCC - 18 digits (fixed length) - Serial Shipping Container Code
+        result.sscc = data.substring(position, position + 18);
+        position += 18;
+        console.log('Extracted SSCC:', result.sscc);
+        break;
+      }
+
       case '01': { // GTIN - 14 digits (fixed length)
         result.gtin = data.substring(position, position + 14);
         position += 14;

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import jwt from "jsonwebtoken";
-import { prisma } from "@/app/lib/prisma";
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!);
 
 const SCAN_COST: Record<string, number> = {
   unit: 0,
@@ -33,45 +35,34 @@ export async function POST(req: Request) {
 
     const amount = SCAN_COST[scanType] ?? 0;
 
-    // 💰 Billing + scan log (atomic)
-    await prisma.$transaction(async (tx) => {
-      // Wallet check
-      const wallet = await tx.company_wallets.findUnique({ where: { company_id } });
-      const balance = Number(wallet?.balance ?? 0);
-      const credit = Number(wallet?.credit_limit ?? 0);
-
-      if (amount > 0 && balance + credit < amount) {
-        throw new Error("Insufficient balance");
-      }
-
-      // Deduct balance
-      if (amount > 0) {
-        await tx.company_wallets.update({
-          where: { company_id },
-          data: { balance: balance - amount },
-        });
-
-        await tx.billing_transactions.create({
-          data: {
-            company_id,
-            type: "scan",
-            subtype: scanType,
-            count: 1,
-            amount,
-            balance_after: balance - amount,
-          },
-        });
-      }
-
-      // Store scan event
-      await tx.scan_events.create({
-        data: {
+    // Use billing API for wallet operations
+    if (amount > 0) {
+      const billingRes = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL}/api/billing/charge`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
           company_id,
-          handset_id,
-          scan_value: scannedValue,
-          scan_type: scanType,
-        },
+          type: "scan",
+          subtype: scanType,
+          count: 1,
+          amount,
+        }),
       });
+
+      const billingJson = await billingRes.json();
+      if (!billingJson.success) {
+        return NextResponse.json({ success: false, error: billingJson.error }, { status: 400 });
+      }
+    }
+
+    // Store scan log
+    await supabase.from("scan_logs").insert({
+      company_id,
+      handset_id,
+      raw_scan: scannedValue,
+      parsed: { scanType },
+      metadata: { scanType },
+      status: "SUCCESS"
     });
 
     return NextResponse.json({

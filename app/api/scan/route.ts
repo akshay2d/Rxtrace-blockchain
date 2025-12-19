@@ -1,105 +1,192 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/app/lib/prisma";
+import { createClient } from "@supabase/supabase-js";
 import { billingConfig } from "@/app/lib/billingConfig";
 import { parseGS1 } from "@/lib/parseGS1";
+
+const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!);
 
 export async function POST(req: Request) {
   try {
     const { raw, handset_id, company_id } = await req.json();
 
-    if (!raw || !handset_id || !company_id)
-      return NextResponse.json({ success: false, error: "Missing raw | handset_id | company_id" }, { status: 400 });
+    if (!raw || !handset_id || !company_id) {
+      return NextResponse.json(
+        { success: false, error: "Missing raw | handset_id | company_id" },
+        { status: 400 }
+      );
+    }
 
-    // 1) Check handset activation
-    const handset = await prisma.company_handsets.findFirst({ where: { handset_id } });
-    if (!handset || !handset.active)
-      return NextResponse.json({ success: false, error: "Handset not active" }, { status: 403 });
+    /* ------------------------------------------------
+       1️⃣ Validate handset
+    ------------------------------------------------ */
+    const { data: handset } = await supabase
+      .from("handsets")
+      .select("*")
+      .eq("id", handset_id)
+      .single();
 
-    // 2) Check active paid head
-    const heads = await prisma.company_active_heads.findUnique({ where: { company_id } });
-    const headsData = heads?.heads as any;
-    if (!heads || !headsData?.highLevelScan)
-      return NextResponse.json({ success: false, error: "Scan module not enabled" }, { status: 403 });
+    if (!handset || handset.status !== "ACTIVE") {
+      return NextResponse.json(
+        { success: false, error: "Handset not active" },
+        { status: 403 }
+      );
+    }
 
-    // 3) Parse GS1 payload
+    /* ------------------------------------------------
+       2️⃣ Check company paid scan module
+    ------------------------------------------------ */
+    const { data: headsRow } = await supabase
+      .from("company_active_heads")
+      .select("*")
+      .eq("company_id", company_id)
+      .single();
+
+    const heads = headsRow?.heads as any;
+    if (!heads || heads.high_scan !== true) {
+      return NextResponse.json(
+        { success: false, error: "Scan module not enabled" },
+        { status: 403 }
+      );
+    }
+
+    /* ------------------------------------------------
+       3️⃣ Parse GS1 payload
+    ------------------------------------------------ */
     const data = parseGS1(raw);
-    if (!data)
-      return NextResponse.json({ success: false, error: "Invalid GS1 payload" }, { status: 400 });
+    if (!data) {
+      return NextResponse.json(
+        { success: false, error: "Invalid GS1 payload" },
+        { status: 400 }
+      );
+    }
 
-    // 4) Determine type + lookup hierarchy
-    let level = "";
-    let lookupResult = null;
+    /* ------------------------------------------------
+       4️⃣ Enforce HIGH-SCAN for SSCC (AI 00)
+    ------------------------------------------------ */
+    if (data.sscc && !handset.high_scan_enabled) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "High-scan permission required for box/carton/pallet"
+        },
+        { status: 403 }
+      );
+    }
+
+    /* ------------------------------------------------
+       5️⃣ Resolve hierarchy
+    ------------------------------------------------ */
+    let level: "unit" | "box" | "carton" | "pallet" | null = null;
+    let result: any = null;
 
     if (data.sscc) {
-      // Could be pallet/carton/box — check hierarchy from top to bottom.
-      lookupResult = await prisma.pallet.findUnique({
-        where: { sscc: data.sscc },
-        include: { cartons: true },
-      });
-      if (lookupResult) level = "pallet";
-
-      if (!lookupResult) {
-        lookupResult = await prisma.carton.findUnique({
-          where: { sscc: data.sscc },
-          include: { boxes: true, pallet: true },
-        });
-        if (lookupResult) level = "carton";
+      // Check pallets
+      const { data: pallet } = await supabase
+        .from("pallets")
+        .select("*, cartons(*)")
+        .eq("sscc", data.sscc)
+        .single();
+      
+      if (pallet) {
+        result = pallet;
+        level = "pallet";
       }
 
-      if (!lookupResult) {
-        lookupResult = await prisma.box.findUnique({
-          where: { sscc: data.sscc },
-          include: { units: true, carton: { include: { pallet: true } } },
-        });
-        if (lookupResult) level = "box";
+      // Check cartons if not found
+      if (!result) {
+        const { data: carton } = await supabase
+          .from("cartons")
+          .select("*, pallet:pallets(*)")
+          .eq("code", data.sscc)
+          .single();
+        
+        if (carton) {
+          result = carton;
+          level = "carton";
+        }
+      }
+
+      // Boxes and units not implemented yet
+      if (!result) {
+        return NextResponse.json(
+          { success: false, error: "Box/Unit level not yet implemented" },
+          { status: 501 }
+        );
       }
     }
 
-    if (!lookupResult && data.uid) {
-      // Unit level
-      lookupResult = await prisma.unit.findUnique({
-        where: { uid: data.uid },
-        include: { box: { include: { carton: { include: { pallet: true } } } } },
-      });
-      if (lookupResult) level = "unit";
+    if (!result && data.uid) {
+      return NextResponse.json(
+        { success: false, error: "Unit level not yet implemented" },
+        { status: 501 }
+      );
     }
 
-    if (!lookupResult)
-      return NextResponse.json({ success: false, error: "Code not found in hierarchy" }, { status: 404 });
+    if (!result || !level) {
+      return NextResponse.json(
+        { success: false, error: "Code not found in hierarchy" },
+        { status: 404 }
+      );
+    }
 
-    // 5) Calculate billing price
-    const scanPrice =
-      level === "box" ? billingConfig.pricing.scan.box :
-      level === "carton" ? billingConfig.pricing.scan.carton :
-      level === "pallet" ? billingConfig.pricing.scan.pallet :
-      level === "unit" ? 0 : 0; // units scan free (optional)
+    /* ------------------------------------------------
+       6️⃣ Billing
+    ------------------------------------------------ */
+    const price =
+      level === "carton"
+        ? billingConfig.pricing.scan.carton
+        : level === "pallet"
+        ? billingConfig.pricing.scan.pallet
+        : 0; // unit/box scan free (not implemented yet)
 
-    // Apply billing (0 = skip)
-    if (scanPrice > 0) {
-      const billingRes = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL}/api/billing/charge`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          company_id,
-          type: "scan",
-          subtype: level,
-          count: 1,
-        }),
-      });
+    if (price > 0) {
+      const billingRes = await fetch(
+        `${process.env.NEXT_PUBLIC_BASE_URL}/api/billing/charge`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            company_id,
+            type: "scan",
+            subtype: level,
+            count: 1
+          })
+        }
+      );
+
       const billingJson = await billingRes.json();
-      if (!billingJson.success)
-        return NextResponse.json({ success: false, error: billingJson.error }, { status: 402 });
+      if (!billingJson.success) {
+        return NextResponse.json(
+          { success: false, error: billingJson.error },
+          { status: 402 }
+        );
+      }
     }
 
-    // 6) Success
-    return NextResponse.json({
-      success: true,
-      message: `${level} scanned successfully`,
-      level,
-      data: lookupResult,
+    /* ------------------------------------------------
+       7️⃣ Log scan
+    ------------------------------------------------ */
+    await supabase.from("scan_logs").insert({
+      company_id,
+      handset_id,
+      raw_scan: raw,
+      parsed: data,
+      metadata: { level },
+      status: "SUCCESS"
     });
 
+    /* ------------------------------------------------
+       8️⃣ Success
+    ------------------------------------------------ */
+    return NextResponse.json({
+      success: true,
+      level,
+      data: result
+    });
   } catch (err: any) {
-    return NextResponse.json({ success: false, error: err.message || String(err) }, { status: 500 });
+    return NextResponse.json(
+      { success: false, error: err.message || String(err) },
+      { status: 500 }
+    );
   }
 }

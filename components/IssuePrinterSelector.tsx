@@ -44,19 +44,17 @@ export default function IssuePrinterSelector({
 
   return (
     <div className="w-full">
-      <label className="block text-sm font-medium text-slate-700 mb-1">Printer</label>
-
       {/* placeholder / selected */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2">
         <div className="flex-1">
           {selectedPrinter ? (
-            <div className="px-3 py-2 border rounded bg-white text-sm">
-              <span className="font-medium">{selectedPrinter}</span>
+            <div className="px-4 py-2.5 border border-slate-300 rounded-lg bg-white text-sm">
+              <span className="font-medium text-slate-900">{selectedPrinter}</span>
               <div className="text-xs text-slate-500">Selected printer</div>
             </div>
           ) : (
-            <div className="px-3 py-2 border rounded bg-slate-50 text-sm text-slate-500">
-              No printer selected — choose one or create a new printer
+            <div className="px-4 py-2.5 border border-slate-300 rounded-lg bg-slate-50 text-sm text-slate-500">
+              No printer selected (optional)
             </div>
           )}
         </div>
@@ -65,18 +63,18 @@ export default function IssuePrinterSelector({
         <div className="flex gap-2">
           <button
             type="button"
-            className="px-3 py-1.5 rounded border text-sm bg-white hover:bg-slate-50"
+            className="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white hover:bg-slate-50 transition font-medium"
             onClick={() => setOpenSelect((s) => !s)}
           >
-            Select
+            {openSelect ? 'Close' : 'Select'}
           </button>
 
           <button
             type="button"
-            className="px-3 py-1.5 rounded bg-blue-600 text-white text-sm"
+            className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700 transition font-medium whitespace-nowrap"
             onClick={handleCreate}
           >
-            Create Printer ID
+            + New
           </button>
         </div>
       </div>
@@ -90,7 +88,7 @@ export default function IssuePrinterSelector({
             <div className="text-sm text-slate-500">No printers found. Click “Create Printer” to add one.</div>
           ) : (
             <select
-              className="mt-1 w-full border rounded px-3 py-2 text-sm bg-white"
+              className="mt-1 w-full border border-slate-300 rounded-lg px-4 py-2.5 text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
               value={selectedPrinter ?? ""}
               onChange={(e) => {
                 const v = e.target.value || null;

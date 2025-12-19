@@ -7,19 +7,11 @@ export async function GET(req: Request) {
     const company_id = url.searchParams.get("company_id");
     if (!company_id) return NextResponse.json({ success: false, error: "company_id is required" }, { status: 400 });
 
-    const pallets = await prisma.pallet.findMany({
+    const pallets = await prisma.pallets.findMany({
       where: { company_id },
       orderBy: { created_at: "desc" },
       include: {
-        cartons: {
-          include: {
-            boxes: {
-              include: {
-                units: true
-              }
-            }
-          }
-        }
+        cartons: true
       },
       take: 100
     });

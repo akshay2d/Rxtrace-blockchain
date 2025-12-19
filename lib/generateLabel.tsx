@@ -4,7 +4,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 
 // Adjust import path if needed
-import { buildGs1ElementString } from '@/lib/gs1Builder';
+import { buildGs1ElementString, buildSsccGs1String } from '@/lib/gs1Builder';
 
 // Define the type locally since gs1Builder.js is JavaScript
 type Gs1Fields = {
@@ -22,6 +22,7 @@ type CodeType = 'QR' | 'DATAMATRIX';
 type GenerateLabelProps = {
   payload?: string;
   fields?: Gs1Fields;
+  sscc?: string; // For SSCC (AI 00) container labels
   codeType?: CodeType;
   size?: number;
   filename?: string;
@@ -32,6 +33,7 @@ type GenerateLabelProps = {
 export default function GenerateLabel({
   payload: payloadProp,
   fields,
+  sscc,
   codeType = 'QR',
   size = 300,
   filename = 'label.png',
@@ -44,7 +46,16 @@ export default function GenerateLabel({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!payloadProp && fields) {
+    if (!payloadProp && sscc) {
+      // Build SSCC (AI 00) payload for container labels
+      try {
+        const built = buildSsccGs1String(sscc);
+        setPayload(built);
+      } catch (e: any) {
+        setError(`Failed to build SSCC payload: ${e?.message ?? String(e)}`);
+      }
+    } else if (!payloadProp && fields) {
+      // Build product (AI 01) payload
       try {
         const built = buildGs1ElementString(fields);
         setPayload(built);
@@ -54,7 +65,7 @@ export default function GenerateLabel({
     } else if (payloadProp) {
       setPayload(payloadProp);
     }
-  }, [payloadProp, fields]);
+  }, [payloadProp, fields, sscc]);
 
   useEffect(() => {
     if (!payload) return;

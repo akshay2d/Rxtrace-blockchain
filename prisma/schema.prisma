@@ -3,7 +3,7 @@
 // -----------------------------------
 datasource db {
   provider = "postgresql"
-  schemas  = ["public", "auth"]
+  url      = env("DATABASE_URL")
 }
 
 // -----------------------------------
@@ -14,224 +14,173 @@ generator client {
 }
 
 // -----------------------------------
-// COMPANY WALLET (Credit System)
+// COMPANIES (MASTER)
 // -----------------------------------
-model company_wallets {
-  company_id    String   @id
-  balance       Float    @default(0)
-  credit_limit  Float    @default(10000)
-  status        String   @default("ACTIVE") // ACTIVE | FROZEN
-  updated_at    DateTime @updatedAt
+model companies {
+  id           String   @id @default(uuid())
+  user_id      String
+  company_name String
+  created_at   DateTime @default(now())
 
-  @@schema("public")
+  wallet         company_wallets?
+  active_heads   company_active_heads?
+  transactions   billing_transactions[]
+  seats          seats[]
+  handsets       handsets[]
+  handset_tokens handset_tokens[]
+  packing_rules  packing_rules[]
+  pallets        pallets[]
+  cartons        cartons[]
 }
 
 // -----------------------------------
-// ACTIVE PAID HEADS (Modules)
+// COMPANY WALLET
+// -----------------------------------
+model company_wallets {
+  company_id   String   @id
+  balance      Float    @default(0)
+  credit_limit Float    @default(10000)
+  status       String   @default("ACTIVE")
+  updated_at   DateTime @updatedAt
+
+  company companies @relation(fields: [company_id], references: [id])
+}
+
+// -----------------------------------
+// ACTIVE PAID MODULES
 // -----------------------------------
 model company_active_heads {
   company_id String   @id
-  heads      Json     @default("{}") // Example: { scan: true, seat: false, ... }
+  heads      Json     @default("{}")
   updated_at DateTime @updatedAt
 
-  @@schema("public")
+  company companies @relation(fields: [company_id], references: [id])
 }
 
 // -----------------------------------
-// BILLING TRANSACTIONS (Audit Log)
+// BILLING TRANSACTIONS
 // -----------------------------------
 model billing_transactions {
-  id             String   @id @default(uuid())
-  company_id     String
-  type           String   // scan | generation | handset | seat | topup
-  subtype        String?  // box | carton | pallet etc.
-  count          Int      @default(1)
-  amount         Float    // total charged
-  balance_after  Float    // wallet balance after deduction
-  created_at     DateTime @default(now())
+  id            String   @id @default(uuid())
+  company_id    String
+  type          String
+  subtype       String?
+  count         Int      @default(1)
+  amount        Float
+  balance_after Float
+  created_at    DateTime @default(now())
+
+  company companies @relation(fields: [company_id], references: [id])
 
   @@index([company_id])
-  @@schema("public")
 }
 
 // -----------------------------------
-// HANDSET ALLOCATION (For scanning)
+// SEATS
 // -----------------------------------
-model company_handsets {
-  id             String   @id @default(uuid())
-  company_id     String
-  handset_id     String
-  active         Boolean  @default(true)
-  activated_at   DateTime @default(now())
-  deactivated_at DateTime?
-  monthly_fee    Float    @default(100)
+model seats {
+  id         String   @id @default(uuid())
+  company_id String
+  active     Boolean  @default(true)
+  created_at DateTime @default(now())
+
+  company  companies  @relation(fields: [company_id], references: [id])
+  handsets handsets[]
 
   @@index([company_id])
-  @@schema("public")
 }
 
 // -----------------------------------
-// SEAT ALLOCATION (For code generation)
-// -----------------------------------
-model company_seats {
-  id             String   @id @default(uuid())
-  company_id     String
-  seat_id        String
-  active         Boolean  @default(true)
-  activated_at   DateTime @default(now())
-  deactivated_at DateTime?
-  monthly_fee    Float    @default(200)
-
-  @@index([company_id])
-  @@schema("public")
-}
-
-// -----------------------------------
-// HANDSET TOKENS (For activation)
+// HANDSET TOKENS
 // -----------------------------------
 model handset_tokens {
   id         String   @id @default(uuid())
   company_id String
   token      String   @unique
+  high_scan  Boolean  @default(false)
   used       Boolean  @default(false)
   created_at DateTime @default(now())
 
+  company companies @relation(fields: [company_id], references: [id])
+
   @@index([company_id])
-  @@schema("public")
 }
 
 // -----------------------------------
-// SCAN EVENTS (Scan history log)
-// -----------------------------------
-model scan_events {
-  id          String   @id @default(uuid())
-  company_id  String
-  handset_id  String
-  scan_value  String
-  scan_type   String   // unit | box | carton | pallet
-  created_at  DateTime @default(now())
-
-  @@index([company_id])
-  @@index([handset_id])
-  @@schema("public")
-}
-
-// -----------------------------------
-// HANDSETS (Registered devices)
+// HANDSETS
 // -----------------------------------
 model handsets {
   id                 String   @id @default(uuid())
   company_id         String
+  seat_id            String
   device_fingerprint String   @unique
-  role               String   // "UNIT_ONLY" | "HIGH_SCAN"
+  high_scan_enabled  Boolean  @default(false)
   status             String   @default("ACTIVE")
-  created_at         DateTime @default(now())
+  activated_at       DateTime @default(now())
+
+  company companies @relation(fields: [company_id], references: [id])
+  seat    seats     @relation(fields: [seat_id], references: [id])
 
   @@index([company_id])
-  @@schema("public")
-}
-
-model pallet {
-  sscc         String   @id
-  company_id   String
-  created_at   DateTime @default(now())
-  status       String   @default("ACTIVE") // ACTIVE / SHIPPED / CLOSED
-  cartons      carton[] // relation
-
-  @@schema("public")
-}
-
-model carton {
-  sscc         String   @id
-  company_id   String
-  pallet_id    String?
-  pallet       pallet?  @relation(fields: [pallet_id], references: [sscc])
-  created_at   DateTime @default(now())
-  status       String   @default("ACTIVE")
-  boxes        box[]
-
-  @@schema("public")
-}
-
-model box {
-  sscc         String   @id
-  company_id   String
-  carton_id    String?
-  carton       carton? @relation(fields: [carton_id], references: [sscc])
-  created_at   DateTime @default(now())
-  status       String   @default("ACTIVE")
-  units        unit[]
-
-  @@schema("public")
-}
-
-model unit {
-  uid          String   @id
-  company_id   String
-  box_id       String?
-  box          box?     @relation(fields: [box_id], references: [sscc])
-  created_at   DateTime @default(now())
-  status       String   @default("ACTIVE")
-
-  @@schema("public")
 }
 
 // -----------------------------------
-// PACKING RULES (SSCC Hierarchy)
+// PACKING RULES
 // -----------------------------------
 model packing_rules {
-  id                       String   @id @default(uuid())
-  sku_id                   String
-  version                  Int      @default(1)
-  name                     String?
-  strips_per_box           Int
-  boxes_per_carton         Int
-  cartons_per_pallet       Int
-  allow_partial_last_container Boolean @default(true)
-  sscc_extension_digit     Int      @default(0) @db.SmallInt
-  sscc_company_prefix      String
-  sscc_sequence_key        String
-  meta                     Json     @default("{}")
-  created_by               String?
-  created_at               DateTime @default(now())
+  id                           String   @id @default(uuid())
+  company_id                   String
+  sku_id                       String
+  version                      Int      @default(1)
+  strips_per_box               Int
+  boxes_per_carton             Int
+  cartons_per_pallet           Int
+  allow_partial_last_container Boolean  @default(true)
+  sscc_company_prefix          String
+  sscc_sequence_key            String
+  meta                         Json     @default("{}")
+  created_at                   DateTime @default(now())
+
+  company companies @relation(fields: [company_id], references: [id])
 
   @@unique([sku_id, version])
-  @@schema("public")
 }
 
+// -----------------------------------
+// SSCC COUNTERS
+// -----------------------------------
 model sscc_counters {
   sequence_key String   @id
   last_serial  BigInt   @default(0)
   updated_at   DateTime @default(now())
-
-  @@schema("public")
 }
 
+// -----------------------------------
+// PALLETS
+// -----------------------------------
 model pallets {
-  id               String    @id @default(uuid())
-  company_id       String
-  sku_id           String?
-  packing_rule_id  String?
-  sscc             String    @unique @db.VarChar(18)
-  sscc_with_ai     String?
-  meta             Json      @default("{}")
-  created_by       String?
-  created_at       DateTime  @default(now())
-  cartons          cartons[]
+  id         String   @id @default(uuid())
+  company_id String
+  sku_id     String?
+  sscc       String   @unique @db.VarChar(18)
+  meta       Json     @default("{}")
+  created_at DateTime @default(now())
 
-  @@schema("public")
+  company companies @relation(fields: [company_id], references: [id])
+  cartons cartons[]
 }
 
+// -----------------------------------
+// CARTONS
+// -----------------------------------
 model cartons {
-  id          String   @id @default(uuid())
-  company_id  String
-  pallet_id   String?
-  pallet      pallets? @relation(fields: [pallet_id], references: [id], onDelete: SetNull)
-  sku_id      String?
-  code        String
-  meta        Json     @default("{}")
-  created_by  String?
-  created_at  DateTime @default(now())
+  id         String   @id @default(uuid())
+  company_id String
+  pallet_id  String?
+  code       String
+  meta       Json     @default("{}")
+  created_at DateTime @default(now())
 
-  @@schema("public")
+  company companies @relation(fields: [company_id], references: [id])
+  pallet  pallets?  @relation(fields: [pallet_id], references: [id])
 }
