@@ -1,16 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-
-const supabaseAdmin = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_KEY!
-);
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 export async function GET(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
+    const supabaseAdmin = getSupabaseAdmin();
     const { data: rule, error } = await supabaseAdmin
       .from("packing_rules")
       .select("*")
@@ -39,6 +35,7 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
+    const supabaseAdmin = getSupabaseAdmin();
     const ruleId = params.id;
     const body = await req.json();
 
@@ -95,6 +92,7 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
+    const supabaseAdmin = getSupabaseAdmin();
     const { error } = await supabaseAdmin
       .from("packing_rules")
       .delete()

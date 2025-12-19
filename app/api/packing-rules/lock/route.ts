@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-
-const supabaseAdmin = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!);
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 export async function POST(req: Request) {
+  const supabaseAdmin = getSupabaseAdmin();
   const { company_id, sku_id } = await req.json();
 
   if (!company_id || !sku_id) {

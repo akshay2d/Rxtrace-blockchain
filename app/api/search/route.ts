@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-
-const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!);
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 export async function GET(req: Request) {
+  const supabase = getSupabaseAdmin();
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
   if (!code) return NextResponse.json({ error: "code required" }, { status: 400 });

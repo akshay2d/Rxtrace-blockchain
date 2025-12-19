@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-
-const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!);
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 export async function GET(req: Request) {
   try {
+    const supabase = getSupabaseAdmin();
     const url = new URL(req.url);
     const company_id = url.searchParams.get("company_id");
     if (!company_id) return NextResponse.json({ success: false, error: "company_id is required" }, { status: 400 });

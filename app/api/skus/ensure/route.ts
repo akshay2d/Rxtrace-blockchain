@@ -1,12 +1,6 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { supabaseServer } from "@/lib/supabase/server";
-
-const supabaseAdmin = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_KEY!,
-  { auth: { persistSession: false } }
-);
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 function normalizeSkuCode(value: unknown) {
   return String(value ?? "")
@@ -28,6 +22,8 @@ async function requireCompanyId() {
     return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
   }
 
+  const supabaseAdmin = getSupabaseAdmin();
+
   const { data: company, error } = await supabaseAdmin
     .from("companies")
     .select("id")
@@ -45,6 +41,8 @@ async function requireCompanyId() {
 export async function POST(req: Request) {
   const auth = await requireCompanyId();
   if ("error" in auth) return auth.error;
+
+  const supabaseAdmin = getSupabaseAdmin();
 
   const body = await req.json();
   const sku_code = normalizeSkuCode(body.sku_code);

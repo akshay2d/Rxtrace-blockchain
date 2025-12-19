@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import QRCode from "qrcode";
 import bwipjs from "bwip-js";
-
-const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!);
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 export async function GET(req: Request) {
+  const _supabase = getSupabaseAdmin();
   const url = new URL(req.url);
   const sscc = url.searchParams.get("sscc");
   const format = url.searchParams.get("format") || "json"; // json, qr, datamatrix

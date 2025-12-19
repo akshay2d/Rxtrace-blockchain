@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 import jwt from "jsonwebtoken";
-import { createClient } from "@supabase/supabase-js";
-
-const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!);
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 const SCAN_COST: Record<string, number> = {
   unit: 0,
@@ -13,6 +11,7 @@ const SCAN_COST: Record<string, number> = {
 
 export async function POST(req: Request) {
   try {
+    const supabase = getSupabaseAdmin();
     const auth = req.headers.get("authorization");
     if (!auth) return NextResponse.json({ success: false, error: "No auth token" }, { status: 401 });
 

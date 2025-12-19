@@ -1,13 +1,9 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_KEY!
-);
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 export async function POST(req: Request) {
   try {
+    const supabase = getSupabaseAdmin();
     const { user_id, company_name, gst_number, contact_email, contact_phone, address } = await req.json();
 
     if (!user_id || !company_name) {

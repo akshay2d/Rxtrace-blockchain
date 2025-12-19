@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-
-const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!);
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 export async function GET(req: Request, { params }: { params: { id: string } }) {
   try {
+    const supabase = getSupabaseAdmin();
     const id = params.id;
     if (!id) return NextResponse.json({ error: "job id required" }, { status: 400 });
 

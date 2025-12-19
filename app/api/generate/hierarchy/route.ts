@@ -1,13 +1,12 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-
-const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!);
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 // Price per pallet (INR). Set via env PRICE_PER_PALLET if you want a different value.
 const PRICE_PER_PALLET = Number(process.env.PRICE_PER_PALLET ?? 10);
 
 export async function POST(req: Request) {
   try {
+    const supabase = getSupabaseAdmin();
     const body = await req.json();
     const {
       company_id,

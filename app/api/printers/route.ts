@@ -1,18 +1,10 @@
 // app/api/printers/route.ts
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseAdmin } from '@/lib/supabase/admin';
 
 // Server-side SUPABASE service role client (use env var with SERVICE ROLE KEY)
 function getSupabaseClient() {
-  const SUPABASE_URL = process.env.SUPABASE_URL!;
-  const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY!;
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
-    throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_KEY env vars');
-  }
-  return createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
-    // don't expose this client to browser
-    auth: { persistSession: false },
-  });
+  return getSupabaseAdmin();
 }
 
 // Basic ID validation

@@ -1,16 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
-import { createClient } from "@supabase/supabase-js";
-
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_KEY!
-);
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 async function resolveCompanyIdFromRequest(req: Request): Promise<string | null> {
   const authHeader = req.headers.get("authorization");
   if (!authHeader) return null;
 
+  const supabase = getSupabaseAdmin();
   const accessToken = authHeader.replace("Bearer ", "");
   const {
     data: { user },

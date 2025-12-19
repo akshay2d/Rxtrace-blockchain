@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-
-const supabaseAdmin = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!);
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 export async function GET(req: Request) {
+  const supabaseAdmin = getSupabaseAdmin();
   const { searchParams } = new URL(req.url);
   const sku_id = searchParams.get("sku_id");
   const company_id = searchParams.get("company_id");

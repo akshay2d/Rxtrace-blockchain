@@ -1,11 +1,6 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import crypto from "crypto";
-
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_KEY!
-);
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 // ---------- utils ----------
 const pad2 = (n: number) => n.toString().padStart(2, "0");
@@ -46,6 +41,7 @@ const buildGS1 = (p: {
 // ---------- API ----------
 export async function POST(req: Request) {
   try {
+    const supabase = getSupabaseAdmin();
     const body = await req.json();
 
     const {
