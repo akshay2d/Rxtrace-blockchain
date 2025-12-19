@@ -3,6 +3,8 @@ import QRCode from "qrcode";
 import bwipjs from "bwip-js";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(req: Request) {
   const _supabase = getSupabaseAdmin();
   const url = new URL(req.url);
