@@ -34,21 +34,11 @@ type FormState = {
   batch: string;
   mrp: string;
   sku: string;
+  sku_name?: string;
   company: string;
   codeType: CodeType;
   quantity: number;
   printerId: string;
-};
-
-type SkuRow = { id: string; sku_code: string; sku_name: string | null };
-
-type PackingRuleRow = {
-  id: string;
-  sku_id: string;
-  version: number;
-  strips_per_box: number;
-  boxes_per_carton: number;
-  cartons_per_pallet: number;
 };
 
 type BatchRow = {
@@ -187,6 +177,19 @@ async function csvToRows(csvText: string, printerId: string): Promise<BatchRow[]
     const mfdISO = mfdRaw.length === 6 ? `20${mfdRaw.slice(0,2)}-${mfdRaw.slice(2,4)}-${mfdRaw.slice(4,6)}` : mfdRaw;
     const expISO = expRaw.length === 6 ? `20${expRaw.slice(0,2)}-${expRaw.slice(2,4)}-${expRaw.slice(4,6)}` : expRaw;
 
+    // Keep SKU master updated for CSV flow (non-blocking)
+    if (sku) {
+      try {
+        await fetch('/api/skus/ensure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sku_code: sku }),
+        });
+      } catch {
+        // ignore
+      }
+    }
+
     const res = await fetch('/api/issues', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -237,6 +240,7 @@ export default function Page() {
     batch: '',
     mrp: '',
     sku: '',
+    sku_name: '',
     company: '',
     codeType: 'QR',
     quantity: 1,
@@ -249,10 +253,9 @@ export default function Page() {
   const [printers, setPrinters] = useState<Printer[]>([]);
   const [company, setCompany] = useState<string>('');
   const [companyId, setCompanyId] = useState<string>('');
-  const [skus, setSkus] = useState<SkuRow[]>([]);
-  const [selectedSkuId, setSelectedSkuId] = useState<string>('');
-  const [packingRules, setPackingRules] = useState<PackingRuleRow[]>([]);
-  const [selectedPackingRuleId, setSelectedPackingRuleId] = useState<string>('');
+  const [savingSku, setSavingSku] = useState(false);
+  const [skuSavedMsg, setSkuSavedMsg] = useState<string>('');
+  const [csvUploading, setCsvUploading] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -272,71 +275,47 @@ export default function Page() {
     })();
   }, []);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch('/api/skus', { cache: 'no-store' });
-        if (!res.ok) return;
-        const out = await res.json();
-        const list = (out?.skus ?? []) as SkuRow[];
-        setSkus(Array.isArray(list) ? list : []);
-        if (!selectedSkuId && Array.isArray(list) && list.length) {
-          setSelectedSkuId(list[0].id);
-        }
-      } catch {
-        // ignore
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    const sku = skus.find((s) => s.id === selectedSkuId);
-    if (sku?.sku_code) {
-      setForm((prev) => ({ ...prev, sku: sku.sku_code }));
-      void ensureSkuMaster(sku.sku_code);
+  async function handleSaveSku() {
+    setError(null);
+    setSkuSavedMsg('');
+    const sku_code = (form.sku || '').trim();
+    const sku_name = (form.sku_name || '').trim();
+    if (!sku_code) {
+      setError('SKU Code is required to save into SKU Master');
+      return;
     }
 
-    (async () => {
-      if (!companyId || !selectedSkuId) {
-        setPackingRules([]);
-        setSelectedPackingRuleId('');
-        return;
-      }
-
-      try {
-        const res = await fetch(
-          `/api/packing-rules?company_id=${encodeURIComponent(companyId)}&sku_id=${encodeURIComponent(selectedSkuId)}`,
-          { cache: 'no-store' }
-        );
-        const out = await res.json();
-        const rules = (out?.rules ?? []) as PackingRuleRow[];
-        if (Array.isArray(rules)) {
-          setPackingRules(rules);
-          setSelectedPackingRuleId(rules[0]?.id ?? '');
-        } else {
-          setPackingRules([]);
-          setSelectedPackingRuleId('');
-        }
-      } catch {
-        setPackingRules([]);
-        setSelectedPackingRuleId('');
-      }
-    })();
-  }, [companyId, selectedSkuId, skus]);
-
-  async function ensureSkuMaster(skuCode: string) {
-    const sku_code = (skuCode || '').trim();
-    if (!sku_code) return;
-
+    setSavingSku(true);
     try {
-      await fetch('/api/skus/ensure', {
+      const res = await fetch('/api/skus/ensure', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sku_code }),
+        body: JSON.stringify({ sku_code, sku_name: sku_name || null }),
       });
-    } catch {
-      // non-blocking
+      const out = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(out?.error || 'Failed to save SKU');
+      }
+      setSkuSavedMsg('✅ Saved to SKU Master');
+    } catch (e: any) {
+      setError(e?.message || 'Failed to save SKU');
+    } finally {
+      setSavingSku(false);
+    }
+  }
+
+  async function handleCsvFile(file: File) {
+    setError(null);
+    if (!file) return;
+    setCsvUploading(true);
+    try {
+      const text = await file.text();
+      const rows = await csvToRows(text, form.printerId);
+      setBatch((prev) => [...prev, ...rows]);
+    } catch (e: any) {
+      setError(e?.message || 'Failed to process CSV');
+    } finally {
+      setCsvUploading(false);
     }
   }
 
@@ -356,7 +335,6 @@ export default function Page() {
 
   function handleBuild() {
     try {
-      void ensureSkuMaster(form.sku);
       const built = buildGs1ElementString({
         gtin: form.gtin || generateGTIN(),
         mfdYYMMDD: isoDateToYYMMDD(form.mfdDate),
@@ -491,21 +469,24 @@ export default function Page() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">SKU</label>
-                  <select
-                    value={selectedSkuId}
-                    onChange={e => setSelectedSkuId(e.target.value)}
-                    className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition bg-white"
-                  >
-                    {skus.length === 0 && (
-                      <option value="">No SKUs found</option>
-                    )}
-                    {skus.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.sku_code}{s.sku_name ? ` - ${s.sku_name}` : ''}
-                      </option>
-                    ))}
-                  </select>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">SKU Code</label>
+                  <input
+                    type="text"
+                    value={form.sku}
+                    onChange={e => update('sku', e.target.value)}
+                    className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
+                    placeholder="SKU001"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">SKU Name (optional)</label>
+                  <input
+                    type="text"
+                    value={form.sku_name || ''}
+                    onChange={e => update('sku_name', e.target.value)}
+                    className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
+                    placeholder="Paracetamol 650mg"
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">Company Name</label>
@@ -516,6 +497,17 @@ export default function Page() {
                     className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
                     placeholder="Company Name"
                   />
+                </div>
+                <div className="md:col-span-2 flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={handleSaveSku}
+                    disabled={savingSku}
+                    className="px-4 py-2.5 bg-slate-800 text-white rounded-lg hover:bg-slate-900 transition font-medium disabled:opacity-60"
+                  >
+                    {savingSku ? 'Saving…' : 'Save SKU to Master'}
+                  </button>
+                  {skuSavedMsg && <p className="text-sm text-emerald-700 font-medium">{skuSavedMsg}</p>}
                 </div>
               </div>
             </div>
@@ -589,25 +581,6 @@ export default function Page() {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">Packaging Rule</label>
-                  <select
-                    value={selectedPackingRuleId}
-                    onChange={e => setSelectedPackingRuleId(e.target.value)}
-                    className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition bg-white"
-                    disabled={!selectedSkuId || packingRules.length === 0}
-                  >
-                    {packingRules.length === 0 ? (
-                      <option value="">No rule for this SKU</option>
-                    ) : (
-                      packingRules.map((r) => (
-                        <option key={r.id} value={r.id}>
-                          v{r.version}: {r.strips_per_box}/{r.boxes_per_carton}/{r.cartons_per_pallet}
-                        </option>
-                      ))
-                    )}
-                  </select>
-                </div>
-                <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">Printer (Optional)</label>
                   <IssuePrinterSelector
                     printers={printers}
@@ -631,6 +604,34 @@ export default function Page() {
               >
                 Add to Batch
               </button>
+            </div>
+
+            {/* CSV Upload */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+              <h2 className="text-lg font-semibold text-slate-900 mb-4 flex items-center gap-2">
+                <span className="w-8 h-8 rounded-lg bg-orange-100 text-orange-600 flex items-center justify-center text-sm font-bold">4</span>
+                CSV Upload
+              </h2>
+              <p className="text-sm text-slate-600 mb-3">Upload CSV with headers like GTIN,BATCH,MFD,EXP,MRP,SKU,COMPANY,QTY</p>
+              <div className="flex flex-col md:flex-row gap-3 items-start md:items-center">
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) void handleCsvFile(f);
+                    e.currentTarget.value = '';
+                  }}
+                  className="block w-full md:flex-1 text-sm"
+                />
+                <button
+                  type="button"
+                  disabled={csvUploading}
+                  className="px-4 py-2.5 bg-slate-600 text-white rounded-lg hover:bg-slate-700 transition font-medium disabled:opacity-60"
+                >
+                  {csvUploading ? 'Processing…' : 'Add CSV to Batch'}
+                </button>
+              </div>
             </div>
           </form>
 

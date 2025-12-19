@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Papa from 'papaparse';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
@@ -36,6 +37,7 @@ export default function ProductsPage() {
   const [formDescription, setFormDescription] = useState('');
   const [formCategory, setFormCategory] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   useEffect(() => {
     fetchSkus();
@@ -48,6 +50,68 @@ export default function ProductsPage() {
       return JSON.parse(text);
     } catch {
       return { error: text };
+    }
+  }
+
+  function downloadTextFile(filename: string, content: string, contentType = 'text/plain;charset=utf-8') {
+    const blob = new Blob([content], { type: contentType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function handleExportCsv() {
+    setError('');
+    setSuccess('');
+    const rows = (skus ?? []).map((s) => ({
+      sku_code: s.sku_code,
+      sku_name: s.sku_name,
+      category: s.category ?? '',
+      description: s.description ?? '',
+    }));
+    const csv = Papa.unparse(rows, { header: true });
+    downloadTextFile('sku_master.csv', csv, 'text/csv;charset=utf-8');
+  }
+
+  async function handleImportCsvFile(file: File) {
+    setError('');
+    setSuccess('');
+    setImporting(true);
+    try {
+      const text = await file.text();
+      const parsed = Papa.parse<Record<string, string>>(text, { header: true, skipEmptyLines: true });
+      const rows = (parsed.data ?? []).map((r) => ({
+        sku_code: (r.sku_code ?? r.SKU_CODE ?? r.sku ?? r.SKU ?? '').toString().trim(),
+        sku_name: (r.sku_name ?? r.SKU_NAME ?? r.name ?? r.NAME ?? '').toString().trim(),
+        category: (r.category ?? r.CATEGORY ?? '').toString().trim() || null,
+        description: (r.description ?? r.DESCRIPTION ?? '').toString().trim() || null,
+      }));
+
+      const valid = rows.filter((r) => r.sku_code && r.sku_name);
+      if (valid.length === 0) {
+        throw new Error('CSV must include sku_code and sku_name columns');
+      }
+
+      const res = await fetch('/api/skus/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rows: valid }),
+      });
+      const out = await safeReadJson(res);
+      if (!res.ok) {
+        throw new Error(out?.error || 'Import failed');
+      }
+      setSuccess(`✅ Imported ${out?.imported ?? 0} SKUs (skipped ${out?.skipped ?? 0})`);
+      fetchSkus();
+    } catch (e: any) {
+      setError(e?.message || 'Import failed');
+    } finally {
+      setImporting(false);
     }
   }
 
@@ -178,7 +242,30 @@ export default function ProductsPage() {
               </div>
             </div>
             <div className="flex gap-3">
-              {/* User panel: update + soft delete only */}
+              <Button
+                variant="outline"
+                onClick={() => {
+                  const input = document.getElementById('sku-import-input') as HTMLInputElement | null;
+                  input?.click();
+                }}
+                disabled={importing}
+              >
+                {importing ? 'Importing…' : 'Import CSV'}
+              </Button>
+              <input
+                id="sku-import-input"
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) void handleImportCsvFile(f);
+                  e.currentTarget.value = '';
+                }}
+              />
+              <Button variant="outline" onClick={handleExportCsv} disabled={skus.length === 0}>
+                Export CSV
+              </Button>
             </div>
           </div>
 
