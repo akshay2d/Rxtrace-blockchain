@@ -3,6 +3,8 @@ import { prisma } from "@/app/lib/prisma";
 import crypto from "crypto";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
+export const runtime = "nodejs";
+
 export async function POST(req: Request) {
   try {
     const supabase = getSupabaseAdmin();

@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
+export const runtime = "nodejs";
+
 export async function GET(req: Request) {
   try {
     const supabase = getSupabaseAdmin();

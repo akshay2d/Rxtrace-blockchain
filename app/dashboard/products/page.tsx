@@ -41,6 +41,16 @@ export default function ProductsPage() {
     fetchSkus();
   }, []);
 
+  async function safeReadJson(res: Response) {
+    const text = await res.text();
+    if (!text) return null;
+    try {
+      return JSON.parse(text);
+    } catch {
+      return { error: text };
+    }
+  }
+
   useEffect(() => {
     // Filter SKUs based on search term
     if (searchTerm.trim() === '') {
@@ -62,7 +72,7 @@ export default function ProductsPage() {
     setLoading(true);
     try {
       const res = await fetch('/api/skus', { cache: 'no-store' });
-      const out = await res.json();
+      const out = await safeReadJson(res);
       if (!res.ok) throw new Error(out?.error || 'Failed to load SKUs');
       const skusData = (out?.skus ?? []) as SKU[];
       setSkus(Array.isArray(skusData) ? skusData : []);
@@ -119,7 +129,7 @@ export default function ProductsPage() {
           }),
         }
       );
-      const out = await res.json();
+      const out = await safeReadJson(res);
       if (!res.ok) throw new Error(out?.error || 'Failed to update SKU');
 
       setSuccess(`✅ SKU "${formSkuCode}" updated successfully`);
@@ -143,7 +153,7 @@ export default function ProductsPage() {
 
     try {
       const res = await fetch(`/api/skus/${sku.id}`, { method: 'DELETE' });
-      const out = await res.json();
+      const out = await safeReadJson(res);
       if (!res.ok) throw new Error(out?.error || 'Failed to delete SKU');
       setSuccess(`✅ SKU "${sku.sku_code}" deleted`);
       fetchSkus();
