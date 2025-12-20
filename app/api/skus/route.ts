@@ -44,7 +44,7 @@ export async function GET() {
 
   const { data, error } = await supabaseAdmin
     .from("skus")
-    .select("id, company_id, sku_code, sku_name, category, description, created_at, updated_at")
+    .select("id, company_id, sku_code, sku_name, created_at, updated_at")
     .eq("company_id", auth.companyId)
     .is("deleted_at", null)
     .order("created_at", { ascending: false });
@@ -73,9 +73,6 @@ export async function POST(req: Request) {
     );
   }
 
-  const category = normalizeText(body.category);
-  const description = normalizeText(body.description);
-
   const { data: existing, error: existingErr } = await supabaseAdmin
     .from("skus")
     .select("id")
@@ -101,10 +98,8 @@ export async function POST(req: Request) {
       company_id: auth.companyId,
       sku_code,
       sku_name,
-      category,
-      description,
     })
-    .select("id, company_id, sku_code, sku_name, category, description, created_at, updated_at")
+    .select("id, company_id, sku_code, sku_name, created_at, updated_at")
     .single();
 
   if (error) {

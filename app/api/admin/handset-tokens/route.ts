@@ -29,7 +29,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Company not found" }, { status: 404 });
     }
 
-    const token = crypto.randomBytes(24).toString("hex");
+    // Generate simple 8-digit token: RX-NNNNNN (6 random digits)
+    const randomDigits = Math.floor(100000 + Math.random() * 900000);
+    const token = `RX-${randomDigits}`;
 
     const row = await prisma.handset_tokens.create({
       data: {

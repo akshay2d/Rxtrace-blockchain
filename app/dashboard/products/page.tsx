@@ -12,8 +12,6 @@ type SKU = {
   company_id?: string;
   sku_code: string;
   sku_name: string;
-  description?: string;
-  category?: string;
   created_at: string;
   updated_at?: string;
 };
@@ -34,8 +32,6 @@ export default function ProductsPage() {
   // Form states
   const [formSkuCode, setFormSkuCode] = useState('');
   const [formSkuName, setFormSkuName] = useState('');
-  const [formDescription, setFormDescription] = useState('');
-  const [formCategory, setFormCategory] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [importing, setImporting] = useState(false);
 
@@ -71,8 +67,6 @@ export default function ProductsPage() {
     const rows = (skus ?? []).map((s) => ({
       sku_code: s.sku_code,
       sku_name: s.sku_name,
-      category: s.category ?? '',
-      description: s.description ?? '',
     }));
     const csv = Papa.unparse(rows, { header: true });
     downloadTextFile('sku_master.csv', csv, 'text/csv;charset=utf-8');
@@ -88,8 +82,6 @@ export default function ProductsPage() {
       const rows = (parsed.data ?? []).map((r) => ({
         sku_code: (r.sku_code ?? r.SKU_CODE ?? r.sku ?? r.SKU ?? '').toString().trim(),
         sku_name: (r.sku_name ?? r.SKU_NAME ?? r.name ?? r.NAME ?? '').toString().trim(),
-        category: (r.category ?? r.CATEGORY ?? '').toString().trim() || null,
-        description: (r.description ?? r.DESCRIPTION ?? '').toString().trim() || null,
       }));
 
       const valid = rows.filter((r) => r.sku_code && r.sku_name);
@@ -125,8 +117,7 @@ export default function ProductsPage() {
         skus.filter(
           (s) =>
             s.sku_code.toLowerCase().includes(term) ||
-            s.sku_name.toLowerCase().includes(term) ||
-            (s.category && s.category.toLowerCase().includes(term))
+            s.sku_name.toLowerCase().includes(term)
         )
       );
     }
@@ -153,8 +144,6 @@ export default function ProductsPage() {
     setEditingSku(sku);
     setFormSkuCode(sku.sku_code);
     setFormSkuName(sku.sku_name);
-    setFormDescription(sku.description || '');
-    setFormCategory(sku.category || '');
     setShowModal(true);
   }
 
@@ -163,8 +152,6 @@ export default function ProductsPage() {
     setEditingSku(null);
     setFormSkuCode('');
     setFormSkuName('');
-    setFormDescription('');
-    setFormCategory('');
   }
 
   async function handleSubmit() {
@@ -188,8 +175,6 @@ export default function ProductsPage() {
           body: JSON.stringify({
             sku_code: formSkuCode.trim(),
             sku_name: formSkuName.trim(),
-            description: formDescription.trim() || null,
-            category: formCategory.trim() || null,
           }),
         }
       );
@@ -327,8 +312,6 @@ export default function ProductsPage() {
                   <tr>
                     <th className="px-6 py-4 text-left text-sm font-semibold text-slate-700">SKU Code</th>
                     <th className="px-6 py-4 text-left text-sm font-semibold text-slate-700">Product Name</th>
-                    <th className="px-6 py-4 text-left text-sm font-semibold text-slate-700">Category</th>
-                    <th className="px-6 py-4 text-left text-sm font-semibold text-slate-700">Description</th>
                     <th className="px-6 py-4 text-left text-sm font-semibold text-slate-700">Created</th>
                     <th className="px-6 py-4 text-right text-sm font-semibold text-slate-700">Actions</th>
                   </tr>
@@ -341,20 +324,6 @@ export default function ProductsPage() {
                       </td>
                       <td className="px-6 py-4">
                         <span className="font-medium text-slate-900">{sku.sku_name}</span>
-                      </td>
-                      <td className="px-6 py-4">
-                        {sku.category ? (
-                          <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs font-medium">
-                            {sku.category}
-                          </span>
-                        ) : (
-                          <span className="text-slate-400 text-sm">—</span>
-                        )}
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="text-slate-600 text-sm line-clamp-2">
-                          {sku.description || '—'}
-                        </span>
                       </td>
                       <td className="px-6 py-4 text-slate-600 text-sm">
                         {new Date(sku.created_at).toLocaleDateString()}
@@ -438,31 +407,6 @@ export default function ProductsPage() {
                   value={formSkuName}
                   onChange={(e) => setFormSkuName(e.target.value)}
                   placeholder="e.g., Ciplox 200 mg Tablet"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Category (Optional)
-                </label>
-                <Input
-                  type="text"
-                  value={formCategory}
-                  onChange={(e) => setFormCategory(e.target.value)}
-                  placeholder="e.g., Antibiotics, Tablets"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Description (Optional)
-                </label>
-                <textarea
-                  value={formDescription}
-                  onChange={(e) => setFormDescription(e.target.value)}
-                  placeholder="Additional product details..."
-                  rows={3}
-                  className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition resize-none"
                 />
               </div>
             </div>

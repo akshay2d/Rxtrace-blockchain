@@ -7,8 +7,9 @@ export async function POST(req: Request) {
     const { company_id } = await req.json();
     if (!company_id) return NextResponse.json({ success: false, error: "company_id required" });
 
-    // Generate 12-char activation token
-    const token = "RX-" + crypto.randomBytes(4).toString("hex").toUpperCase();
+    // Generate simple 8-digit token: RX-NNNNNN (6 random digits)
+    const randomDigits = Math.floor(100000 + Math.random() * 900000);
+    const token = `RX-${randomDigits}`;
 
     // Store token in table handset_tokens
     await prisma.handset_tokens.create({

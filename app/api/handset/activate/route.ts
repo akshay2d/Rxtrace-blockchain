@@ -32,33 +32,29 @@ export async function POST(req: Request) {
       );
     }
 
-    /* 2️⃣ Find available seat */
-    const seat = await prisma.seats.findFirst({
-      where: {
-        company_id: tokenRecord.company_id,
-        active: true
-      }
+    /* 2️⃣ Check for duplicate device fingerprint */
+    const existing = await prisma.handsets.findUnique({
+      where: { device_fingerprint }
     });
 
-    if (!seat) {
+    if (existing) {
       return NextResponse.json(
-        { success: false, error: "No seats available" },
+        { success: false, error: "Device already registered" },
         { status: 400 }
       );
     }
 
-    /* 3️⃣ Register handset */
+    /* 3️⃣ Register handset (no seat required) */
     const handset = await prisma.handsets.create({
       data: {
         company_id: tokenRecord.company_id,
         device_fingerprint,
-        seat_id: seat.id,
         high_scan_enabled: tokenRecord.high_scan,
         status: "ACTIVE"
       }
     });
 
-    /* 4️⃣ Mark token as used */
+    /* 4️⃣ Mark token as used ONLY after successful handset creation */
     await prisma.handset_tokens.update({
       where: { token },
       data: { used: true }

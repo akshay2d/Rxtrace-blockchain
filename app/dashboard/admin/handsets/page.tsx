@@ -239,9 +239,39 @@ export default function HandsetsAdminPage() {
     }
   }
 
-  /** Deactivate individual handset */
+  /** Deactivate individual seat */
+  async function deactivateSeat(seatId: string) {
+    if (!confirm('Deactivate this seat? Any handsets using it must be disconnected first.')) return;
+
+    try {
+      const { data: sessionData } = await supabaseClient().auth.getSession();
+
+      if (!sessionData?.session?.access_token) {
+        throw new Error('Not authenticated. Please sign in again.');
+      }
+
+      const res = await fetch(`/api/admin/seats?seat_id=${seatId}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+        },
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || 'Failed to deactivate seat');
+      }
+
+      alert('Seat deactivated successfully');
+      await loadSeats();
+    } catch (e: any) {
+      alert(e.message || 'Failed to deactivate seat');
+    }
+  }
+
+  /** Deactivate individual handset (does not affect seat) */
   async function deactivateHandset(handsetId: string) {
-    if (!confirm(`Deactivate handset ${handsetId}?`)) return;
+    if (!confirm(`Deactivate handset ${handsetId}? This will not affect the seat.`)) return;
 
     try {
       const res = await fetch('/api/handset/deactivate', {
@@ -250,9 +280,9 @@ export default function HandsetsAdminPage() {
         body: JSON.stringify({ handset_id: handsetId }),
       });
 
-      if (!res.ok) throw new Error('Failed to deactivate');
+      if (!res.ok) throw new Error('Failed to deactivate handset');
 
-      alert('Handset deactivated successfully');
+      alert('Handset deactivated successfully. Seat remains active.');
       await loadHandsets();
       await load(); // Refresh count
     } catch (e: any) {
@@ -325,18 +355,21 @@ export default function HandsetsAdminPage() {
       <Card className="p-6">
         <h2 className="font-medium mb-2">Activation Token</h2>
         {data.token ? (
-          <div className="flex items-center justify-between gap-4">
-            <code className="rounded bg-gray-100 px-4 py-2 text-sm">
-              {data.token.slice(0, 6)}******{data.token.slice(-4)}
-            </code>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => navigator.clipboard.writeText(data.token!)}
-              className="gap-2"
-            >
-              <Copy className="h-4 w-4" /> Copy
-            </Button>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-4">
+              <code className="rounded bg-emerald-50 border border-emerald-200 px-6 py-4 text-2xl font-mono font-bold text-emerald-700 tracking-wider">
+                {data.token}
+              </code>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => navigator.clipboard.writeText(data.token!)}
+                className="gap-2"
+              >
+                <Copy className="h-4 w-4" /> Copy
+              </Button>
+            </div>
+            <p className="text-xs text-gray-500">Share this token with users to activate their handsets</p>
           </div>
         ) : (
           <p className="text-sm text-gray-500">No active token</p>
@@ -408,6 +441,44 @@ export default function HandsetsAdminPage() {
             </p>
           </div>
         </div>
+
+        {/* Individual Seats List */}
+        {seats.length > 0 && (
+          <div className="mt-6">
+            <h3 className="text-sm font-medium mb-3">Individual Seats</h3>
+            <div className="space-y-2 max-h-60 overflow-y-auto">
+              {seats.map((seat) => (
+                <div
+                  key={seat.id}
+                  className="flex items-center justify-between p-3 border rounded hover:bg-gray-50 transition"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="text-xs font-mono text-gray-500">
+                      {seat.id.slice(0, 8)}...
+                    </div>
+                    <Badge variant={seat.active ? "default" : "secondary"}>
+                      {seat.active ? "Active" : "Inactive"}
+                    </Badge>
+                    <div className="text-xs text-gray-500">
+                      Created: {new Date(seat.created_at).toLocaleDateString('en-IN')}
+                    </div>
+                  </div>
+                  {seat.active && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => deactivateSeat(seat.id)}
+                      className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                    >
+                      <XCircle className="h-4 w-4 mr-1" />
+                      Deactivate
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </Card>
 
       {/* Handset List */}

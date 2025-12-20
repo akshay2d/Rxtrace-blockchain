@@ -60,8 +60,6 @@ export async function POST(req: Request) {
         company_id: auth.companyId,
         sku_code,
         sku_name,
-        category: normalizeText(r.category ?? r.CATEGORY),
-        description: normalizeText(r.description ?? r.DESCRIPTION),
       };
     })
     .filter(Boolean) as Array<any>;

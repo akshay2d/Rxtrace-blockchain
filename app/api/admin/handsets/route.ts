@@ -36,6 +36,31 @@ export async function GET(req: Request) {
       }
     });
 
+    // Fetch detailed handset list
+    const handsetsList = await prisma.handsets.findMany({
+      where: {
+        company_id: company.id
+      },
+      select: {
+        id: true,
+        device_fingerprint: true,
+        status: true,
+        high_scan_enabled: true,
+        activated_at: true
+      },
+      orderBy: { activated_at: "desc" }
+    });
+
+    // Transform to match frontend expectations
+    const handsets = handsetsList.map(h => ({
+      id: h.id,
+      handset_id: h.device_fingerprint,
+      active: h.status === "ACTIVE",
+      activated_at: h.activated_at?.toISOString() || null,
+      deactivated_at: null,
+      last_seen: h.activated_at?.toISOString() || null
+    }));
+
     const activeToken = await prisma.handset_tokens.findFirst({
       where: {
         company_id: company.id,
@@ -48,7 +73,8 @@ export async function GET(req: Request) {
     return NextResponse.json({
       scanning_on: !!activeToken,
       active_handsets: activeHandsets,
-      token: activeToken?.token || null
+      token: activeToken?.token || null,
+      handsets: handsets
     });
   } catch (err: any) {
     return NextResponse.json(

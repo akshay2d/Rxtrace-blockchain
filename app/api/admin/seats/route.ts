@@ -91,3 +91,59 @@ export async function POST(req: Request) {
     );
   }
 }
+
+export async function DELETE(req: Request) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const seatId = searchParams.get("seat_id");
+
+    if (!seatId) {
+      return NextResponse.json({ error: "seat_id required" }, { status: 400 });
+    }
+
+    const companyIdFromAuth = await resolveCompanyIdFromRequest(req);
+    if (!companyIdFromAuth) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // Verify seat belongs to this company
+    const seat = await prisma.seats.findFirst({
+      where: {
+        id: seatId,
+        company_id: companyIdFromAuth,
+      },
+    });
+
+    if (!seat) {
+      return NextResponse.json({ error: "Seat not found" }, { status: 404 });
+    }
+
+    // Check if seat has active handsets
+    const activeHandsets = await prisma.handsets.count({
+      where: {
+        seat_id: seatId,
+        status: "ACTIVE",
+      },
+    });
+
+    if (activeHandsets > 0) {
+      return NextResponse.json(
+        { error: "Cannot deactivate seat with active handsets" },
+        { status: 400 }
+      );
+    }
+
+    // Deactivate the seat
+    const updated = await prisma.seats.update({
+      where: { id: seatId },
+      data: { active: false },
+    });
+
+    return NextResponse.json({ success: true, seat: updated });
+  } catch (err: any) {
+    return NextResponse.json(
+      { error: err.message || "Failed" },
+      { status: 500 }
+    );
+  }
+}

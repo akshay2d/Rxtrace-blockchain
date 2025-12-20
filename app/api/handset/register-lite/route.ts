@@ -12,7 +12,6 @@ export async function POST(req: Request) {
     const handset = await prisma.handsets.create({
       data: {
         company_id,
-        seat_id: company_id, // Placeholder - should get actual seat
         device_fingerprint,
         high_scan_enabled: false,
         status: "ACTIVE"

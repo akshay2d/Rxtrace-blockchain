@@ -53,9 +53,6 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     );
   }
 
-  const category = normalizeText(body.category);
-  const description = normalizeText(body.description);
-
   const { data: existingSku, error: fetchErr } = await supabaseAdmin
     .from("skus")
     .select("id")
@@ -97,13 +94,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     .update({
       sku_code,
       sku_name,
-      category,
-      description,
       updated_at: new Date().toISOString(),
     })
     .eq("id", params.id)
     .eq("company_id", auth.companyId)
-    .select("id, company_id, sku_code, sku_name, category, description, created_at, updated_at")
+    .select("id, company_id, sku_code, sku_name, created_at, updated_at")
     .single();
 
   if (error) {

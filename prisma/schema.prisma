@@ -31,6 +31,7 @@ model companies {
   packing_rules  packing_rules[]
   pallets        pallets[]
   cartons        cartons[]
+  skus           skus[]
 }
 
 // -----------------------------------
@@ -84,8 +85,7 @@ model seats {
   active     Boolean  @default(true)
   created_at DateTime @default(now())
 
-  company  companies  @relation(fields: [company_id], references: [id])
-  handsets handsets[]
+  company companies @relation(fields: [company_id], references: [id])
 
   @@index([company_id])
 }
@@ -112,16 +112,34 @@ model handset_tokens {
 model handsets {
   id                 String   @id @default(uuid())
   company_id         String
-  seat_id            String
+  seat_id            String?  @default("")
   device_fingerprint String   @unique
   high_scan_enabled  Boolean  @default(false)
   status             String   @default("ACTIVE")
   activated_at       DateTime @default(now())
 
   company companies @relation(fields: [company_id], references: [id])
-  seat    seats     @relation(fields: [seat_id], references: [id])
 
   @@index([company_id])
+}
+
+// -----------------------------------
+// SKU MASTER
+// -----------------------------------
+model skus {
+  id         String    @id @default(uuid())
+  company_id String
+  sku_code   String
+  sku_name   String
+  created_at DateTime  @default(now())
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  company companies @relation(fields: [company_id], references: [id], onDelete: Cascade)
+
+  @@unique([company_id, sku_code])
+  @@index([company_id])
+  @@index([company_id, deleted_at])
 }
 
 // -----------------------------------

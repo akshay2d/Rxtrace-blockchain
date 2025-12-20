@@ -63,7 +63,7 @@ export async function POST(req: Request) {
       },
       { onConflict: "company_id,sku_code" }
     )
-    .select("id, company_id, sku_code, sku_name, category, description, created_at, updated_at")
+    .select("id, company_id, sku_code, sku_name, created_at, updated_at")
     .single();
 
   if (error || !sku) {
