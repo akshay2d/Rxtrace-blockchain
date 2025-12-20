@@ -4,6 +4,7 @@ import { prisma } from "@/app/lib/prisma";
 import { calculateTotalUsage } from "@/lib/billingConfig";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
   try {
