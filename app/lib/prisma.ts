@@ -7,9 +7,21 @@ declare global {
 }
 
 const prismaClientSingleton = () => {
+  const dbUrl = process.env.DATABASE_URL;
+  
+  console.log('Prisma connection URL:', {
+    hasUrl: !!dbUrl,
+    host: dbUrl?.split('@')[1]?.split(':')[0],
+    fullUrl: dbUrl
+  });
+
+  if (!dbUrl) {
+    throw new Error('DATABASE_URL is not defined');
+  }
+
   const pool = new Pool({ 
-    connectionString: process.env.DATABASE_URL,
-    max: 1, // Limit connections for serverless
+    connectionString: dbUrl,
+    max: 1,
     idleTimeoutMillis: 10000,
     connectionTimeoutMillis: 10000,
   });
