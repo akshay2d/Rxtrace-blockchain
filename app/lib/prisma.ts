@@ -7,7 +7,12 @@ declare global {
 }
 
 const prismaClientSingleton = () => {
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const pool = new Pool({ 
+    connectionString: process.env.DATABASE_URL,
+    max: 1, // Limit connections for serverless
+    idleTimeoutMillis: 10000,
+    connectionTimeoutMillis: 10000,
+  });
   const adapter = new PrismaPg(pool);
   
   return new PrismaClient({
