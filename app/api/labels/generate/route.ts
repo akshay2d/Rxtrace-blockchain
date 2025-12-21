@@ -38,7 +38,7 @@ export async function POST(req: Request) {
         format: codeType === "datamatrix" ? "datamatrix" : "qrcode" 
       });
       
-      return new Response(Buffer.from(png), {
+      return new Response(png as unknown as BodyInit, {
         headers: {
           "Content-Type": "image/png",
           "Content-Disposition": download 
@@ -179,9 +179,9 @@ async function generatePdf({
       });
 
       const doc = new PDFDocument({ size: [288, 216], margin: 20 }); // 4" x 3" at 72dpi
-      const chunks: Buffer[] = [];
+      const chunks: Uint8Array[] = [];
 
-      doc.on("data", (chunk) => chunks.push(chunk));
+      doc.on("data", (chunk: Uint8Array) => chunks.push(chunk));
       doc.on("end", () => resolve(Buffer.concat(chunks)));
       doc.on("error", reject);
 
