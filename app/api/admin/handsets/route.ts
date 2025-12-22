@@ -57,13 +57,17 @@ export async function GET(req: Request) {
       last_seen: h.activated_at || null
     }));
 
-    const { data: activeTokens } = await supabase
+    const { data: activeTokens, error: tokenError } = await supabase
       .from('handset_tokens')
       .select('token')
       .eq('company_id', company.id)
       .eq('used', false)
       .order('created_at', { ascending: false })
       .limit(1);
+
+    console.log('[HANDSETS API] Company ID:', company.id);
+    console.log('[HANDSETS API] Token query result:', activeTokens);
+    console.log('[HANDSETS API] Token query error:', tokenError);
 
     const activeToken = activeTokens?.[0] || null;
 
