@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import { prisma } from "@/app/lib/prisma";
 import { calculateTotalUsage } from "@/lib/billingConfig";
 
 export const runtime = "nodejs";
@@ -40,20 +39,18 @@ export async function GET(req: Request) {
     const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
 
     // Count active handsets
-    const handsets = await prisma.handsets.count({
-      where: {
-        company_id,
-        status: "ACTIVE"
-      }
-    });
+    const { count: handsets } = await supabase
+      .from('handsets')
+      .select('*', { count: 'exact', head: true })
+      .eq('company_id', company_id)
+      .eq('status', 'ACTIVE');
 
     // Count active seats
-    const seats = await prisma.seats.count({
-      where: {
-        company_id,
-        active: true
-      }
-    });
+    const { count: seats } = await supabase
+      .from('seats')
+      .select('*', { count: 'exact', head: true })
+      .eq('company_id', company_id)
+      .eq('active', true);
 
     // Note: Scan tracking tables (box_scans, carton_scans, pallet_scans) don't exist in schema yet
     // Set to 0 until scan tracking is implemented
@@ -62,14 +59,14 @@ export async function GET(req: Request) {
     const palletScans = 0;
 
     const usage = {
-      handsets,
-      seats,
+      handsets: handsets || 0,
+      seats: seats || 0,
       box_scans: boxScans,
       carton_scans: cartonScans,
       pallet_scans: palletScans,
       total: calculateTotalUsage({
-        handsets,
-        seats,
+        handsets: handsets || 0,
+        seats: seats || 0,
         box_scans: boxScans,
         carton_scans: cartonScans,
         pallet_scans: palletScans
