@@ -79,13 +79,22 @@ export async function POST(req: Request) {
       );
     }
 
-    const rows = await prisma.$transaction(
-      Array.from({ length: count }).map(() =>
-        prisma.seats.create({ data: { company_id: companyId, active: true } })
-      )
-    );
+    const supabase = getSupabaseAdmin();
+    const seatsToCreate = Array.from({ length: count }).map(() => ({
+      company_id: companyId,
+      active: true
+    }));
 
-    return NextResponse.json({ created: rows.length });
+    const { data: rows, error } = await supabase
+      .from('seats')
+      .insert(seatsToCreate)
+      .select();
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ created: rows?.length || 0 });
   } catch (err: any) {
     return NextResponse.json(
       { error: err.message || "Failed" },
@@ -108,27 +117,28 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const supabase = getSupabaseAdmin();
+
     // Verify seat belongs to this company
-    const seat = await prisma.seats.findFirst({
-      where: {
-        id: seatId,
-        company_id: companyIdFromAuth,
-      },
-    });
+    const { data: seat } = await supabase
+      .from('seats')
+      .select('*')
+      .eq('id', seatId)
+      .eq('company_id', companyIdFromAuth)
+      .single();
 
     if (!seat) {
       return NextResponse.json({ error: "Seat not found" }, { status: 404 });
     }
 
     // Check if seat has active handsets
-    const activeHandsets = await prisma.handsets.count({
-      where: {
-        seat_id: seatId,
-        status: "ACTIVE",
-      },
-    });
+    const { count: activeHandsets } = await supabase
+      .from('handsets')
+      .select('*', { count: 'exact', head: true })
+      .eq('seat_id', seatId)
+      .eq('status', 'ACTIVE');
 
-    if (activeHandsets > 0) {
+    if (activeHandsets && activeHandsets > 0) {
       return NextResponse.json(
         { error: "Cannot deactivate seat with active handsets" },
         { status: 400 }
@@ -136,10 +146,16 @@ export async function DELETE(req: Request) {
     }
 
     // Deactivate the seat
-    const updated = await prisma.seats.update({
-      where: { id: seatId },
-      data: { active: false },
-    });
+    const { data: updated, error } = await supabase
+      .from('seats')
+      .update({ active: false })
+      .eq('id', seatId)
+      .select()
+      .single();
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
 
     return NextResponse.json({ success: true, seat: updated });
   } catch (err: any) {
