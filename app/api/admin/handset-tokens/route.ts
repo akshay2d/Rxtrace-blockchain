@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/app/lib/prisma";
 import crypto from "crypto";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
@@ -20,10 +19,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const company = await prisma.companies.findFirst({
-      where: { user_id: user.id },
-      select: { id: true }
-    });
+    const { data: company } = await supabase
+      .from('companies')
+      .select('id')
+      .eq('user_id', user.id)
+      .single();
 
     if (!company) {
       return NextResponse.json({ error: "Company not found" }, { status: 404 });
@@ -33,13 +33,19 @@ export async function POST(req: Request) {
     const randomDigits = Math.floor(100000 + Math.random() * 900000);
     const token = `RX-${randomDigits}`;
 
-    const row = await prisma.handset_tokens.create({
-      data: {
+    const { data: row, error: insertError } = await supabase
+      .from('handset_tokens')
+      .insert({
         company_id: company.id,
         token,
         high_scan: true, // auto-enabled as per your rule
-      },
-    });
+      })
+      .select()
+      .single();
+
+    if (insertError) {
+      return NextResponse.json({ error: insertError.message }, { status: 500 });
+    }
 
     return NextResponse.json(row);
   } catch (err: any) {
@@ -65,30 +71,32 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const company = await prisma.companies.findFirst({
-      where: { user_id: user.id },
-      select: { id: true }
-    });
+    const { data: company } = await supabase
+      .from('companies')
+      .select('id')
+      .eq('user_id', user.id)
+      .single();
 
     if (!company) {
       return NextResponse.json({ error: "Company not found" }, { status: 404 });
     }
 
     // Mark all unused tokens as used (invalidate them)
-    const result = await prisma.handset_tokens.updateMany({
-      where: {
-        company_id: company.id,
-        used: false
-      },
-      data: {
-        used: true
-      }
-    });
+    const { data: result, error: updateError } = await supabase
+      .from('handset_tokens')
+      .update({ used: true })
+      .eq('company_id', company.id)
+      .eq('used', false)
+      .select();
+
+    if (updateError) {
+      return NextResponse.json({ error: updateError.message }, { status: 500 });
+    }
 
     return NextResponse.json({ 
       success: true, 
-      invalidated: result.count,
-      message: `Invalidated ${result.count} active token(s)` 
+      invalidated: result?.length || 0,
+      message: `Invalidated ${result?.length || 0} active token(s)` 
     });
   } catch (err: any) {
     return NextResponse.json(
