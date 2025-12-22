@@ -59,15 +59,24 @@ export async function GET(req: Request) {
 
     const { data: activeTokens, error: tokenError } = await supabase
       .from('handset_tokens')
-      .select('token')
+      .select('*')
       .eq('company_id', company.id)
       .eq('used', false)
       .order('created_at', { ascending: false })
       .limit(1);
 
     console.log('[HANDSETS API] Company ID:', company.id);
-    console.log('[HANDSETS API] Token query result:', activeTokens);
+    console.log('[HANDSETS API] Token query result:', JSON.stringify(activeTokens));
     console.log('[HANDSETS API] Token query error:', tokenError);
+    
+    // Also try without the used filter
+    const { data: allTokens } = await supabase
+      .from('handset_tokens')
+      .select('*')
+      .eq('company_id', company.id)
+      .order('created_at', { ascending: false })
+      .limit(3);
+    console.log('[HANDSETS API] All tokens (no used filter):', JSON.stringify(allTokens));
 
     const activeToken = activeTokens?.[0] || null;
 
