@@ -57,14 +57,15 @@ export async function GET(req: Request) {
       last_seen: h.activated_at || null
     }));
 
-    const { data: activeToken } = await supabase
+    const { data: activeTokens } = await supabase
       .from('handset_tokens')
       .select('token')
       .eq('company_id', company.id)
       .eq('used', false)
       .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
+      .limit(1);
+
+    const activeToken = activeTokens?.[0] || null;
 
     return NextResponse.json({
       scanning_on: !!activeToken,
