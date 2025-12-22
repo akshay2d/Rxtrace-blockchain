@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/app/lib/prisma";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -17,10 +16,11 @@ async function resolveCompanyIdFromRequest(req: Request): Promise<string | null>
 
   if (error || !user) return null;
 
-  const company = await prisma.companies.findFirst({
-    where: { user_id: user.id },
-    select: { id: true },
-  });
+  const { data: company } = await supabase
+    .from('companies')
+    .select('id')
+    .eq('user_id', user.id)
+    .single();
 
   return company?.id ?? null;
 }
@@ -39,12 +39,14 @@ export async function GET(req: Request) {
       );
     }
 
-    const seats = await prisma.seats.findMany({
-      where: { company_id: companyId },
-      orderBy: { created_at: "asc" },
-    });
+    const supabase = getSupabaseAdmin();
+    const { data: seats } = await supabase
+      .from('seats')
+      .select('*')
+      .eq('company_id', companyId)
+      .order('created_at', { ascending: true });
 
-    return NextResponse.json({ seats });
+    return NextResponse.json({ seats: seats || [] });
   } catch (err: any) {
     return NextResponse.json(
       { error: err.message || "Failed" },
