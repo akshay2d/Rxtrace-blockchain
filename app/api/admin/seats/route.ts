@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 async function resolveCompanyIdFromRequest(req: Request): Promise<string | null> {
   const authHeader = req.headers.get("authorization");
@@ -46,7 +48,11 @@ export async function GET(req: Request) {
       .eq('company_id', companyId)
       .order('created_at', { ascending: true });
 
-    return NextResponse.json({ seats: seats || [] });
+    return NextResponse.json({ seats: seats || [] }, {
+      headers: {
+        'Cache-Control': 'no-store, max-age=0',
+      },
+    });
   } catch (err: any) {
     return NextResponse.json(
       { error: err.message || "Failed" },
@@ -94,7 +100,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ created: rows?.length || 0 });
+    return NextResponse.json({ created: rows?.length || 0 }, {
+      headers: {
+        'Cache-Control': 'no-store, max-age=0',
+      },
+    });
   } catch (err: any) {
     return NextResponse.json(
       { error: err.message || "Failed" },
@@ -157,7 +167,11 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true, seat: updated });
+    return NextResponse.json({ success: true, seat: updated }, {
+      headers: {
+        'Cache-Control': 'no-store, max-age=0',
+      },
+    });
   } catch (err: any) {
     return NextResponse.json(
       { error: err.message || "Failed" },

@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
 
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 const HEAD_ACTIVATION_ENABLED = 'scanner_activation_enabled';
 const HEAD_SCANNING_ENABLED = 'scanner_scanning_enabled';
@@ -70,7 +72,11 @@ export async function GET(req: Request) {
     const heads = await getHeads(companyId);
     const settings = readSettingsFromHeads(heads);
 
-    return NextResponse.json({ success: true, company_id: companyId, ...settings });
+    return NextResponse.json({ success: true, company_id: companyId, ...settings }, {
+      headers: {
+        'Cache-Control': 'no-store, max-age=0',
+      },
+    });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || 'Failed' }, { status: 500 });
   }
@@ -120,7 +126,11 @@ export async function POST(req: Request) {
     await upsertHeads(companyId, nextHeads);
 
     const settings = readSettingsFromHeads(nextHeads);
-    return NextResponse.json({ success: true, company_id: companyId, ...settings });
+    return NextResponse.json({ success: true, company_id: companyId, ...settings }, {
+      headers: {
+        'Cache-Control': 'no-store, max-age=0',
+      },
+    });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || 'Failed' }, { status: 500 });
   }

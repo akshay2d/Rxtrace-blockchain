@@ -3,6 +3,7 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export async function GET(req: Request) {
   try {
@@ -86,6 +87,10 @@ export async function GET(req: Request) {
       active_handsets: activeHandsets || 0,
       token: activeToken?.token || null,
       handsets: handsets
+    }, {
+      headers: {
+        'Cache-Control': 'no-store, max-age=0',
+      },
     });
   } catch (err: any) {
     return NextResponse.json(
