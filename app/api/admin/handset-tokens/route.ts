@@ -42,6 +42,17 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Activation disabled by admin' }, { status: 403 });
     }
 
+    // Keep a single active code: invalidate any previously active (unused) tokens
+    const { error: invalidateError } = await supabase
+      .from('handset_tokens')
+      .update({ used: true })
+      .eq('company_id', company.id)
+      .or('used.is.null,used.eq.false');
+
+    if (invalidateError) {
+      return NextResponse.json({ error: invalidateError.message }, { status: 500 });
+    }
+
     // Generate simple 8-digit token: RX-NNNNNN (6 random digits)
     const randomDigits = Math.floor(100000 + Math.random() * 900000);
     const token = `RX-${randomDigits}`;

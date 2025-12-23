@@ -197,7 +197,7 @@ export default function HandsetsAdminPage() {
   }
 
   /** Invalidate active token(s) immediately (useful if token leaked) */
-  async function invalidateTokenNow() {
+  async function rotateTokenNow() {
     setActionLoading(true);
     setError(null);
 
@@ -207,21 +207,33 @@ export default function HandsetsAdminPage() {
         throw new Error('Not authenticated. Please sign in again.');
       }
 
-      const res = await fetch('/api/admin/handset-tokens', {
+      const invalidateRes = await fetch('/api/admin/handset-tokens', {
         method: 'DELETE',
         headers: {
           Authorization: `Bearer ${sessionData.session.access_token}`,
         },
       });
 
-      if (!res.ok) {
-        const text = await res.text();
+      if (!invalidateRes.ok) {
+        const text = await invalidateRes.text();
         throw new Error(text || 'Failed to invalidate token');
+      }
+
+      const generateRes = await fetch('/api/admin/handset-tokens', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+        },
+      });
+
+      if (!generateRes.ok) {
+        const text = await generateRes.text();
+        throw new Error(text || 'Failed to generate token');
       }
 
       await load();
     } catch (e: any) {
-      setError(e.message || 'Failed to invalidate token');
+      setError(e.message || 'Failed to rotate token');
     } finally {
       setActionLoading(false);
     }
@@ -460,10 +472,10 @@ export default function HandsetsAdminPage() {
                 </Button>
                 <Button
                   variant="outline"
-                  onClick={invalidateTokenNow}
+                  onClick={rotateTokenNow}
                   disabled={actionLoading}
                 >
-                  Invalidate code
+                  Rotate code
                 </Button>
                 <Button
                   variant="destructive"
