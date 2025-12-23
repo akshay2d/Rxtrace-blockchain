@@ -94,23 +94,10 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: updateError.message }, { status: 500 });
     }
 
-    // Deactivate all active handsets for this company so scanning actually stops
-    const { data: deactivatedHandsets, error: deactivateError } = await supabase
-      .from('handsets')
-      .update({ status: 'INACTIVE' })
-      .eq('company_id', company.id)
-      .eq('status', 'ACTIVE')
-      .select('id');
-
-    if (deactivateError) {
-      return NextResponse.json({ error: deactivateError.message }, { status: 500 });
-    }
-
     return NextResponse.json({ 
       success: true, 
       invalidated: result?.length || 0,
-      deactivated_handsets: deactivatedHandsets?.length || 0,
-      message: `Invalidated ${result?.length || 0} token(s) and deactivated ${deactivatedHandsets?.length || 0} handset(s)` 
+      message: `Invalidated ${result?.length || 0} token(s)` 
     });
   } catch (err: any) {
     return NextResponse.json(

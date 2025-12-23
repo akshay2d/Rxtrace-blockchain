@@ -25,9 +25,11 @@ export async function POST(req: Request) {
       );
     }
 
+    // Token is considered "disabled" when admin turns OFF scanning.
+    // It should remain reusable for multiple handsets while scanning is ON.
     if (tokenRecord.used) {
       return NextResponse.json(
-        { success: false, error: "Token already used" },
+        { success: false, error: "Token disabled" },
         { status: 400 }
       );
     }
@@ -54,13 +56,7 @@ export async function POST(req: Request) {
       }
     });
 
-    /* 4️⃣ Mark token as used ONLY after successful handset creation */
-    await prisma.handset_tokens.update({
-      where: { token },
-      data: { used: true }
-    });
-
-    /* 5️⃣ Issue JWT for scanner app */
+    /* 4️⃣ Issue JWT for scanner app */
     const jwtToken = jwt.sign(
       {
         handset_id: handset.id,

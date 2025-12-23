@@ -49,8 +49,27 @@ export async function POST(req: Request) {
     }
 
     /* ------------------------------------------------
-       3️⃣ Parse GS1 payload
+       2️⃣b Master switch: require active token
+       Turning OFF invalidates tokens; turning ON creates one.
     ------------------------------------------------ */
+    const { data: activeToken } = await supabase
+      .from('handset_tokens')
+      .select('id')
+      .eq('company_id', company_id)
+      .or('used.is.null,used.eq.false')
+      .limit(1)
+      .maybeSingle();
+
+    if (!activeToken) {
+      return NextResponse.json(
+        { success: false, error: 'Scanning disabled by admin' },
+        { status: 403 }
+      );
+    }
+
+     /* ------------------------------------------------
+       3️⃣ Parse GS1 payload
+     ------------------------------------------------ */
     const data = parseGS1(raw);
     if (!data) {
       return NextResponse.json(
