@@ -38,6 +38,7 @@ export async function POST(req: Request) {
       .insert({
         company_id: company.id,
         token,
+        used: false,
         high_scan: true, // auto-enabled as per your rule
       })
       .select()
@@ -95,7 +96,7 @@ export async function DELETE(req: Request) {
       .from('handset_tokens')
       .select('*')
       .eq('company_id', company.id)
-      .eq('used', false);
+      .or('used.is.null,used.eq.false');
     
     console.log('[DELETE TOKEN] Unused tokens before update:', JSON.stringify(unusedTokens));
 
@@ -104,7 +105,7 @@ export async function DELETE(req: Request) {
       .from('handset_tokens')
       .update({ used: true })
       .eq('company_id', company.id)
-      .eq('used', false)
+      .or('used.is.null,used.eq.false')
       .select();
 
     console.log('[DELETE TOKEN] Update result:', JSON.stringify(result));

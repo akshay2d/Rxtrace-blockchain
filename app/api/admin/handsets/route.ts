@@ -61,7 +61,7 @@ export async function GET(req: Request) {
       .from('handset_tokens')
       .select('*')
       .eq('company_id', company.id)
-      .eq('used', false)
+      .or('used.is.null,used.eq.false')
       .order('created_at', { ascending: false })
       .limit(1);
 
