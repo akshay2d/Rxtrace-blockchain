@@ -82,24 +82,6 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: "Company not found" }, { status: 404 });
     }
 
-    console.log('[DELETE TOKEN] Company ID:', company.id);
-
-    // First check what tokens exist
-    const { data: existingTokens } = await supabase
-      .from('handset_tokens')
-      .select('*')
-      .eq('company_id', company.id);
-    
-    console.log('[DELETE TOKEN] All tokens for company:', JSON.stringify(existingTokens));
-
-    const { data: unusedTokens } = await supabase
-      .from('handset_tokens')
-      .select('*')
-      .eq('company_id', company.id)
-      .or('used.is.null,used.eq.false');
-    
-    console.log('[DELETE TOKEN] Unused tokens before update:', JSON.stringify(unusedTokens));
-
     // Mark all unused tokens as used (invalidate them)
     const { data: result, error: updateError } = await supabase
       .from('handset_tokens')
@@ -107,10 +89,6 @@ export async function DELETE(req: Request) {
       .eq('company_id', company.id)
       .or('used.is.null,used.eq.false')
       .select();
-
-    console.log('[DELETE TOKEN] Update result:', JSON.stringify(result));
-    console.log('[DELETE TOKEN] Update error:', updateError);
-    console.log('[DELETE TOKEN] Number of tokens updated:', result?.length || 0);
 
     if (updateError) {
       return NextResponse.json({ error: updateError.message }, { status: 500 });
