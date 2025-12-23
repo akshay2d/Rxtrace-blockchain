@@ -34,6 +34,21 @@ export async function POST(req: Request) {
       );
     }
 
+    /* 1️⃣b Respect activation_enabled master switch */
+    const settingsRow = await prisma.company_active_heads.findUnique({
+      where: { company_id: tokenRecord.company_id },
+      select: { heads: true },
+    });
+    const heads = (settingsRow?.heads as any) ?? {};
+    const activationEnabled =
+      heads?.scanner_activation_enabled === undefined ? true : !!heads.scanner_activation_enabled;
+    if (!activationEnabled) {
+      return NextResponse.json(
+        { success: false, error: 'Activation disabled by admin' },
+        { status: 403 }
+      );
+    }
+
     /* 2️⃣ Check for duplicate device fingerprint */
     const existing = await prisma.handsets.findUnique({
       where: { device_fingerprint }

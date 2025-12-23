@@ -20,6 +20,30 @@ export async function POST(req: Request) {
 
     const { role, company_id, handset_id } = decoded;
 
+    // Master scanning switch (separate from activation/token generation)
+    const { data: headsRow } = await supabase
+      .from('company_active_heads')
+      .select('heads')
+      .eq('company_id', company_id)
+      .maybeSingle();
+    const heads = (headsRow?.heads as any) ?? {};
+    const scanningEnabled =
+      heads?.scanner_scanning_enabled === undefined ? true : !!heads.scanner_scanning_enabled;
+    if (!scanningEnabled) {
+      return NextResponse.json({ success: false, error: 'Scanning disabled by admin' }, { status: 403 });
+    }
+
+    // Ensure handset is still active
+    const { data: handset } = await supabase
+      .from('handsets')
+      .select('id, company_id, status, high_scan_enabled')
+      .eq('id', handset_id)
+      .maybeSingle();
+
+    if (!handset || handset.company_id !== company_id || handset.status !== 'ACTIVE') {
+      return NextResponse.json({ success: false, error: 'Handset not active' }, { status: 403 });
+    }
+
     const { scannedValue, scanType } = await req.json();
     if (!scanType || !scannedValue)
       return NextResponse.json({ success: false, error: "scanType & scannedValue required" });

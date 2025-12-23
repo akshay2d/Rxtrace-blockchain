@@ -29,6 +29,19 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Company not found" }, { status: 404 });
     }
 
+    // Respect activation_enabled master switch
+    const { data: headsRow } = await supabase
+      .from('company_active_heads')
+      .select('heads')
+      .eq('company_id', company.id)
+      .maybeSingle();
+    const heads = (headsRow?.heads as any) ?? {};
+    const activationEnabled =
+      heads?.scanner_activation_enabled === undefined ? true : !!heads.scanner_activation_enabled;
+    if (!activationEnabled) {
+      return NextResponse.json({ error: 'Activation disabled by admin' }, { status: 403 });
+    }
+
     // Generate simple 8-digit token: RX-NNNNNN (6 random digits)
     const randomDigits = Math.floor(100000 + Math.random() * 900000);
     const token = `RX-${randomDigits}`;

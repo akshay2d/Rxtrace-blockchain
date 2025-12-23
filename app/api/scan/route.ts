@@ -49,18 +49,12 @@ export async function POST(req: Request) {
     }
 
     /* ------------------------------------------------
-       2️⃣b Master switch: require active token
-       Turning OFF invalidates tokens; turning ON creates one.
+       2️⃣b Master switch: scanning_enabled
+       This is separate from activation/token generation.
     ------------------------------------------------ */
-    const { data: activeToken } = await supabase
-      .from('handset_tokens')
-      .select('id')
-      .eq('company_id', company_id)
-      .or('used.is.null,used.eq.false')
-      .limit(1)
-      .maybeSingle();
-
-    if (!activeToken) {
+    const scanningEnabled =
+      heads?.scanner_scanning_enabled === undefined ? true : !!heads.scanner_scanning_enabled;
+    if (!scanningEnabled) {
       return NextResponse.json(
         { success: false, error: 'Scanning disabled by admin' },
         { status: 403 }
