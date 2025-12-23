@@ -52,6 +52,7 @@ export async function GET(req: Request) {
       id: h.id,
       handset_id: h.device_fingerprint,
       active: h.status === "ACTIVE",
+      high_scan_enabled: !!h.high_scan_enabled,
       activated_at: h.activated_at || null,
       deactivated_at: null,
       last_seen: h.activated_at || null
