@@ -63,6 +63,7 @@ export default function HandsetsAdminPage() {
       }
 
       const res = await fetch('/api/admin/handsets', {
+        cache: 'no-store',
         headers: {
           Authorization: `Bearer ${sessionData.session.access_token}`,
         },
@@ -77,6 +78,7 @@ export default function HandsetsAdminPage() {
       setData(json);
 
       const settingsRes = await fetch('/api/admin/scanner-settings', {
+        cache: 'no-store',
         headers: {
           Authorization: `Bearer ${sessionData.session.access_token}`,
         },
@@ -247,6 +249,7 @@ export default function HandsetsAdminPage() {
       if (!sessionData?.session?.access_token) return;
 
       const res = await fetch('/api/admin/handsets', {
+        cache: 'no-store',
         headers: {
           Authorization: `Bearer ${sessionData.session.access_token}`,
         },
@@ -271,6 +274,7 @@ export default function HandsetsAdminPage() {
       if (!sessionData?.session?.access_token) return;
 
       const res = await fetch('/api/admin/seats', {
+        cache: 'no-store',
         headers: {
           Authorization: `Bearer ${sessionData.session.access_token}`,
         },

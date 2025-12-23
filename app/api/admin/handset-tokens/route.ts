@@ -3,6 +3,8 @@ import crypto from "crypto";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export async function POST(req: Request) {
   try {
@@ -72,7 +74,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: insertError.message }, { status: 500 });
     }
 
-    return NextResponse.json(row);
+    return NextResponse.json(row, {
+      headers: {
+        'Cache-Control': 'no-store, max-age=0',
+      },
+    });
   } catch (err: any) {
     return NextResponse.json(
       { error: err.message || "Failed to generate token" },
@@ -122,6 +128,10 @@ export async function DELETE(req: Request) {
       success: true, 
       invalidated: result?.length || 0,
       message: `Invalidated ${result?.length || 0} token(s)` 
+    }, {
+      headers: {
+        'Cache-Control': 'no-store, max-age=0',
+      },
     });
   } catch (err: any) {
     return NextResponse.json(
