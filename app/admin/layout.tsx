@@ -87,6 +87,14 @@ export default function AdminLayout({
                 </Button>
               </Link>
             </li>
+
+            <li>
+              <Link href="/admin/demo-requests">
+                <Button variant="ghost" className="w-full justify-start gap-3 hover:bg-orange-50">
+                  <Activity className="h-5 w-5" /> Demo Requests
+                </Button>
+              </Link>
+            </li>
             <li>
               <Link href="/dashboard">
                 <Button variant="outline" className="w-full justify-start gap-3 mt-4 border-blue-500 text-blue-600 hover:bg-blue-50">

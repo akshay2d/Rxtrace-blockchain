@@ -34,8 +34,12 @@ export async function middleware(request: NextRequest) {
     data: { session },
   } = await supabase.auth.getSession();
 
-  // Protect everything under /dashboard
-  if (request.nextUrl.pathname.startsWith('/dashboard') && !session) {
+  // Protect everything under /dashboard and /regulator
+  const isProtectedArea =
+    request.nextUrl.pathname.startsWith('/dashboard') ||
+    request.nextUrl.pathname.startsWith('/regulator');
+
+  if (isProtectedArea && !session) {
     return NextResponse.redirect(new URL('/auth/signin', request.url));
   }
 
@@ -43,5 +47,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: '/dashboard/:path*',
+  matcher: ['/dashboard/:path*', '/regulator/:path*'],
 };
