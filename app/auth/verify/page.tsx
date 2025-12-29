@@ -34,7 +34,7 @@ export default function VerifyEmail() {
 
         <CardContent className="space-y-6 text-center">
           <p className="text-gray-600 text-lg">
-            We've sent a verification email to:
+            We&apos;ve sent a verification email to:
           </p>
           <p className="text-xl font-semibold text-[#0052CC] break-all">
             {email || 'your email address'}
@@ -47,11 +47,11 @@ export default function VerifyEmail() {
             </div>
             <div className="flex items-start gap-3">
               <CheckCircle className="h-5 w-5 text-green-500 mt-0.5 flex-shrink-0" />
-              <p className="text-sm text-gray-700">Check your spam folder if you don't see it</p>
+              <p className="text-sm text-gray-700">Check your spam folder if you don&apos;t see it</p>
             </div>
             <div className="flex items-start gap-3">
               <CheckCircle className="h-5 w-5 text-green-500 mt-0.5 flex-shrink-0" />
-              <p className="text-sm text-gray-700">After verification, you'll be redirected to your dashboard</p>
+              <p className="text-sm text-gray-700">After verification, you&apos;ll be redirected to your dashboard</p>
             </div>
           </div>
 
@@ -63,7 +63,7 @@ export default function VerifyEmail() {
             </Link>
 
             <p className="text-sm text-gray-500">
-              Didn't receive the email?{' '}
+              Didn&apos;t receive the email?{' '}
               <a href="/auth/signup" className="text-orange-500 font-semibold hover:underline">
                 Try signing up again
               </a>

@@ -3,6 +3,69 @@ import { billingConfig } from "@/app/lib/billingConfig";
 import { parseGS1 } from "@/lib/parseGS1";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
+async function buildHierarchyForPallet(opts: {
+  supabase: ReturnType<typeof getSupabaseAdmin>;
+  palletId: string;
+}) {
+  const { supabase, palletId } = opts;
+
+  const { data: pallet } = await supabase
+    .from("pallets")
+    .select("id, sscc, sscc_with_ai, sku_id, created_at, meta")
+    .eq("id", palletId)
+    .maybeSingle();
+  if (!pallet?.id) return null;
+
+  const { data: cartons } = await supabase
+    .from("cartons")
+    .select("id, pallet_id, sscc, sscc_with_ai, code, sku_id, created_at, meta")
+    .eq("pallet_id", palletId)
+    .order("created_at", { ascending: true });
+
+  const cartonIds = (cartons ?? []).map((c: any) => c.id).filter(Boolean);
+  const { data: boxes } = cartonIds.length
+    ? await supabase
+        .from("boxes")
+        .select("id, carton_id, pallet_id, sscc, sscc_with_ai, code, sku_id, created_at, meta")
+        .in("carton_id", cartonIds)
+        .order("created_at", { ascending: true })
+    : { data: [] as any[] };
+
+  const boxIds = (boxes ?? []).map((b: any) => b.id).filter(Boolean);
+  const { data: units } = boxIds.length
+    ? await supabase
+        .from("labels_units")
+        .select("id, box_id, serial, created_at")
+        .in("box_id", boxIds)
+        .order("created_at", { ascending: true })
+    : { data: [] as any[] };
+
+  const unitsByBox = new Map<string, any[]>();
+  for (const u of units ?? []) {
+    const key = (u as any).box_id;
+    if (!key) continue;
+    const list = unitsByBox.get(key) ?? [];
+    list.push({ uid: (u as any).serial, id: (u as any).id, created_at: (u as any).created_at });
+    unitsByBox.set(key, list);
+  }
+
+  const boxesByCarton = new Map<string, any[]>();
+  for (const b of boxes ?? []) {
+    const key = (b as any).carton_id;
+    if (!key) continue;
+    const list = boxesByCarton.get(key) ?? [];
+    list.push({ ...(b as any), units: unitsByBox.get((b as any).id) ?? [] });
+    boxesByCarton.set(key, list);
+  }
+
+  const cartonsWithChildren = (cartons ?? []).map((c: any) => ({
+    ...(c as any),
+    boxes: boxesByCarton.get((c as any).id) ?? [],
+  }));
+
+  return { ...(pallet as any), cartons: cartonsWithChildren };
+}
+
 export async function POST(req: Request) {
   try {
     const supabase = getSupabaseAdmin();
@@ -65,9 +128,10 @@ export async function POST(req: Request) {
        3️⃣ Parse GS1 payload
      ------------------------------------------------ */
     const data = parseGS1(raw);
-    if (!data) {
+    const hasIdentifiers = !!data?.sscc || !!data?.serialNo;
+    if (!hasIdentifiers) {
       return NextResponse.json(
-        { success: false, error: "Invalid GS1 payload" },
+        { success: false, error: "Invalid GS1 payload (missing SSCC/Serial)" },
         { status: 400 }
       );
     }
@@ -92,46 +156,160 @@ export async function POST(req: Request) {
     let result: any = null;
 
     if (data.sscc) {
-      // Check pallets
-      const { data: pallet } = await supabase
+      // 1) Pallet by SSCC
+      const { data: palletRow } = await supabase
         .from("pallets")
-        .select("*, cartons(*)")
+        .select("id")
+        .eq("company_id", company_id)
         .eq("sscc", data.sscc)
-        .single();
-      
-      if (pallet) {
-        result = pallet;
+        .maybeSingle();
+
+      if (palletRow?.id) {
+        result = await buildHierarchyForPallet({ supabase, palletId: palletRow.id });
         level = "pallet";
       }
 
-      // Check cartons if not found
+      // 2) Carton by SSCC/code
       if (!result) {
         const { data: carton } = await supabase
           .from("cartons")
-          .select("*, pallet:pallets(*)")
-          .eq("code", data.sscc)
-          .single();
-        
-        if (carton) {
-          result = carton;
+          .select("id, pallet_id, sscc, sscc_with_ai, code, sku_id, created_at, meta")
+          .eq("company_id", company_id)
+          .or(`sscc.eq.${data.sscc},code.eq.${data.sscc}`)
+          .maybeSingle();
+
+        if (carton?.id) {
+          const { data: boxes } = await supabase
+            .from("boxes")
+            .select("id, carton_id, pallet_id, sscc, sscc_with_ai, code, sku_id, created_at, meta")
+            .eq("carton_id", carton.id)
+            .order("created_at", { ascending: true });
+
+          const boxIds = (boxes ?? []).map((b: any) => b.id).filter(Boolean);
+          const { data: units } = boxIds.length
+            ? await supabase
+                .from("labels_units")
+                .select("id, box_id, serial, created_at")
+                .in("box_id", boxIds)
+                .order("created_at", { ascending: true })
+            : { data: [] as any[] };
+
+          const unitsByBox = new Map<string, any[]>();
+          for (const u of units ?? []) {
+            const key = (u as any).box_id;
+            if (!key) continue;
+            const list = unitsByBox.get(key) ?? [];
+            list.push({ uid: (u as any).serial, id: (u as any).id, created_at: (u as any).created_at });
+            unitsByBox.set(key, list);
+          }
+
+          const boxesWithUnits = (boxes ?? []).map((b: any) => ({
+            ...(b as any),
+            units: unitsByBox.get((b as any).id) ?? [],
+          }));
+
+          const palletNode = carton.pallet_id
+            ? await buildHierarchyForPallet({ supabase, palletId: carton.pallet_id })
+            : null;
+
+          result = {
+            ...(carton as any),
+            boxes: boxesWithUnits,
+            pallet: palletNode ? { id: palletNode.id, sscc: palletNode.sscc, sscc_with_ai: palletNode.sscc_with_ai } : null,
+          };
           level = "carton";
         }
       }
 
-      // Boxes and units not implemented yet
+      // 3) Box by SSCC/code
       if (!result) {
-        return NextResponse.json(
-          { success: false, error: "Box/Unit level not yet implemented" },
-          { status: 501 }
-        );
+        const { data: box } = await supabase
+          .from("boxes")
+          .select("id, carton_id, pallet_id, sscc, sscc_with_ai, code, sku_id, created_at, meta")
+          .eq("company_id", company_id)
+          .or(`sscc.eq.${data.sscc},code.eq.${data.sscc}`)
+          .maybeSingle();
+
+        if (box?.id) {
+          const { data: units } = await supabase
+            .from("labels_units")
+            .select("id, box_id, serial, created_at")
+            .eq("box_id", box.id)
+            .order("created_at", { ascending: true });
+
+          const { data: cartonNode } = box.carton_id
+            ? await supabase
+                .from("cartons")
+                .select("id, pallet_id, sscc, sscc_with_ai, code, created_at")
+                .eq("id", box.carton_id)
+                .maybeSingle()
+            : { data: null as any };
+
+          const palletId = (cartonNode as any)?.pallet_id ?? box.pallet_id ?? null;
+          const palletNode = palletId
+            ? await supabase
+                .from("pallets")
+                .select("id, sscc, sscc_with_ai, created_at")
+                .eq("id", palletId)
+                .maybeSingle()
+            : { data: null as any };
+
+          result = {
+            ...(box as any),
+            units: (units ?? []).map((u: any) => ({ uid: u.serial, id: u.id, created_at: u.created_at })),
+            carton: cartonNode ?? null,
+            pallet: (palletNode as any)?.data ?? null,
+          };
+          level = "box";
+        }
       }
     }
 
-    if (!result && data.uid) {
-      return NextResponse.json(
-        { success: false, error: "Unit level not yet implemented" },
-        { status: 501 }
-      );
+    if (!result && data.serialNo) {
+      const { data: unit } = await supabase
+        .from("labels_units")
+        .select("id, box_id, serial, gs1_payload, created_at")
+        .eq("company_id", company_id)
+        .eq("serial", data.serialNo)
+        .maybeSingle();
+
+      if (unit?.id) {
+        const { data: boxNode } = unit.box_id
+          ? await supabase
+              .from("boxes")
+              .select("id, carton_id, pallet_id, sscc, sscc_with_ai, code, created_at")
+              .eq("id", unit.box_id)
+              .maybeSingle()
+          : { data: null as any };
+
+        const { data: cartonNode } = (boxNode as any)?.carton_id
+          ? await supabase
+              .from("cartons")
+              .select("id, pallet_id, sscc, sscc_with_ai, code, created_at")
+              .eq("id", (boxNode as any).carton_id)
+              .maybeSingle()
+          : { data: null as any };
+
+        const palletId = (cartonNode as any)?.pallet_id ?? (boxNode as any)?.pallet_id ?? null;
+        const { data: palletNode } = palletId
+          ? await supabase
+              .from("pallets")
+              .select("id, sscc, sscc_with_ai, created_at")
+              .eq("id", palletId)
+              .maybeSingle()
+          : { data: null as any };
+
+        result = {
+          uid: unit.serial,
+          id: unit.id,
+          created_at: unit.created_at,
+          gs1_payload: unit.gs1_payload,
+          box: boxNode ?? null,
+          carton: cartonNode ?? null,
+          pallet: palletNode ?? null,
+        };
+        level = "unit";
+      }
     }
 
     if (!result || !level) {
@@ -145,11 +323,13 @@ export async function POST(req: Request) {
        6️⃣ Billing
     ------------------------------------------------ */
     const price =
-      level === "carton"
+      level === "box"
+        ? billingConfig.pricing.scan.box
+        : level === "carton"
         ? billingConfig.pricing.scan.carton
         : level === "pallet"
         ? billingConfig.pricing.scan.pallet
-        : 0; // unit/box scan free (not implemented yet)
+        : 0;
 
     if (price > 0) {
       const billingRes = await fetch(

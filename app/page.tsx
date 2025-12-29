@@ -4,6 +4,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import BookDemoForm from "@/components/BookDemoForm";
+import LandingAuthLinks from "@/components/LandingAuthLinks";
 
 export default function HomePage() {
   return (
@@ -17,15 +18,15 @@ export default function HomePage() {
           </div>
           <nav className="hidden md:flex gap-8 text-sm font-medium">
             <Link href="/compliance">Compliance</Link>
-            <Link href="#services">Services</Link>
+            <Link href="/services">Services</Link>
             <Link href="#pricing">Pricing</Link>
             <Link href="#security">Security</Link>
           </nav>
           <div className="flex items-center gap-4">
-            <Link href="/auth/signin" className="text-sm">Login</Link>
-            <Link href="/auth/signup" className="px-4 py-2 rounded-xl bg-blue-600 text-white text-sm shadow hover:bg-blue-700">
-              Register (Setup Company)
-            </Link>
+            <LandingAuthLinks
+              loginClassName="text-sm"
+              registerClassName="px-4 py-2 rounded-xl bg-blue-600 text-white text-sm shadow hover:bg-blue-700"
+            />
           </div>
         </div>
       </header>
@@ -47,7 +48,7 @@ export default function HomePage() {
             </ul>
           </div>
 
-          <div className="bg-white/90 backdrop-blur rounded-2xl shadow-xl p-8 text-slate-900">
+          <div id="book-demo" className="bg-white/90 backdrop-blur rounded-2xl shadow-xl p-8 text-slate-900">
             <h3 className="text-lg font-semibold mb-4">Book a Demo</h3>
             <BookDemoForm className="space-y-4" />
           </div>
@@ -113,70 +114,203 @@ export default function HomePage() {
   </div>
 </section>
 
-      {/* How it Works */}
-      <section className="py-20">
-        <div className="max-w-7xl mx-auto px-6">
-          <h2 className="text-3xl font-semibold text-center">How RxTrace Works</h2>
-          <div className="mt-12 grid md:grid-cols-4 gap-8">
-            {[
-              "Company onboarding",
-              "SKU & product master",
-              "Packaging rules",
-              "Unit-level GS1 codes",
-              "Box & carton aggregation",
-              "Pallet SSCC generation",
-              "Scanner verification",
-              "Audit-ready dashboard",
-            ].map((step, i) => (
-              <div key={step} className="text-center">
-                <div className="w-10 h-10 mx-auto rounded-full bg-blue-600 text-white flex items-center justify-center mb-4">
-                  {i + 1}
-                </div>
-                <p className="text-sm">{step}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
+{/* How RxTrace Works */}
+<section className="py-24 bg-slate-50">
+  <div className="max-w-7xl mx-auto px-6">
+    <h2 className="text-3xl font-semibold text-center">
+      How RxTrace Works
+    </h2>
+    <p className="text-center text-slate-600 mt-4 max-w-3xl mx-auto">
+      A simple GS1 compliant traceability process from company setup
+      to label generation and printing.
+    </p>
+
+    {/* Flow Grid */}
+    <div className="mt-16 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
+
+      {/* STEP 1 */}
+      <div className="bg-white rounded-xl shadow p-6">
+        <div className="text-blue-600 font-semibold text-sm">Step 1</div>
+        <h3 className="mt-2 font-semibold">Setup Company</h3>
+        <p className="mt-2 text-sm text-slate-600">
+          Register company details and compliance profile once in the system.
+        </p>
+      </div>
+
+      {/* STEP 2 */}
+      <div className="bg-white rounded-xl shadow p-6">
+        <div className="text-blue-600 font-semibold text-sm">Step 2</div>
+        <h3 className="mt-2 font-semibold">Create or Upload Product</h3>
+        <p className="mt-2 text-sm text-slate-600">
+          Create product manually or upload CSV with SKU, batch, MFD, MRP,
+          expiry date and optional GTIN.
+        </p>
+      </div>
+
+      {/* STEP 3 */}
+      <div className="bg-white rounded-xl shadow p-6">
+        <div className="text-blue-600 font-semibold text-sm">Step 3</div>
+        <h3 className="mt-2 font-semibold">Save Product & SKU</h3>
+        <p className="mt-2 text-sm text-slate-600">
+          Product and SKU data is validated and saved for traceability use.
+        </p>
+      </div>
+
+      {/* STEP 4 */}
+      <div className="bg-white rounded-xl shadow p-6">
+        <div className="text-blue-600 font-semibold text-sm">Step 4</div>
+        <h3 className="mt-2 font-semibold">Setup Printer</h3>
+        <p className="mt-2 text-sm text-slate-600">
+          Configure printer or output format such as PDF, PNG, EPL, or ZPL.
+        </p>
+      </div>
+
+      {/* STEP 5 */}
+      <div className="bg-white rounded-xl shadow p-6">
+        <div className="text-blue-600 font-semibold text-sm">Step 5</div>
+        <h3 className="mt-2 font-semibold">Set Packaging Rules</h3>
+        <p className="mt-2 text-sm text-slate-600">
+          Define box, carton and pallet hierarchy using SSCC rules.
+        </p>
+      </div>
+
+      {/* STEP 6 */}
+      <div className="bg-white rounded-xl shadow p-6">
+        <div className="text-blue-600 font-semibold text-sm">Step 6</div>
+        <h3 className="mt-2 font-semibold">Generate GS1 Payload</h3>
+        <p className="mt-2 text-sm text-slate-600">
+          GS1 compliant payload is generated with serialized product data.
+        </p>
+      </div>
+
+      {/* STEP 7 */}
+      <div className="bg-white rounded-xl shadow p-6">
+        <div className="text-blue-600 font-semibold text-sm">Step 7</div>
+        <h3 className="mt-2 font-semibold">Add to Batch</h3>
+        <p className="mt-2 text-sm text-slate-600">
+          Generated payloads are grouped into batches for controlled processing.
+        </p>
+      </div>
+
+      {/* STEP 8 */}
+      <div className="bg-white rounded-xl shadow p-6 border border-blue-600">
+        <div className="text-blue-600 font-semibold text-sm">Step 8</div>
+        <h3 className="mt-2 font-semibold">Generate & Print Codes</h3>
+        <p className="mt-2 text-sm text-slate-600">
+          Export labels in PDF, PNG, EPL, ZPL format or print directly.
+        </p>
+      </div>
+
+    </div>
+  </div>
+</section>
 
       {/* Industry Support */}
-      <section id="services" className="py-20 bg-slate-50">
-        <div className="max-w-7xl mx-auto px-6">
-          <h2 className="text-3xl font-semibold text-center">Industry Support</h2>
-          <div className="mt-12 grid md:grid-cols-4 gap-6">
-            {["Pharma Manufacturers","API & Bulk Drugs","CMOs","Medical Devices","Logistics","Distributors","Warehouses"].map(
-              (item) => (
-                <div key={item} className="bg-white rounded-xl shadow p-6 text-center">
-                  <p className="text-sm font-medium">{item}</p>
-                </div>
-              )
-            )}
-          </div>
-        </div>
-      </section>
+<section className="py-20">
+  <div className="max-w-7xl mx-auto px-6">
+    <h2 className="text-3xl font-semibold text-center">
+      Industry Support
+    </h2>
+    <p className="text-center text-slate-600 mt-4 max-w-3xl mx-auto">
+      RxTrace is designed to support all key participants in the regulated
+      supply chain with a single GS1 compliant traceability system.
+    </p>
 
-      {/* Security */}
-      <section id="security" className="py-20 bg-gradient-to-br from-slate-900 to-slate-800 text-white">
-        <div className="max-w-7xl mx-auto px-6">
-          <h2 className="text-3xl font-semibold text-center">Security & Data Integrity</h2>
-          <div className="mt-12 grid md:grid-cols-5 gap-6">
-            {[
-              "Unit-level label generation",
-              "No backend data capture",
-              "Code-only trust model",
-              "Controlled handset access",
-              "Audit-ready logs",
-            ].map((item) => (
-              <div key={item} className="bg-white/10 backdrop-blur rounded-xl p-6 text-center">
-                <p className="text-sm">{item}</p>
-              </div>
-            ))}
-          </div>
-          <p className="mt-10 text-center text-sm text-slate-300">
-            Trust is embedded in the code — not in stored personal data.
-          </p>
-        </div>
-      </section>
+    <div className="mt-12 grid md:grid-cols-4 gap-6 text-sm">
+      <div className="bg-slate-50 rounded-xl p-6 text-center">
+        <h3 className="font-semibold mb-2">Manufacturers</h3>
+        <ul className="space-y-2 text-slate-700">
+          <li>Generate GS1 QR or DataMatrix codes</li>
+          <li>Serialize products at unit level</li>
+          <li>Meet India, US, and EU regulations</li>
+          <li>Prepare audit ready reports</li>
+        </ul>
+      </div>
+
+      <div className="bg-slate-50 rounded-xl p-6 text-center">
+        <h3 className="font-semibold mb-2">Distributors</h3>
+        <ul className="space-y-2 text-slate-700">
+          <li>Verify incoming and outgoing shipments</li>
+          <li>Scan cartons and pallets using SSCC</li>
+          <li>Handle partial shipments easily</li>
+          <li>No access to manufacturer sensitive data</li>
+        </ul>
+      </div>
+
+      <div className="bg-slate-50 rounded-xl p-6 text-center">
+        <h3 className="font-semibold mb-2">Warehouses</h3>
+        <ul className="space-y-2 text-slate-700">
+          <li>Quick receiving and dispatch scanning</li>
+          <li>Pallet and carton level visibility</li>
+          <li>Support cold chain and 3PL operations</li>
+          <li>Reduce manual inventory errors</li>
+        </ul>
+      </div>
+
+      <div className="bg-slate-50 rounded-xl p-6 text-center">
+        <h3 className="font-semibold mb-2">Logistics</h3>
+        <ul className="space-y-2 text-slate-700">
+          <li>Track movement without data duplication</li>
+          <li>Scan once, use everywhere</li>
+          <li>Compatible with existing workflows</li>
+          <li>Improved traceability across transit</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+      {/* Data Security */}
+<section className="py-20 bg-slate-900 text-white">
+  <div className="max-w-7xl mx-auto px-6">
+    <h2 className="text-3xl font-semibold text-center">
+      Data Security and Trust
+    </h2>
+    <p className="text-center text-slate-300 mt-4 max-w-3xl mx-auto">
+      RxTrace follows a code centric security model that minimizes data exposure
+      while meeting regulatory traceability requirements.
+    </p>
+
+    <div className="mt-12 grid md:grid-cols-4 gap-6 text-sm">
+      <div className="bg-white/10 rounded-xl p-6">
+        <h3 className="font-semibold mb-2">Code Only Architecture</h3>
+        <ul className="space-y-2 text-slate-200">
+          <li>All trust is embedded inside GS1 codes</li>
+          <li>No dependency on personal data</li>
+          <li>Works even without internet access</li>
+        </ul>
+      </div>
+
+      <div className="bg-white/10 rounded-xl p-6">
+        <h3 className="font-semibold mb-2">No Consumer Data Capture</h3>
+        <ul className="space-y-2 text-slate-200">
+          <li>No patient or consumer tracking</li>
+          <li>No scan level personal data stored</li>
+          <li>Privacy safe by design</li>
+        </ul>
+      </div>
+
+      <div className="bg-white/10 rounded-xl p-6">
+        <h3 className="font-semibold mb-2">Controlled Access</h3>
+        <ul className="space-y-2 text-slate-200">
+          <li>Role based user permissions</li>
+          <li>Token based handset activation</li>
+          <li>Higher scans enabled only when authorized</li>
+        </ul>
+      </div>
+
+      <div className="bg-white/10 rounded-xl p-6">
+        <h3 className="font-semibold mb-2">Audit Ready</h3>
+        <ul className="space-y-2 text-slate-200">
+          <li>Immutable generation logs</li>
+          <li>Packaging and aggregation history</li>
+          <li>Regulator friendly reports</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
 
       {/* Footer */}
       <footer className="bg-slate-900 text-slate-300 py-12">
@@ -230,4 +364,43 @@ export default function HomePage() {
       </footer>
     </main>
   );
+}
+type FlowStepProps = {
+  step: string
+  title: string
+  text: string
+  align: "top" | "bottom"
+  highlight?: boolean
+}
+
+function FlowStep({
+  step,
+  title,
+  text,
+  align,
+  highlight
+}: FlowStepProps) {
+  return (
+    <div
+      className={`flex flex-col items-center text-center ${
+        align === "top" ? "-mt-28" : "mt-28"
+      }`}
+    >
+      <div
+        className={`w-16 h-16 rounded-full flex items-center justify-center text-lg font-bold ${
+          highlight ? "bg-blue-600" : "bg-blue-500"
+        }`}
+      >
+        {step}
+      </div>
+
+      <h3 className="mt-4 font-semibold text-sm text-blue-400 max-w-[180px]">
+        {title}
+      </h3>
+
+      <p className="mt-2 text-xs text-slate-400 max-w-[180px]">
+        {text}
+      </p>
+    </div>
+  )
 }

@@ -185,7 +185,7 @@ export default function SignIn() {
         <form onSubmit={handleForgotPassword} className="space-y-6">
           <div>
             <p className="text-sm text-gray-600 mb-4">
-              Enter your email address and we'll send you a link to reset your password.
+              Enter your email address and we&apos;ll send you a link to reset your password.
             </p>
             <Input 
               type="email" 
@@ -259,7 +259,7 @@ export default function SignIn() {
       )}
       
       <p className="text-center mt-6 text-gray-600">
-        Don't have an account? <a href="/auth/signup" className="text-[#0052CC] font-semibold hover:underline">Register your company</a>
+        Don&apos;t have an account? <a href="/auth/signup" className="text-[#0052CC] font-semibold hover:underline">Register your company</a>
       </p>
       
       <button

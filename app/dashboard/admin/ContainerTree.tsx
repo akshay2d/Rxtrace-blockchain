@@ -20,7 +20,7 @@ export default function ContainerTree({ companyId }: { companyId?: string }) {
   async function loadPallets() {
     setLoading(true);
     try {
-      const res = await fetch(`/api/admin/pallets?company_id=${companyId}`);
+      const res = await fetch(`/api/admin/pallet?company_id=${companyId}`);
       const json = await res.json();
       setRootList(json.pallets ?? []);
     } finally {
@@ -32,7 +32,11 @@ export default function ContainerTree({ companyId }: { companyId?: string }) {
     if (!code) return;
     setLoading(true);
     try {
-      const res = await fetch(`/api/search?code=${encodeURIComponent(code)}`);
+      const res = await fetch(
+        `/api/search?code=${encodeURIComponent(code)}&company_id=${encodeURIComponent(
+          companyId ?? ""
+        )}`
+      );
       const json = await res.json();
       if (json.error) {
         setNode({ error: json.error });

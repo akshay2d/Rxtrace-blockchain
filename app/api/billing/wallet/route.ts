@@ -1,16 +1,47 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { calculateTotalUsage } from "@/lib/billingConfig";
+import { supabaseServer } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
   try {
-    const supabase = getSupabaseAdmin();
     const url = new URL(req.url);
-    const company_id = url.searchParams.get("company_id");
-    if (!company_id) return NextResponse.json({ error: "company_id required" }, { status: 400 });
+    const requestedCompanyId = url.searchParams.get("company_id");
+
+    const {
+      data: { user },
+      error: authError,
+    } = await supabaseServer().auth.getUser();
+
+    if (!user || authError) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const supabase = getSupabaseAdmin();
+
+    // Resolve company from user (source of truth)
+    const { data: mappedCompany, error: companyMapErr } = await supabase
+      .from("companies")
+      .select("id")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (companyMapErr) {
+      return NextResponse.json({ error: companyMapErr.message }, { status: 500 });
+    }
+
+    const company_id = mappedCompany?.id;
+    if (!company_id) {
+      return NextResponse.json({ error: "Company not found" }, { status: 404 });
+    }
+
+    // Backwards-compatible: if caller sends company_id, it must match the user's mapped company.
+    if (requestedCompanyId && requestedCompanyId !== company_id) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
     // Get wallet data
     const { data: walletData, error } = await supabase
@@ -33,10 +64,6 @@ export async function GET(req: Request) {
       .select("company_name")
       .eq("id", company_id)
       .single();
-
-    // Calculate current month usage
-    const now = new Date();
-    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
 
     // Count active handsets
     const { count: handsets } = await supabase

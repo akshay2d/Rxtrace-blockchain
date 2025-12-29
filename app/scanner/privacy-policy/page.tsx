@@ -11,7 +11,7 @@ export default function PrivacyPolicy() {
           <section>
             <h2 className="text-2xl font-semibold text-gray-900 mb-4">1. Introduction</h2>
             <p className="leading-relaxed">
-              Welcome to RxTrace India ("we," "our," or "us"). We are committed to protecting your privacy and ensuring the security of your personal information. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our pharmaceutical traceability platform and scanner application.
+              Welcome to RxTrace India (&quot;we,&quot; &quot;our,&quot; or &quot;us&quot;). We are committed to protecting your privacy and ensuring the security of your personal information. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our pharmaceutical traceability platform and scanner application.
             </p>
           </section>
 
@@ -164,7 +164,7 @@ export default function PrivacyPolicy() {
 
           {/* Children's Privacy */}
           <section>
-            <h2 className="text-2xl font-semibold text-gray-900 mb-4">11. Children's Privacy</h2>
+            <h2 className="text-2xl font-semibold text-gray-900 mb-4">11. Children&apos;s Privacy</h2>
             <p className="leading-relaxed">
               Our services are not intended for individuals under 18 years of age. We do not knowingly collect personal information from children. If you believe we have collected information from a child, please contact us immediately.
             </p>
@@ -182,7 +182,7 @@ export default function PrivacyPolicy() {
           <section>
             <h2 className="text-2xl font-semibold text-gray-900 mb-4">13. Changes to This Privacy Policy</h2>
             <p className="leading-relaxed">
-              We may update this Privacy Policy from time to time. We will notify you of significant changes by posting the new policy on this page and updating the "Last Updated" date. Continued use of our services after changes constitutes acceptance of the updated policy.
+              We may update this Privacy Policy from time to time. We will notify you of significant changes by posting the new policy on this page and updating the &quot;Last Updated&quot; date. Continued use of our services after changes constitutes acceptance of the updated policy.
             </p>
           </section>
 
@@ -203,7 +203,7 @@ export default function PrivacyPolicy() {
           {/* Consent */}
           <section className="mt-12 pt-8 border-t border-gray-200">
             <p className="text-gray-700 leading-relaxed">
-              By using RxTrace India's platform and scanner application, you acknowledge that you have read, understood, and agree to this Privacy Policy.
+              By using RxTrace India&apos;s platform and scanner application, you acknowledge that you have read, understood, and agree to this Privacy Policy.
             </p>
           </section>
         </div>

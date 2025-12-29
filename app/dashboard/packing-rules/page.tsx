@@ -7,9 +7,11 @@ import { jsPDF } from "jspdf";
 import QRCodeComponent from "@/components/custom/QRCodeComponent";
 import DataMatrixComponent from "@/components/custom/DataMatrixComponent";
 import { supabaseClient } from "@/lib/supabase/client";
+import { exportLabels as exportLabelsUtil, LabelData } from "@/lib/labelExporter";
 
 type CodeType = "QR" | "DATAMATRIX";
-type ExportFormat = "PDF" | "PNG" | "ZPL" | "EPL" | "ZIP";
+type ExportFormat = "PDF" | "PNG" | "ZPL" | "EPL" | "ZIP" | "PRINT";
+type GenerationLevel = "BOX" | "CARTON" | "PALLET";
 
 type SSCCLabel = {
   id: string;
@@ -49,6 +51,7 @@ export default function PackagingRulesPage() {
 
   const [ssccLabels, setSsccLabels] = useState<SSCCLabel[]>([]);
   const [codeType, setCodeType] = useState<CodeType>("DATAMATRIX");
+  const [generationLevel, setGenerationLevel] = useState<GenerationLevel>("PALLET");
   const [quantity, setQuantity] = useState(1);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -231,33 +234,53 @@ export default function PackagingRulesPage() {
         return;
       }
       
-      const res = await fetch("/api/sscc/create", {
+      // Determine API endpoint based on generation level
+      let apiEndpoint = '';
+      let requestBody: any = {
+        sku_id: selectedSku.id,
+        company_id: companyId,
+        quantity: quantity
+      };
+
+      switch (generationLevel) {
+        case 'BOX':
+          apiEndpoint = '/api/box/create';
+          requestBody.box_count = quantity;
+          break;
+        case 'CARTON':
+          apiEndpoint = '/api/carton/create';
+          requestBody.carton_count = quantity;
+          break;
+        case 'PALLET':
+          apiEndpoint = '/api/pallet/create';
+          requestBody.pallet_count = quantity;
+          break;
+      }
+      
+      const res = await fetch(apiEndpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          // send UUID so backend can insert into uuid columns safely
-          sku_id: selectedSku.id,
-          company_id: companyId,
-          pallet_count: quantity
-        })
+        body: JSON.stringify(requestBody)
       });
 
       const out = await res.json();
       if (out.error) {
         setError(toErrorMessage(out.error));
-      } else if (out.pallets) {
-        const labels: SSCCLabel[] = out.pallets.map((p: any) => ({
-          id: p.id,
-          sscc: p.sscc,
-          sscc_with_ai: p.sscc_with_ai,
-          sku_id: p.sku_id,
-          pallet_id: p.id
+      } else {
+        // Handle different response formats
+        const items = out.pallets || out.cartons || out.boxes || [];
+        const labels: SSCCLabel[] = items.map((item: any) => ({
+          id: item.id,
+          sscc: item.sscc,
+          sscc_with_ai: item.sscc_with_ai,
+          sku_id: item.sku_id,
+          pallet_id: item.id
         }));
         setSsccLabels(labels);
-        setSuccess(`Successfully generated ${labels.length} SSCC labels!`);
+        setSuccess(`Successfully generated ${labels.length} ${generationLevel} labels!`);
       }
     } catch (err: any) {
-      setError(toErrorMessage(err) || "Failed to generate SSCC");
+      setError(toErrorMessage(err) || `Failed to generate ${generationLevel} labels`);
     } finally {
       setLoading(false);
     }
@@ -318,6 +341,17 @@ export default function PackagingRulesPage() {
     }
   }
 
+  // Convert SSCC labels to LabelData format for export
+  function ssccToLabelData(): LabelData[] {
+    return ssccLabels.map(label => ({
+      id: label.id,
+      payload: label.sscc_with_ai,
+      codeType: codeType,
+      displayText: `SSCC: ${label.sscc} | SKU: ${getSkuDisplay(label.sku_id)}`,
+      metadata: { sscc: label.sscc, sku_id: label.sku_id, pallet_id: label.pallet_id }
+    }));
+  }
+
   async function exportLabels(format: ExportFormat) {
     if (ssccLabels.length === 0) {
       setError("No labels to export");
@@ -325,155 +359,18 @@ export default function PackagingRulesPage() {
     }
 
     setLoading(true);
+    setError("");
+
     try {
-      switch (format) {
-        case "PDF":
-          await exportPDF();
-          break;
-        case "PNG":
-          await exportPNG();
-          break;
-        case "ZPL":
-          await exportZPL();
-          break;
-        case "EPL":
-          await exportEPL();
-          break;
-        case "ZIP":
-          await exportZIP();
-          break;
-      }
+      const labels = ssccToLabelData();
+      const filename = `sscc_labels_${Date.now()}`;
+      await exportLabelsUtil(labels, format as any, filename);
       setSuccess(`Exported ${ssccLabels.length} labels as ${format}`);
-    } catch (err: any) {
-      setError(`Export failed: ${toErrorMessage(err)}`);
+    } catch (err) {
+      setError(`Failed to export ${format}: ${toErrorMessage(err)}`);
     } finally {
       setLoading(false);
     }
-  }
-
-  async function exportPDF() {
-    const doc = new jsPDF({ unit: "pt", format: "a4" });
-    const bwipjs = await import("bwip-js");
-    const pageWidth = 595;
-    const pageHeight = 842;
-    const margin = 40;
-    const cols = 3;
-    const rows = 4;
-    const cellWidth = (pageWidth - 2 * margin) / cols;
-    const cellHeight = (pageHeight - 2 * margin) / rows;
-
-    let labelIndex = 0;
-
-    for (const label of ssccLabels) {
-      if (labelIndex > 0 && labelIndex % (cols * rows) === 0) {
-        doc.addPage();
-      }
-
-      const pageIndex = labelIndex % (cols * rows);
-      const col = pageIndex % cols;
-      const row = Math.floor(pageIndex / cols);
-      const x = margin + col * cellWidth;
-      const y = margin + row * cellHeight;
-
-      try {
-        const canvas = document.createElement("canvas");
-        const bcid = codeType === "QR" ? "qrcode" : "datamatrix";
-        
-        bwipjs.default.toCanvas(canvas, {
-          bcid,
-          text: label.sscc_with_ai,
-          scale: 3,
-          includetext: false
-        });
-
-        const imgData = canvas.toDataURL("image/png");
-        const imgSize = Math.min(cellWidth, cellHeight) * 0.6;
-        doc.addImage(imgData, "PNG", x + (cellWidth - imgSize) / 2, y + 20, imgSize, imgSize);
-        
-        doc.setFontSize(8);
-        doc.text(label.sscc, x + cellWidth / 2, y + imgSize + 40, { align: "center" });
-        doc.setFontSize(7);
-        doc.text(`SKU: ${getSkuDisplay(label.sku_id)}`, x + cellWidth / 2, y + imgSize + 55, { align: "center" });
-      } catch (err) {
-        console.error("Failed to add label to PDF:", err);
-      }
-
-      labelIndex++;
-    }
-
-    doc.save("sscc_labels.pdf");
-  }
-
-  async function exportPNG() {
-    if (ssccLabels.length === 1) {
-      const canvas = document.querySelector(`canvas[data-sscc="${ssccLabels[0].sscc}"]`) as HTMLCanvasElement;
-      if (canvas) {
-        canvas.toBlob(blob => {
-          if (blob) saveAs(blob, `sscc_${ssccLabels[0].sscc}.png`);
-        });
-      }
-    } else {
-      await exportZIP();
-    }
-  }
-
-  async function exportZPL() {
-    let zpl = "";
-    for (const label of ssccLabels) {
-      zpl += `^XA\n`;
-      zpl += `^FX SSCC Label for ${getSkuDisplay(label.sku_id)}\n`;
-      zpl += `^FO50,50^A0N,30,30^FDSSCC: ${label.sscc}^FS\n`;
-      zpl += `^FO50,90^A0N,25,25^FDSKU: ${getSkuDisplay(label.sku_id)}^FS\n`;
-      if (codeType === "QR") {
-        zpl += `^FO50,150^BQN,2,6^FDQA,${label.sscc_with_ai}^FS\n`;
-      } else {
-        zpl += `^FO50,150^BXN,8,200^FD${label.sscc_with_ai}^FS\n`;
-      }
-      zpl += `^XZ\n\n`;
-    }
-    saveAs(new Blob([zpl], { type: "text/plain" }), "sscc_labels.zpl");
-  }
-
-  async function exportEPL() {
-    let epl = "";
-    for (const label of ssccLabels) {
-      epl += `N\n`;
-      epl += `A50,50,0,3,1,1,N,"SSCC:${label.sscc}"\n`;
-      epl += `A50,90,0,2,1,1,N,"SKU:${getSkuDisplay(label.sku_id)}"\n`;
-      epl += `P1\n\n`;
-    }
-    saveAs(new Blob([epl], { type: "text/plain" }), "sscc_labels.epl");
-  }
-
-  async function exportZIP() {
-    const zip = new JSZip();
-    const bwipjs = await import("bwip-js");
-
-    for (let i = 0; i < ssccLabels.length; i++) {
-      const label = ssccLabels[i];
-      try {
-        const canvas = document.createElement("canvas");
-        const bcid = codeType === "QR" ? "qrcode" : "datamatrix";
-        
-        bwipjs.default.toCanvas(canvas, {
-          bcid,
-          text: label.sscc_with_ai,
-          scale: 4,
-          includetext: false
-        });
-
-        const blob = await new Promise<Blob>((resolve) => {
-          canvas.toBlob((b) => resolve(b!));
-        });
-
-        zip.file(`sscc_${label.sscc}.png`, blob);
-      } catch (err) {
-        console.error(`Failed to generate image for ${label.sscc}:`, err);
-      }
-    }
-
-    const content = await zip.generateAsync({ type: "blob" });
-    saveAs(content, "sscc_labels.zip");
   }
 
   function downloadCSVTemplate() {
@@ -604,7 +501,19 @@ export default function PackagingRulesPage() {
               </div>
 
               <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Generation Level</label>
+                    <select
+                      value={generationLevel}
+                      onChange={e => setGenerationLevel(e.target.value as GenerationLevel)}
+                      className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition bg-white"
+                    >
+                      <option value="BOX">Box</option>
+                      <option value="CARTON">Carton</option>
+                      <option value="PALLET">Pallet (SSCC)</option>
+                    </select>
+                  </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-2">Code Type</label>
                     <select
@@ -638,7 +547,7 @@ export default function PackagingRulesPage() {
                       : "bg-slate-200 text-slate-400 cursor-not-allowed"
                   }`}
                 >
-                  {loading ? "⏳ Generating..." : "⚡ Generate SSCC Labels"}
+                  {loading ? "⏳ Generating..." : `⚡ Generate ${generationLevel} Labels`}
                 </button>
                 <p className="text-xs text-center text-slate-500">
                   Uses the latest packing rule saved for the selected SKU
@@ -687,6 +596,16 @@ export default function PackagingRulesPage() {
                     <h2 className="text-lg font-semibold text-slate-900">Export Labels</h2>
                     <p className="text-sm text-slate-500">{ssccLabels.length} labels ready for export</p>
                   </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-3 mb-3">
+                  <button
+                    onClick={() => exportLabels("PRINT")}
+                    disabled={loading}
+                    className="px-4 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition font-medium text-sm disabled:bg-slate-300 col-span-3"
+                  >
+                    🖨️ Print
+                  </button>
                 </div>
 
                 <div className="grid grid-cols-5 gap-3">

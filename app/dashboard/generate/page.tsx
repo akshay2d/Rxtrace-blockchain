@@ -1,5 +1,4 @@
 'use client';
-
 import React, { useEffect, useState } from 'react';
 import Papa from 'papaparse';
 import { saveAs } from 'file-saver';
@@ -12,6 +11,7 @@ import IssuePrinterSelector, { Printer } from '@/components/IssuePrinterSelector
 import QRCodeComponent from '@/components/custom/QRCodeComponent';
 import DataMatrixComponent from '@/components/custom/DataMatrixComponent';
 import { supabaseClient } from '@/lib/supabase/client';
+import { exportLabels, LabelData } from '@/lib/labelExporter';
 
 // ---------- types ----------
 type Gs1Fields = {
@@ -99,8 +99,10 @@ function buildEplForRow(row: BatchRow) {
 // ---------- pdf ----------
 async function buildPdf(rows: BatchRow[]) {
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
-  const qrcode = await import('qrcode');
-  const bwipjs = await import('bwip-js');
+  const qrcodeMod = await import('qrcode');
+  const qrcode: any = (qrcodeMod as any).default ?? qrcodeMod;
+  const bwipMod = await import('bwip-js');
+  const bwipjs: any = (bwipMod as any).default ?? bwipMod;
 
   const cols = 10;
   const rowsPerPage = 10;
@@ -127,13 +129,13 @@ async function buildPdf(rows: BatchRow[]) {
 
       let dataUrl: string | null = null;
       if (item.codeType === 'QR') {
-        dataUrl = await (qrcode as any).toDataURL(item.payload, { margin: 1, width: Math.floor(cellW * 2) });
+        dataUrl = await qrcode.toDataURL(item.payload, { margin: 1, width: Math.floor(cellW * 2) });
       } else {
         const canvas = document.createElement('canvas');
         const sz = Math.floor(Math.min(cellW, cellH) * 2);
         canvas.width = sz;
         canvas.height = sz;
-        await (bwipjs as any).toCanvas(canvas, {
+        await bwipjs.toCanvas(canvas, {
           bcid: 'datamatrix',
           text: item.payload,
           scale: 3,
@@ -357,7 +359,9 @@ export default function Page() {
       return;
     }
     
-    // Generate multiple items based on quantity
+    setError(null);
+    
+    // Generate multiple unit labels based on quantity
     const newRows: BatchRow[] = [];
     for (let i = 0; i < form.quantity; i++) {
       const serialNumber = Math.floor(Math.random() * 100000000).toString().padStart(8, '0');
@@ -390,35 +394,28 @@ export default function Page() {
     }
     
     setBatch(s => [...s, ...newRows]);
+  }
+
+  // Convert batch to LabelData format for export
+  function batchToLabelData(): LabelData[] {
+    return batch.map(item => ({
+      id: item.id,
+      payload: item.payload,
+      codeType: item.codeType,
+      displayText: `GTIN: ${item.fields.gtin} | Batch: ${item.fields.batch || 'N/A'} | Serial: ${item.fields.serial || 'N/A'}`,
+      metadata: item.fields
+    }));
+  }
+
+  async function handleExport(format: 'PDF' | 'PNG' | 'ZPL' | 'EPL' | 'ZIP' | 'PRINT') {
+    if (!batch.length) return;
     setError(null);
-  }
-
-  async function handleExportPdf() {
-    if (!batch.length) return;
-    const doc = await buildPdf(batch);
-    saveAs(doc.output('blob'), 'labels.pdf');
-  }
-
-  async function handleExportZpl() {
-    if (!batch.length) return;
-    saveAs(new Blob([batch.map(buildZplForRow).join('\n')], { type: 'text/plain' }), 'labels.zpl');
-  }
-
-  async function handleExportEpl() {
-    if (!batch.length) return;
-    saveAs(new Blob([batch.map(buildEplForRow).join('\n')], { type: 'text/plain' }), 'labels.epl');
-  }
-
-  async function handleExportZipImages() {
-    if (!batch.length) return;
-    const zip = new JSZip();
-    const qrcode = await import('qrcode');
-    for (let i = 0; i < batch.length; i++) {
-      const dataUrl = await (qrcode as any).toDataURL(batch[i].payload, { margin: 1, width: 300 });
-      const blob = await (await fetch(dataUrl)).blob();
-      zip.file(`label_${i + 1}.png`, blob);
+    try {
+      const labels = batchToLabelData();
+      await exportLabels(labels, format, `unit_labels_${Date.now()}`);
+    } catch (e: any) {
+      setError(e?.message || `Failed to export ${format}`);
     }
-    saveAs(await zip.generateAsync({ type: 'blob' }), 'labels.zip');
   }
 
   return (
@@ -693,8 +690,19 @@ export default function Page() {
               {batch.length > 0 && (
                 <div className="space-y-2 pt-4 border-t border-slate-200">
                   <button 
+                    type="button"
+                    className="w-full px-4 py-2.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition font-medium flex items-center justify-center gap-2"
+                    onClick={() => handleExport('PRINT')}
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                    </svg>
+                    Print Labels
+                  </button>
+                  <button 
+                    type="button"
                     className="w-full px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium flex items-center justify-center gap-2"
-                    onClick={handleExportPdf}
+                    onClick={() => handleExport('PDF')}
                   >
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
@@ -702,8 +710,9 @@ export default function Page() {
                     Export PDF
                   </button>
                   <button 
+                    type="button"
                     className="w-full px-4 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition font-medium flex items-center justify-center gap-2"
-                    onClick={handleExportZipImages}
+                    onClick={() => handleExport('ZIP')}
                   >
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -712,14 +721,16 @@ export default function Page() {
                   </button>
                   <div className="grid grid-cols-2 gap-2">
                     <button 
+                      type="button"
                       className="px-4 py-2.5 bg-slate-800 text-white rounded-lg hover:bg-slate-900 transition font-medium text-sm"
-                      onClick={handleExportZpl}
+                      onClick={() => handleExport('ZPL')}
                     >
                       ZPL
                     </button>
                     <button 
+                      type="button"
                       className="px-4 py-2.5 bg-slate-700 text-white rounded-lg hover:bg-slate-800 transition font-medium text-sm"
-                      onClick={handleExportEpl}
+                      onClick={() => handleExport('EPL')}
                     >
                       EPL
                     </button>

@@ -1,0 +1,130 @@
+import { NextResponse } from 'next/server';
+import { supabaseServer } from '@/lib/supabase/server';
+import { getSupabaseAdmin } from '@/lib/supabase/admin';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+function toNumber(value: unknown): number {
+  if (typeof value === 'number') return value;
+  if (typeof value === 'bigint') return Number(value);
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+export async function GET() {
+  try {
+    // Route handlers run server-side; use SSR client for auth cookies.
+    const {
+      data: { user },
+      error: authError,
+    } = await supabaseServer().auth.getUser();
+
+    if (!user || authError) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    }
+
+    // Use admin client for data reads to avoid RLS friction.
+    const supabase = getSupabaseAdmin();
+
+    const { data: company, error: companyError } = await supabase
+      .from('companies')
+      .select('id, company_name')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (companyError) {
+      return NextResponse.json({ error: companyError.message }, { status: 500 });
+    }
+
+    if (!company?.id) {
+      return NextResponse.json({ error: 'Company not found' }, { status: 404 });
+    }
+
+    const companyId = company.id as string;
+
+    // Total SKUs
+    const { count: totalSkus, error: skuErr } = await supabase
+      .from('skus')
+      .select('id', { count: 'exact', head: true })
+      .eq('company_id', companyId)
+      .is('deleted_at', null);
+
+    if (skuErr) {
+      return NextResponse.json({ error: skuErr.message }, { status: 500 });
+    }
+
+    // Units generated (best-effort): sum(total_strips) from generation_jobs.
+    // If you use a different “formula” in Supabase (view/RPC), we can swap this.
+    const { data: jobs, error: jobsErr } = await supabase
+      .from('generation_jobs')
+      .select('total_strips')
+      .eq('company_id', companyId);
+
+    if (jobsErr) {
+      return NextResponse.json({ error: jobsErr.message }, { status: 500 });
+    }
+
+    const unitsGenerated = (jobs ?? []).reduce((acc, row) => acc + toNumber((row as any).total_strips), 0);
+
+    // SSCC generated: pallets count
+    const { count: ssccGenerated, error: palletsErr } = await supabase
+      .from('pallets')
+      .select('id', { count: 'exact', head: true })
+      .eq('company_id', companyId);
+
+    if (palletsErr) {
+      return NextResponse.json({ error: palletsErr.message }, { status: 500 });
+    }
+
+    // Total scans (company scans only)
+    const { count: totalScans, error: scansErr } = await supabase
+      .from('scan_logs')
+      .select('id', { count: 'exact', head: true })
+      .eq('company_id', companyId);
+
+    if (scansErr) {
+      return NextResponse.json({ error: scansErr.message }, { status: 500 });
+    }
+
+    // Active handsets
+    const { count: activeHandsets, error: handsetsErr } = await supabase
+      .from('handsets')
+      .select('id', { count: 'exact', head: true })
+      .eq('company_id', companyId)
+      .eq('status', 'ACTIVE');
+
+    if (handsetsErr) {
+      return NextResponse.json({ error: handsetsErr.message }, { status: 500 });
+    }
+
+    // Wallet
+    const { data: walletRow, error: walletErr } = await supabase
+      .from('company_wallets')
+      .select('balance, credit_limit, status, updated_at')
+      .eq('company_id', companyId)
+      .maybeSingle();
+
+    if (walletErr) {
+      return NextResponse.json({ error: walletErr.message }, { status: 500 });
+    }
+
+    return NextResponse.json({
+      company_id: companyId,
+      company_name: company.company_name ?? null,
+      total_skus: totalSkus ?? 0,
+      units_generated: unitsGenerated,
+      sscc_generated: ssccGenerated ?? 0,
+      total_scans: totalScans ?? 0,
+      active_handsets: activeHandsets ?? 0,
+      wallet: {
+        balance: walletRow?.balance ?? 0,
+        credit_limit: walletRow?.credit_limit ?? 10000,
+        status: walletRow?.status ?? 'ACTIVE',
+        updated_at: walletRow?.updated_at ?? null,
+      },
+    });
+  } catch (err: any) {
+    return NextResponse.json({ error: err?.message || String(err) }, { status: 500 });
+  }
+}
