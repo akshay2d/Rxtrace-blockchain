@@ -1,19 +1,38 @@
-import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { supabaseServer } from "@/lib/supabase/server";
 
 export async function GET(req: Request) {
+  const supabase = getSupabaseAdmin();
   const { searchParams } = new URL(req.url);
 
   const from = searchParams.get("from"); // YYYY-MM-DD
   const to = searchParams.get("to");     // YYYY-MM-DD
 
-  // TODO: replace with company_id from auth/session
-  const companyId = "COMPANY_UUID_FROM_AUTH";
+  const {
+    data: { user },
+    error: authError,
+  } = await supabaseServer().auth.getUser();
+
+  if (!user || authError) {
+    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  }
+
+  const { data: company, error: companyError } = await supabase
+    .from("companies")
+    .select("id")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (companyError) {
+    return NextResponse.json({ error: companyError.message }, { status: 500 });
+  }
+
+  if (!company?.id) {
+    return NextResponse.json({ error: "Company not found" }, { status: 404 });
+  }
+
+  const companyId = company.id as string;
 
   let query = supabase
     .from("scan_events")

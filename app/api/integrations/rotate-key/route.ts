@@ -1,15 +1,41 @@
-import { createClient } from "@supabase/supabase-js";
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+import { NextResponse } from "next/server";
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { supabaseServer } from "@/lib/supabase/server";
 
 export async function POST(req: Request) {
-  const { apiKey } = await req.json();
+  const supabase = getSupabaseAdmin();
 
-  // TODO: replace with real company_id from auth/session
-  const companyId = "COMPANY_UUID_FROM_AUTH";
+  const {
+    data: { user },
+    error: authError,
+  } = await supabaseServer().auth.getUser();
+
+  if (!user || authError) {
+    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  }
+
+  const body = await req.json().catch(() => null);
+  const apiKey = typeof body?.apiKey === "string" ? body.apiKey : "";
+
+  if (!apiKey) {
+    return NextResponse.json({ error: "apiKey is required" }, { status: 400 });
+  }
+
+  const { data: company, error: companyError } = await supabase
+    .from("companies")
+    .select("id")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (companyError) {
+    return NextResponse.json({ error: companyError.message }, { status: 500 });
+  }
+
+  if (!company?.id) {
+    return NextResponse.json({ error: "Company not found" }, { status: 404 });
+  }
+
+  const companyId = company.id as string;
 
   /* 1️⃣ Fetch existing integration */
   const { data: integration, error } = await supabase
@@ -19,7 +45,7 @@ export async function POST(req: Request) {
     .single();
 
   if (error || !integration) {
-    return Response.json({ error: "Integration not found" }, { status: 404 });
+    return NextResponse.json({ error: "Integration not found" }, { status: 404 });
   }
 
   /* 2️⃣ Delete old secret */
@@ -35,7 +61,7 @@ export async function POST(req: Request) {
     });
 
   if (vaultError) {
-    return Response.json({ error: vaultError.message }, { status: 500 });
+    return NextResponse.json({ error: vaultError.message }, { status: 500 });
   }
 
   /* 4️⃣ Update DB reference */
@@ -47,5 +73,5 @@ export async function POST(req: Request) {
     })
     .eq("company_id", companyId);
 
-  return Response.json({ success: true });
+  return NextResponse.json({ success: true });
 }
