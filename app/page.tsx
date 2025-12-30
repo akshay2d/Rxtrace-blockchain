@@ -5,6 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import BookDemoForm from "@/components/BookDemoForm";
 import LandingAuthLinks from "@/components/LandingAuthLinks";
+import LandingApkDownload from "@/components/LandingApkDownload";
 
 export default function HomePage() {
   return (
@@ -340,24 +341,7 @@ export default function HomePage() {
             <Link href="#">X</Link>
           </div>
           <div>
-            <p className="text-sm">Download Scanner App</p>
-            <Link
-              href="#"
-              className="mt-2 inline-flex items-center gap-2 rounded bg-slate-700 px-3 py-2 text-sm text-white hover:bg-slate-600"
-              aria-label="Download on Google Play"
-            >
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-                className="opacity-90"
-              >
-                <path d="M4 3.5v17c0 .8.9 1.3 1.6.9l14.4-8.5c.6-.4.6-1.3 0-1.7L5.6 2.6C4.9 2.2 4 2.7 4 3.5Z" fill="currentColor" />
-              </svg>
-              <span>Google Play</span>
-            </Link>
+            <LandingApkDownload />
           </div>
         </div>
         <p className="text-center text-xs text-slate-500 mt-8">© RxTrace. All rights reserved.</p>

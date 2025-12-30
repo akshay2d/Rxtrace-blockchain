@@ -1,3 +1,5 @@
+"use client";
+
 // components/custom/QRCodeComponent.tsx
 import { QRCodeSVG } from "qrcode.react";
 
