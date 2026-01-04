@@ -1,0 +1,105 @@
+name: ✨ Feature Request
+description: Suggest a new feature for the RxTrace platform
+title: "[Feature]: "
+labels: ["enhancement", "needs-review"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## ⚠️ Important: This is for RxTrace Platform Features Only
+        
+        This repository is for the **RxTrace India pharmaceutical traceability platform**.
+        
+        **NOT for:**
+        - GitHub Copilot features → [GitHub Feedback](https://github.com/github/feedback)
+        - VS Code features → [VS Code Repository](https://github.com/microsoft/vscode)
+        
+        ---
+
+  - type: checkboxes
+    id: confirmation
+    attributes:
+      label: Confirmation
+      description: Please confirm this feature request is for the RxTrace platform
+      options:
+        - label: This feature request is for the RxTrace pharmaceutical traceability platform (not GitHub Copilot or other services)
+          required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: Is your feature request related to a problem? Please describe.
+      placeholder: I'm always frustrated when...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: Describe the solution you'd like
+      placeholder: I would like to be able to...
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Describe any alternative solutions or features you've considered
+      placeholder: I've also thought about...
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Feature Category
+      description: Which area would this feature improve?
+      options:
+        - Label Generation
+        - Barcode/QR Formats
+        - Product Verification
+        - Analytics/Reporting
+        - User Management
+        - API/Integration
+        - Mobile Support
+        - Performance
+        - Security
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: How important is this feature to you?
+      options:
+        - Critical - Blocking my work
+        - High - Would significantly improve workflow
+        - Medium - Nice to have
+        - Low - Minor improvement
+    validations:
+      required: true
+
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Use Case
+      description: Describe how you would use this feature
+      placeholder: As a pharmaceutical company, I need to...
+    validations:
+      required: true
+
+  - type: textarea
+    id: mockups
+    attributes:
+      label: Mockups/Examples
+      description: If applicable, add mockups, examples, or references
+      placeholder: Drag and drop images or provide links
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Add any other context about the feature request

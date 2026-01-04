@@ -1,0 +1,20 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 🆘 GitHub Copilot Support
+    url: https://support.github.com/
+    about: For GitHub Copilot billing, subscription, or technical issues
+  - name: 💳 GitHub Billing
+    url: https://github.com/settings/billing
+    about: Manage your GitHub billing and subscriptions
+  - name: 📚 GitHub Copilot Documentation
+    url: https://docs.github.com/en/copilot
+    about: Learn how to use GitHub Copilot
+  - name: 💬 GitHub Community
+    url: https://github.com/orgs/community/discussions
+    about: Ask questions and discuss with the GitHub community
+  - name: 📖 RxTrace Documentation
+    url: https://github.com/akshay2d/Rxtrace-blockchain/blob/main/FEATURES.md
+    about: Learn about RxTrace platform features
+  - name: 🆘 RxTrace Support
+    url: https://github.com/akshay2d/Rxtrace-blockchain/blob/main/SUPPORT.md
+    about: Get help with RxTrace platform issues
