@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Shield, LogOut, Building2, Users, Activity, Database, BarChart } from 'lucide-react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { supabaseClient } from '@/lib/supabase/client';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -41,15 +42,15 @@ export default function AdminLayout({
     <div className="min-h-screen bg-gradient-to-br from-orange-50 via-red-50 to-purple-50 flex">
       {/* Sidebar */}
       <div className="w-64 bg-white border-r border-gray-200 flex flex-col shadow-lg">
-        <div className="p-6 border-b bg-gradient-to-r from-orange-500 to-red-500">
+        <Link href="/" className="p-6 border-b bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 transition">
           <div className="flex items-center gap-3">
-            <Shield className="h-8 w-8 text-white" />
+            <Image src="/logo.png" alt="RxTrace" width={32} height={32} className="bg-white rounded-md p-1" />
             <div>
               <span className="text-xl font-bold text-white block">Super Admin</span>
               <span className="text-xs text-orange-100">RxTrace India</span>
             </div>
           </div>
-        </div>
+        </Link>
 
         <nav className="flex-1 p-4">
           <ul className="space-y-2">

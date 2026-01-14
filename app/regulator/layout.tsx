@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Shield, LogOut, Home } from 'lucide-react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { supabaseClient } from '@/lib/supabase/client';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -41,15 +42,15 @@ export default function RegulatorLayout({
   return (
     <div className="min-h-screen bg-gray-50 flex">
       <div className="w-64 bg-white border-r border-gray-200 flex flex-col">
-        <div className="p-6 border-b">
+        <Link href="/" className="p-6 border-b hover:bg-blue-50 transition">
           <div className="flex items-center gap-3">
-            <Shield className="h-8 w-8 text-orange-500" />
+            <Image src="/logo.png" alt="RxTrace" width={32} height={32} />
             <div>
               <span className="text-xl font-bold text-[#0052CC] block">Regulator</span>
               <span className="text-xs text-gray-600">RxTrace India</span>
             </div>
           </div>
-        </div>
+        </Link>
 
         <nav className="flex-1 p-4">
           <ul className="space-y-2">

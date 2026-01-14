@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 
 const MENU = [
@@ -23,9 +24,10 @@ export default function Sidebar() {
   return (
     <aside className="w-60 bg-blue-900 text-white flex flex-col">
       {/* Brand */}
-      <div className="h-16 flex items-center px-6 text-lg font-semibold border-b border-blue-800">
-        RxTrace
-      </div>
+      <Link href="/" className="h-16 flex items-center gap-3 px-6 text-lg font-semibold border-b border-blue-800 hover:bg-blue-800 transition">
+        <Image src="/logo.png" alt="RxTrace" width={32} height={32} />
+        <span>RxTrace</span>
+      </Link>
 
       {/* Navigation */}
       <nav className="flex-1 px-3 py-4 space-y-1">

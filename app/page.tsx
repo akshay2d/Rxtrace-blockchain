@@ -13,10 +13,10 @@ export default function HomePage() {
       {/* Header */}
       <header className="sticky top-0 z-50 backdrop-blur bg-white/80 border-b">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
+          <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition">
             <Image src="/logo.png" alt="RxTrace" width={36} height={36} />
             <span className="font-semibold text-lg">RxTrace</span>
-          </div>
+          </Link>
           <nav className="hidden md:flex gap-8 text-sm font-medium">
             <Link href="/compliance">Compliance</Link>
             <Link href="/services">Services</Link>

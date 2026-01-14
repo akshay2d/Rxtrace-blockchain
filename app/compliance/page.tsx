@@ -3,10 +3,32 @@
 // Production-ready, regulator-safe, no client hooks
 
 import Link from "next/link";
+import Image from "next/image";
 
 export default function CompliancePage() {
   return (
     <main className="bg-white text-slate-900">
+      {/* Header */}
+      <header className="sticky top-0 z-50 backdrop-blur bg-white/80 border-b">
+        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+          <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition">
+            <Image src="/logo.png" alt="RxTrace" width={36} height={36} />
+            <span className="font-semibold text-lg">RxTrace</span>
+          </Link>
+          <nav className="hidden md:flex gap-8 text-sm font-medium">
+            <Link href="/compliance" className="text-blue-600">Compliance</Link>
+            <Link href="/services">Services</Link>
+            <Link href="/pricing">Pricing</Link>
+            <Link href="/contact">Contact Us</Link>
+          </nav>
+          <div className="flex items-center gap-4">
+            <Link href="/auth/signin" className="text-sm">Log in</Link>
+            <Link href="/auth/signup" className="px-4 py-2 rounded-xl bg-blue-600 text-white text-sm shadow hover:bg-blue-700">
+              Get Started
+            </Link>
+          </div>
+        </div>
+      </header>
 
       {/* Hero Section */}
       <section className="relative bg-gradient-to-br from-blue-800 to-blue-600 text-white">
