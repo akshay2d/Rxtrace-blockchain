@@ -23,21 +23,44 @@ export default function History() {
   const [scanLogs, setScanLogs] = useState<ScanLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [error, setError] = useState<string>('');
 
   useEffect(() => {
     const fetchScanLogs = async () => {
-      const { data, error } = await supabaseClient()
-        .from("scan_logs")
-        .select("*")
-        .order("scanned_at", { ascending: false })
-        .limit(500);
+      try {
+        // Get current user
+        const { data: { user } } = await supabaseClient().auth.getUser();
+        
+        if (!user) {
+          setError("Please sign in to view scan activity.");
+          setLoading(false);
+          return;
+        }
 
-      if (error) {
-        console.error(error);
-      } else {
-        setScanLogs(data || []);
+        // Fetch scan logs (scan_logs table uses RLS or is global for verification logs)
+        const { data, error: fetchError } = await supabaseClient()
+          .from("scan_logs")
+          .select("*")
+          .order("scanned_at", { ascending: false })
+          .limit(500);
+
+        if (fetchError) {
+          console.error("Scan logs fetch error:", fetchError);
+          // If table doesn't exist or access denied, show empty state instead of error
+          if (fetchError.code === '42P01' || fetchError.code === 'PGRST116') {
+            setScanLogs([]);
+          } else {
+            setError("Failed to load scan activity. Please try again later.");
+          }
+        } else {
+          setScanLogs(data || []);
+        }
+      } catch (err: any) {
+        console.error(err);
+        setError("An unexpected error occurred.");
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
 
     fetchScanLogs();
@@ -64,13 +87,23 @@ export default function History() {
            log.raw_scan.includes(searchTerm);
   });
 
-  if (loading) return <div className="p-10">Loading scan history...</div>;
+  if (loading) return <div className="p-10">Loading scan activity...</div>;
+
+  if (error) {
+    return (
+      <div className="p-10">
+        <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-red-700">
+          {error}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-4xl font-bold text-[#0052CC] mb-2">Scan History</h1>
+          <h1 className="text-4xl font-bold text-[#0052CC] mb-2">Scan Activity</h1>
           <p className="text-gray-600">View all verification scans</p>
         </div>
         <Link href="/dashboard/generate">

@@ -45,11 +45,6 @@ export default function HandsetsAdminPage() {
   const [handsets, setHandsets] = useState<Handset[]>([]);
   const [handsetsLoading, setHandsetsLoading] = useState(false);
 
-  const [seats, setSeats] = useState<{ id: string; active: boolean; created_at: string }[]>([]);
-  const [seatsLoading, setSeatsLoading] = useState(false);
-  const [seatsActionLoading, setSeatsActionLoading] = useState(false);
-  const [desiredSeatTotal, setDesiredSeatTotal] = useState<string>('');
-
   /** Load admin handset overview */
   async function load() {
     setError(null);
@@ -266,113 +261,6 @@ export default function HandsetsAdminPage() {
     }
   }
 
-  /** Load seats for this company */
-  async function loadSeats() {
-    setSeatsLoading(true);
-    try {
-      const { data: sessionData } = await supabaseClient().auth.getSession();
-      if (!sessionData?.session?.access_token) return;
-
-      const res = await fetch('/api/admin/seats', {
-        cache: 'no-store',
-        headers: {
-          Authorization: `Bearer ${sessionData.session.access_token}`,
-        },
-      });
-
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || 'Failed to load seats');
-      }
-
-      const json = await res.json();
-      setSeats(json.seats || []);
-    } catch (e: any) {
-      console.error('Failed to load seats:', e);
-    } finally {
-      setSeatsLoading(false);
-    }
-  }
-
-  async function updateSeatTotal() {
-    setSeatsActionLoading(true);
-    setError(null);
-    try {
-      const desired = Number(desiredSeatTotal);
-      if (!Number.isFinite(desired) || !Number.isInteger(desired) || desired <= 0) {
-        throw new Error('Please enter a valid seat count (whole number).');
-      }
-
-      const currentActive = seats.filter((s) => s.active).length;
-      if (desired < currentActive) {
-        throw new Error(
-          `You already have ${currentActive} active seats. Reducing seats is not supported here.`
-        );
-      }
-
-      const delta = desired - currentActive;
-      if (delta === 0) {
-        return;
-      }
-
-      const { data: sessionData } = await supabaseClient().auth.getSession();
-
-      if (!sessionData?.session?.access_token) {
-        throw new Error('Not authenticated. Please sign in again.');
-      }
-
-      const res = await fetch('/api/admin/seats', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${sessionData.session.access_token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ count: delta }),
-      });
-
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || 'Failed to allocate seats');
-      }
-
-      await loadSeats();
-    } catch (e: any) {
-      setError(e.message || 'Failed to allocate seats');
-    } finally {
-      setSeatsActionLoading(false);
-    }
-  }
-
-  /** Deactivate individual seat */
-  async function deactivateSeat(seatId: string) {
-    if (!confirm('Deactivate this seat? Any handsets using it must be disconnected first.')) return;
-
-    try {
-      const { data: sessionData } = await supabaseClient().auth.getSession();
-
-      if (!sessionData?.session?.access_token) {
-        throw new Error('Not authenticated. Please sign in again.');
-      }
-
-      const res = await fetch(`/api/admin/seats?seat_id=${seatId}`, {
-        method: 'DELETE',
-        headers: {
-          Authorization: `Bearer ${sessionData.session.access_token}`,
-        },
-      });
-
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || 'Failed to deactivate seat');
-      }
-
-      alert('Seat deactivated successfully');
-      await loadSeats();
-    } catch (e: any) {
-      alert(e.message || 'Failed to deactivate seat');
-    }
-  }
-
   /** Deactivate individual handset (does not affect seat) */
   async function deactivateHandset(handsetId: string) {
     if (!confirm(`Deactivate handset ${handsetId}? This will not affect the seat.`)) return;
@@ -430,7 +318,6 @@ export default function HandsetsAdminPage() {
   useEffect(() => {
     load();
     loadHandsets();
-    loadSeats();
     // Auto-refresh every 30 seconds
     const interval = setInterval(() => {
       loadHandsets();
@@ -569,100 +456,6 @@ export default function HandsetsAdminPage() {
         <p className="mt-1 text-sm text-gray-500">
           Handsets currently scanning using the active token
         </p>
-      </Card>
-
-      {/* Seats */}
-      <Card className="p-6">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <h2 className="font-medium">Seats</h2>
-            <p className="mt-1 text-sm text-gray-500">
-              Set how many total seats your company needs.
-            </p>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={loadSeats}
-            disabled={seatsLoading}
-          >
-            Refresh
-          </Button>
-        </div>
-
-        <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
-          <div className="rounded border p-4">
-            <div className="text-sm text-gray-500">Active seats</div>
-            <div className="mt-1 text-3xl font-bold">
-              {seats.filter((s) => s.active).length}
-            </div>
-          </div>
-
-          <div className="rounded border p-4">
-            <div className="text-sm text-gray-500">Total seats</div>
-            <div className="mt-1 text-3xl font-bold">{seats.length}</div>
-          </div>
-
-          <div className="rounded border p-4">
-            <label className="text-sm text-gray-500">Total seats needed</label>
-            <div className="mt-2 flex gap-2">
-              <Input
-                type="number"
-                min={1}
-                value={desiredSeatTotal}
-                onChange={(e) => setDesiredSeatTotal(e.target.value)}
-                placeholder="e.g. 5"
-              />
-              <Button
-                onClick={updateSeatTotal}
-                disabled={seatsActionLoading || seatsLoading}
-              >
-                Update
-              </Button>
-            </div>
-            <p className="mt-2 text-xs text-gray-500">
-              This only increases seats (no reduction here).
-            </p>
-          </div>
-        </div>
-
-        {/* Individual Seats List */}
-        {seats.length > 0 && (
-          <div className="mt-6">
-            <h3 className="text-sm font-medium mb-3">Individual Seats</h3>
-            <div className="space-y-2 max-h-60 overflow-y-auto">
-              {seats.map((seat) => (
-                <div
-                  key={seat.id}
-                  className="flex items-center justify-between p-3 border rounded hover:bg-gray-50 transition"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="text-xs font-mono text-gray-500">
-                      {seat.id.slice(0, 8)}...
-                    </div>
-                    <Badge variant={seat.active ? "default" : "secondary"}>
-                      {seat.active ? "Active" : "Inactive"}
-                    </Badge>
-                    <div className="text-xs text-gray-500">
-                      Created: {new Date(seat.created_at).toLocaleDateString('en-IN')}
-                    </div>
-                  </div>
-                  {seat.active && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => deactivateSeat(seat.id)}
-                      className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                    >
-                      <XCircle className="h-4 w-4 mr-1" />
-                      Deactivate
-                    </Button>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
       </Card>
 
       {/* Handset List */}

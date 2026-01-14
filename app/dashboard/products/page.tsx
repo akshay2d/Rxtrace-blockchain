@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Papa from 'papaparse';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -35,11 +35,7 @@ export default function ProductsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [importing, setImporting] = useState(false);
 
-  useEffect(() => {
-    fetchSkus();
-  }, []);
-
-  async function safeReadJson(res: Response) {
+  const safeReadJson = useCallback(async (res: Response) => {
     const text = await res.text();
     if (!text) return null;
     try {
@@ -47,7 +43,27 @@ export default function ProductsPage() {
     } catch {
       return { error: text };
     }
-  }
+  }, []);
+
+  const fetchSkus = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/skus', { cache: 'no-store' });
+      const out = await safeReadJson(res);
+      if (!res.ok) throw new Error(out?.error || 'Failed to load SKUs');
+      const skusData = (out?.skus ?? []) as SKU[];
+      setSkus(Array.isArray(skusData) ? skusData : []);
+      setFilteredSkus(Array.isArray(skusData) ? skusData : []);
+    } catch (err: any) {
+      setError(err.message || 'Failed to load data');
+    } finally {
+      setLoading(false);
+    }
+  }, [safeReadJson]);
+
+  useEffect(() => {
+    fetchSkus();
+  }, [fetchSkus]);
 
   function downloadTextFile(filename: string, content: string, contentType = 'text/plain;charset=utf-8') {
     const blob = new Blob([content], { type: contentType });
@@ -123,21 +139,7 @@ export default function ProductsPage() {
     }
   }, [searchTerm, skus]);
 
-  async function fetchSkus() {
-    setLoading(true);
-    try {
-      const res = await fetch('/api/skus', { cache: 'no-store' });
-      const out = await safeReadJson(res);
-      if (!res.ok) throw new Error(out?.error || 'Failed to load SKUs');
-      const skusData = (out?.skus ?? []) as SKU[];
-      setSkus(Array.isArray(skusData) ? skusData : []);
-      setFilteredSkus(Array.isArray(skusData) ? skusData : []);
-    } catch (err: any) {
-      setError(err.message || 'Failed to load data');
-    } finally {
-      setLoading(false);
-    }
-  }
+  // fetchSkus is useCallback'd above
 
   function openEditModal(sku: SKU) {
     setModalMode('edit');

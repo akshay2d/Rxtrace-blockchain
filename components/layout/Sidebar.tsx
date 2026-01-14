@@ -11,6 +11,7 @@ const MENU = [
   { label: "Traceability Search", path: "/dashboard/search" },
   { label: "Scan Activity", path: "/dashboard/scans" },
   { label: "Audit Reports", path: "/dashboard/audit" },
+  { label: "Team & Users", path: "/dashboard/team" },
   { label: "Billing & Wallet", path: "/dashboard/billing" },
   { label: "Handset Management", path: "/dashboard/handsets" },
   { label: "Settings", path: "/dashboard/settings" },

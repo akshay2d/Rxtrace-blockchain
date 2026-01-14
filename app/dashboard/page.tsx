@@ -11,6 +11,9 @@ import {
   Activity,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import { LabelGenerationTrend } from '@/components/charts/LabelGenerationTrend';
+import { LabelsByLevel } from '@/components/charts/LabelsByLevel';
+import { CostUsageChart } from '@/components/charts/CostUsageChart';
 
 type DashboardStats = {
   company_id: string;
@@ -19,13 +22,27 @@ type DashboardStats = {
   units_generated: number;
   sscc_generated: number;
   total_scans: number;
+  active_seats?: number;
   active_handsets: number;
+  label_generation?: {
+    unit: number;
+    box: number;
+    carton: number;
+    pallet: number;
+  };
   wallet: {
     balance: number;
     credit_limit: number;
     status: string;
     updated_at: string | null;
   };
+  recent_activity?: Array<{
+    id: string;
+    action: string;
+    status: string;
+    details: any;
+    created_at: string;
+  }>;
 };
 
 /* -----------------------------
@@ -66,27 +83,45 @@ export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
+  async function refreshStats(signal?: AbortSignal) {
+    const res = await fetch('/api/dashboard/stats', { cache: 'no-store', signal });
+    const body = await res.json().catch(() => null);
+    if (res.ok) setStats(body as DashboardStats);
+  }
+
   useEffect(() => {
-    let cancelled = false;
+    const controller = new AbortController();
+    let mounted = true;
+
     (async () => {
       try {
-        const res = await fetch('/api/dashboard/stats', { cache: 'no-store' });
-        const body = await res.json().catch(() => null);
-        if (!cancelled && res.ok) {
-          setStats(body as DashboardStats);
-        }
+        await refreshStats(controller.signal);
       } finally {
-        if (!cancelled) setLoading(false);
+        if (mounted) setLoading(false);
       }
     })();
+
+    // Near-realtime dashboard counters.
+    const id = window.setInterval(() => {
+      refreshStats(controller.signal).catch(() => undefined);
+    }, 5000);
+
     return () => {
-      cancelled = true;
+      mounted = false;
+      window.clearInterval(id);
+      try {
+        controller.abort();
+      } catch {
+        // Ignore abort errors during cleanup
+      }
     };
   }, []);
 
   const kpi = useMemo(() => {
     const dash = (n: number | null | undefined) => (typeof n === 'number' ? n.toLocaleString('en-IN') : '—');
     const rupee = (n: number | null | undefined) => (typeof n === 'number' ? `₹${Math.round(n).toLocaleString('en-IN')}` : '—');
+
+    const labelGen = stats?.label_generation;
 
     return {
       totalSkus: stats ? dash(stats.total_skus) : (loading ? '—' : '0'),
@@ -95,6 +130,12 @@ export default function DashboardPage() {
       totalScans: stats ? dash(stats.total_scans) : (loading ? '—' : '0'),
       walletBalance: stats ? rupee(stats.wallet?.balance) : (loading ? '—' : '₹0'),
       activeHandsets: stats ? dash(stats.active_handsets) : (loading ? '—' : '0'),
+      activeSeats: stats ? dash(stats.active_seats ?? 0) : (loading ? '—' : '0'),
+
+      unitLabels: labelGen ? dash(labelGen.unit) : (loading ? '—' : '0'),
+      boxLabels: labelGen ? dash(labelGen.box) : (loading ? '—' : '0'),
+      cartonLabels: labelGen ? dash(labelGen.carton) : (loading ? '—' : '0'),
+      palletLabels: labelGen ? dash(labelGen.pallet) : (loading ? '—' : '0'),
     };
   }, [stats, loading]);
 
@@ -111,7 +152,7 @@ export default function DashboardPage() {
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-4">
         <KpiCard
           title="Total SKUs"
           value={kpi.totalSkus}
@@ -141,6 +182,12 @@ export default function DashboardPage() {
           href="/dashboard/billing"
         />
         <KpiCard
+          title="Active Seats"
+          value={kpi.activeSeats}
+          icon={Activity}
+          href="/dashboard/team"
+        />
+        <KpiCard
           title="Active Handsets"
           value={kpi.activeHandsets}
           icon={Smartphone}
@@ -148,27 +195,46 @@ export default function DashboardPage() {
         />
       </div>
 
-      {/* Charts Section (UI placeholders – wired later) */}
+      {/* Realtime label generation (current billing period) */}
+      <div>
+        <h2 className="text-lg font-semibold text-slate-900">Label Generation (Realtime)</h2>
+        <p className="text-sm text-gray-600 mt-1">Shows labels generated in the current trial/subscription period.</p>
+
+        <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <KpiCard title="Unit Labels" value={kpi.unitLabels} icon={QrCode} />
+          <KpiCard title="Box Labels" value={kpi.boxLabels} icon={Boxes} />
+          <KpiCard title="Carton Labels" value={kpi.cartonLabels} icon={Boxes} />
+          <KpiCard title="Pallet Labels" value={kpi.palletLabels} icon={Boxes} />
+        </div>
+      </div>
+
+      {/* Charts Section */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="bg-white border rounded-lg p-4 h-64 flex items-center justify-center text-gray-400">
-          <div className="text-center">
-            <BarChart3 className="w-8 h-8 mx-auto mb-2" />
-            Label Generation Trend
-          </div>
+        <div className="bg-white border rounded-lg p-4 h-64">
+          <h3 className="text-sm font-semibold text-gray-700 mb-2">Label Generation Trend</h3>
+          <LabelGenerationTrend data={[
+            { date: '5 days ago', unit: stats?.label_generation?.unit ?? 0, box: stats?.label_generation?.box ?? 0, carton: stats?.label_generation?.carton ?? 0, pallet: stats?.label_generation?.pallet ?? 0 },
+          ]} />
         </div>
 
-        <div className="bg-white border rounded-lg p-4 h-64 flex items-center justify-center text-gray-400">
-          <div className="text-center">
-            <Boxes className="w-8 h-8 mx-auto mb-2" />
-            Labels by Level
-          </div>
+        <div className="bg-white border rounded-lg p-4 h-64">
+          <h3 className="text-sm font-semibold text-gray-700 mb-2">Labels by Level</h3>
+          <LabelsByLevel data={{
+            unit: stats?.label_generation?.unit ?? 0,
+            box: stats?.label_generation?.box ?? 0,
+            carton: stats?.label_generation?.carton ?? 0,
+            pallet: stats?.label_generation?.pallet ?? 0,
+          }} />
         </div>
 
-        <div className="bg-white border rounded-lg p-4 h-64 flex items-center justify-center text-gray-400">
-          <div className="text-center">
-            <Wallet className="w-8 h-8 mx-auto mb-2" />
-            Cost Usage Distribution
-          </div>
+        <div className="bg-white border rounded-lg p-4 h-64">
+          <h3 className="text-sm font-semibold text-gray-700 mb-2">Cost Usage Distribution</h3>
+          <CostUsageChart data={{
+            unit: stats?.label_generation?.unit ?? 0,
+            box: stats?.label_generation?.box ?? 0,
+            carton: stats?.label_generation?.carton ?? 0,
+            pallet: stats?.label_generation?.pallet ?? 0,
+          }} />
         </div>
       </div>
 
@@ -178,13 +244,30 @@ export default function DashboardPage() {
           Recent Activity
         </h2>
 
-        <ul className="space-y-3 text-sm text-gray-600">
-          <li>✔ SKU “Ciplox 200mg” created</li>
-          <li>✔ Packaging rule applied for SKU</li>
-          <li>✔ 1,000 unit labels generated</li>
-          <li>✔ 100 box SSCC generated</li>
-          <li>⚠ Wallet balance updated</li>
-        </ul>
+        {stats?.recent_activity && stats.recent_activity.length > 0 ? (
+          <ul className="space-y-3 text-sm text-gray-600">
+            {stats.recent_activity.map((activity) => (
+              <li key={activity.id} className="flex items-start gap-2">
+                <span className={activity.status === 'success' ? 'text-green-500' : activity.status === 'error' ? 'text-red-500' : 'text-yellow-500'}>
+                  {activity.status === 'success' ? '✔' : activity.status === 'error' ? '✖' : '⚠'}
+                </span>
+                <div className="flex-1">
+                  <span className="font-medium">{activity.action.replace(/_/g, ' ')}</span>
+                  {activity.details?.description && (
+                    <span className="text-gray-500"> — {activity.details.description}</span>
+                  )}
+                  <span className="text-xs text-gray-400 ml-2">
+                    {new Date(activity.created_at).toLocaleString('en-IN', { 
+                      day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' 
+                    })}
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-gray-500">No recent activity to display.</p>
+        )}
       </div>
 
       {/* CTA Section */}

@@ -45,6 +45,37 @@ export async function POST(req: Request) {
       throw companyError;
     }
 
+    // Auto-create the owner seat as ACTIVE. Starter plan includes 1 seat and
+    // the owner should not need an invite.
+    try {
+      const ownerEmail = String(contact_email ?? '').trim().toLowerCase();
+      const { data: existingSeat } = await supabase
+        .from('seats')
+        .select('id')
+        .eq('company_id', company.id)
+        .or(`user_id.eq.${user_id},email.eq.${ownerEmail}`)
+        .maybeSingle();
+
+      if (!existingSeat) {
+        const now = new Date().toISOString();
+        await supabase
+          .from('seats')
+          .insert({
+            company_id: company.id,
+            user_id,
+            email: ownerEmail || null,
+            role: 'admin',
+            active: true,
+            status: 'active',
+            invited_at: now,
+            activated_at: now,
+            created_at: now,
+          });
+      }
+    } catch (seatError) {
+      console.error('Failed to auto-create owner seat:', seatError);
+    }
+
     // Auto-create wallet with ₹0 balance
     const { error: walletError } = await supabase
       .from("company_wallets")

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { formatCurrency, PRICING, getBalanceStatus } from '@/lib/billingConfig';
@@ -30,7 +30,7 @@ export default function LiveUsageMeter({
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
 
-  async function fetchUsage() {
+  const fetchUsage = useCallback(async () => {
     if (!companyId) return;
 
     try {
@@ -46,7 +46,7 @@ export default function LiveUsageMeter({
     } finally {
       setLoading(false);
     }
-  }
+  }, [companyId]);
 
   useEffect(() => {
     fetchUsage();
@@ -55,7 +55,7 @@ export default function LiveUsageMeter({
     const interval = setInterval(fetchUsage, refreshInterval);
 
     return () => clearInterval(interval);
-  }, [companyId, refreshInterval]);
+  }, [fetchUsage, refreshInterval]);
 
   if (loading) {
     return (

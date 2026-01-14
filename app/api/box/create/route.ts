@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { assertCompanyCanOperate, ensureActiveBillingUsage } from "@/lib/billing/usage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -70,13 +71,20 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "company_id is required" }, { status: 400 });
     }
 
+    await assertCompanyCanOperate({ supabase, companyId: company_id });
+    await ensureActiveBillingUsage({ supabase, companyId: company_id });
+
     const skuUuid = await resolveSkuId({
       supabase,
       companyId: company_id,
       skuIdOrCode: sku_id,
     });
 
-    const count = Math.max(1, Number(box_count ?? quantity) || 1);
+    const countRaw = Number(box_count ?? quantity);
+    const count = Number.isFinite(countRaw) ? Math.trunc(countRaw) : 0;
+    if (!Number.isInteger(count) || count <= 0) {
+      return NextResponse.json({ error: "box_count/quantity must be a positive integer" }, { status: 400 });
+    }
 
     // 1) Get packing rule (required to know units per box)
     const ruleQuery = supabase.from("packing_rules").select("*");
@@ -199,12 +207,32 @@ export async function POST(req: Request) {
       };
     });
 
+    const { data: reserveRow, error: reserveErr } = await supabase.rpc("billing_usage_consume", {
+      p_company_id: company_id,
+      p_kind: "box",
+      p_qty: count,
+    });
+
+    const reserve = Array.isArray(reserveRow) ? reserveRow[0] : reserveRow;
+    if (reserveErr || !reserve?.ok) {
+      return NextResponse.json(
+        {
+          error: "Box label quota exceeded. Please purchase extra Box labels add-on.",
+          code: reserve?.error ?? reserveErr?.message ?? "quota_exceeded",
+          requires_addon: true,
+          addon: "box",
+        },
+        { status: 403 }
+      );
+    }
+
     const { data: inserted, error: insertErr } = await supabase
       .from("boxes")
       .insert(rows)
       .select("id, sscc, sscc_with_ai, code, sku_id, carton_id, pallet_id, created_at, meta");
 
     if (insertErr || !inserted) {
+      await supabase.rpc("billing_usage_refund", { p_company_id: company_id, p_kind: "box", p_qty: count });
       return NextResponse.json(
         { error: insertErr?.message ?? "Failed to insert boxes" },
         { status: 400 }

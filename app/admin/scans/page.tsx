@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,11 +25,7 @@ export default function SystemScans() {
   const [selectedScan, setSelectedScan] = useState<ScanLog | null>(null);
   const [showOnlyProblematic, setShowOnlyProblematic] = useState(true);
 
-  useEffect(() => {
-    fetchScans();
-  }, [showOnlyProblematic]);
-
-  async function fetchScans() {
+  const fetchScans = useCallback(async () => {
     setLoading(true);
     try {
       const supabase = supabaseClient();
@@ -48,7 +44,11 @@ export default function SystemScans() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [showOnlyProblematic]);
+
+  useEffect(() => {
+    fetchScans();
+  }, [fetchScans]);
 
   function getStatusBadge(status: string) {
     const colors: any = {

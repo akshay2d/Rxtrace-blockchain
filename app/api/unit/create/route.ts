@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { assertCompanyCanOperate, ensureActiveBillingUsage } from "@/lib/billing/usage";
 
 // ---------- utils ----------
 const pad2 = (n: number) => n.toString().padStart(2, "0");
@@ -73,6 +74,36 @@ export async function POST(req: Request) {
       );
     }
 
+    await assertCompanyCanOperate({ supabase, companyId: company_id });
+    await ensureActiveBillingUsage({ supabase, companyId: company_id });
+
+    const qty = Number(quantity);
+    if (!Number.isFinite(qty) || !Number.isInteger(qty) || qty <= 0) {
+      return NextResponse.json({ error: "quantity must be a positive integer" }, { status: 400 });
+    }
+
+    const { data: reserveRow, error: reserveErr } = await supabase.rpc('billing_usage_consume', {
+      p_company_id: company_id,
+      p_kind: 'unit',
+      p_qty: qty,
+    });
+
+    const reserve = Array.isArray(reserveRow) ? reserveRow[0] : reserveRow;
+    if (reserveErr || !reserve?.ok) {
+      return NextResponse.json(
+        {
+          error: "Unit label quota exceeded. Please purchase extra Unit labels add-on.",
+          code: reserve?.error ?? reserveErr?.message ?? 'quota_exceeded',
+          requires_addon: true,
+          addon: 'unit'
+        },
+        { status: 403 }
+      );
+    }
+
+    // Keep for debugging / future logs
+    const usageId = reserve.usage_id as string | undefined;
+
     // ---------- SKU UPSERT ----------
     const { data: sku, error: skuErr } = await supabase
       .from("skus")
@@ -90,7 +121,7 @@ export async function POST(req: Request) {
     if (skuErr || !sku) throw skuErr;
 
     // ---------- UNIT GENERATION ----------
-    const rows = Array.from({ length: quantity }).map(() => {
+    const rows = Array.from({ length: qty }).map(() => {
       const serial = generateSerial(company_id);
 
       return {
@@ -116,13 +147,19 @@ export async function POST(req: Request) {
     });
 
     const { error } = await supabase.from("labels_units").insert(rows);
-    if (error) throw error;
+    if (error) {
+      await supabase.rpc('billing_usage_refund', { p_company_id: company_id, p_kind: 'unit', p_qty: qty });
+      throw error;
+    }
 
     return NextResponse.json({
       success: true,
       generated: rows.length
     });
   } catch (err: any) {
+    if (err?.code === 'PAST_DUE' || err?.code === 'SUBSCRIPTION_INACTIVE') {
+      return NextResponse.json({ error: err.message, code: err.code }, { status: 402 });
+    }
     return NextResponse.json(
       { error: err?.message || "Unit generation failed" },
       { status: 500 }

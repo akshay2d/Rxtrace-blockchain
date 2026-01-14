@@ -1,36 +1,254 @@
-This is a [Next.js](https://nextjs.org/) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
+# RxTrace India - Pharmaceutical Traceability Platform
 
-## Getting Started
+[![Next.js](https://img.shields.io/badge/Next.js-14.2-black)](https://nextjs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue)](https://www.typescriptlang.org/)
+[![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL-green)](https://supabase.com/)
+[![Razorpay](https://img.shields.io/badge/Payments-Razorpay-blue)](https://razorpay.com/)
 
-First, run the development server:
+A comprehensive pharmaceutical traceability platform that generates GS1-compliant labels (QR codes, barcodes, DataMatrix) for medicine authentication and tracking. Built specifically for the Indian pharmaceutical industry.
+
+## 🚀 Features
+
+- **GS1-Compliant Label Generation** - QR Code, GS1-128, DataMatrix with proper Application Identifiers
+- **Multi-level Packaging** - Unit, Box, Carton, and Pallet (SSCC) label generation
+- **Bulk Generation** - CSV upload for mass label creation
+- **Mobile Scanner Integration** - Android handset management for verification
+- **Subscription Billing** - Razorpay integration with monthly/quarterly/annual plans
+- **Team Management** - Multi-user seat-based access control
+- **Audit Logging** - Comprehensive tracking of all system events
+- **Dashboard Analytics** - Real-time stats and usage tracking
+
+## 📋 Prerequisites
+
+- **Node.js** 18.x or higher
+- **npm** or **yarn**
+- **Supabase Account** - Free tier works for development
+- **Razorpay Account** - For payment processing (TEST mode for development)
+
+## 🛠️ Installation
+
+### 1. Clone the Repository
+
+```bash
+git clone <repository-url>
+cd rxtrace-blockchain
+```
+
+### 2. Install Dependencies
+
+```bash
+npm install
+```
+
+### 3. Environment Setup
+
+Copy `.env.example` to `.env.local`:
+
+```bash
+cp .env.example .env.local
+```
+
+Fill in your credentials in `.env.local`:
+
+```env
+# Supabase (REQUIRED)
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+
+# Razorpay (REQUIRED)
+RAZORPAY_KEY_ID=rzp_test_xxx  # Use rzp_test_ for development
+RAZORPAY_KEY_SECRET=your_secret
+NEXT_PUBLIC_RAZORPAY_KEY_ID=rzp_test_xxx
+
+# Subscription Plans (create in Razorpay Dashboard)
+RAZORPAY_SUBSCRIPTION_PLAN_ID_STARTER_MONTHLY=plan_xxx
+RAZORPAY_SUBSCRIPTION_PLAN_ID_STARTER_ANNUAL=plan_xxx
+RAZORPAY_SUBSCRIPTION_PLAN_ID_GROWTH_MONTHLY=plan_xxx
+RAZORPAY_SUBSCRIPTION_PLAN_ID_GROWTH_ANNUAL=plan_xxx
+RAZORPAY_SUBSCRIPTION_PLAN_ID_ENTERPRISE_MONTHLY=plan_xxx
+RAZORPAY_SUBSCRIPTION_PLAN_ID_ENTERPRISE_QUARTERLY=plan_xxx
+
+# Cron Jobs
+CRON_SECRET=$(openssl rand -base64 32)
+```
+
+### 4. Database Setup
+
+Run migrations in Supabase SQL Editor (Dashboard → SQL Editor):
+
+```bash
+# Copy and execute each migration file from supabase/migrations/ in order:
+1. 20251220_fix_skus_table.sql
+2. 20260101_create_audit_logs.sql
+3. 20260101_setup_flow_schema.sql
+4. 20260104_billing_addons_and_quota_enforcement.sql
+5. 20260109000100_addon_carts.sql
+6. 20260111_zoho_books_integration.sql
+7. 20260114_create_seats_table.sql
+```
+
+### 5. Razorpay Setup
+
+1. Create subscription plans in [Razorpay Dashboard](https://dashboard.razorpay.com/):
+   - **Starter Monthly**: ₹18,000/month
+   - **Starter Annual**: ₹2,00,000/year
+   - **Growth Monthly**: ₹49,000/month
+   - **Growth Annual**: ₹5,00,000/year
+   - **Enterprise Monthly**: ₹2,00,000/month
+   - **Enterprise Quarterly**: ₹5,00,000/quarter
+
+2. Copy plan IDs to `.env.local`
+
+3. Create webhook endpoint:
+   - URL: `https://yourdomain.com/api/webhooks/razorpay`
+   - Events: All subscription events
+   - Copy webhook secret to `RAZORPAY_WEBHOOK_SECRET`
+
+### 6. Run Development Server
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 📦 Production Deployment
 
-This project uses [`next/font`](https://nextjs.org/docs/basic-features/font-optimization) to automatically optimize and load Inter, a custom Google Font.
+### Vercel (Recommended)
 
-## Learn More
+1. **Push to GitHub**
+2. **Import in Vercel**
+3. **Add Environment Variables** - Copy all from `.env.local`
+4. **Deploy**
 
-To learn more about Next.js, take a look at the following resources:
+### Environment Variables Checklist
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+✅ NEXT_PUBLIC_SUPABASE_URL
+✅ NEXT_PUBLIC_SUPABASE_ANON_KEY
+✅ SUPABASE_SERVICE_ROLE_KEY
+✅ RAZORPAY_KEY_ID (use rzp_live_ for production!)
+✅ RAZORPAY_KEY_SECRET
+✅ NEXT_PUBLIC_RAZORPAY_KEY_ID
+✅ RAZORPAY_SUBSCRIPTION_PLAN_ID_* (6 plan IDs)
+✅ RAZORPAY_WEBHOOK_SECRET
+✅ CRON_SECRET
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js/) - your feedback and contributions are welcome!
+### Post-Deployment Steps
 
-## Deploy on Vercel
+1. **Update Razorpay Webhook URL** to production domain
+2. **Set up Cron Job** for billing:
+   ```bash
+   POST https://yourdomain.com/api/cron/billing/run
+   Header: x-cron-secret: <CRON_SECRET>
+   Schedule: Daily at 02:00 IST
+   ```
+3. **Test Payment Flow** with Razorpay test cards
+4. **Enable Row Level Security** in Supabase for all tables
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## 🏗️ Project Structure
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/deployment) for more details.
+```
+├── app/
+│   ├── api/              # API routes
+│   │   ├── billing/      # Subscription management
+│   │   ├── generate/     # Label generation
+│   │   ├── admin/        # Admin endpoints (seats, limits)
+│   │   └── cron/         # Automated jobs
+│   ├── auth/             # Authentication pages
+│   ├── dashboard/        # Protected dashboard
+│   └── pricing/          # Public pricing page
+├── components/           # React components
+│   ├── ui/              # shadcn/ui components
+│   └── custom/          # Custom barcode components
+├── lib/
+│   ├── supabase/        # Supabase clients
+│   ├── billing/         # Billing logic
+│   └── generateLabel.tsx # Core label generation
+├── prisma/
+│   └── schema.prisma    # Database schema (for types)
+├── supabase/
+│   └── migrations/      # SQL migrations
+└── scripts/             # Utility scripts
+```
+
+## 🔐 Security Considerations
+
+### Before Going Live:
+
+- [ ] Remove test Razorpay keys, use live keys
+- [ ] Enable Supabase RLS on all tables
+- [ ] Rotate all secrets (CRON_SECRET, webhook secrets)
+- [ ] Set up error monitoring (Sentry recommended)
+- [ ] Add rate limiting on auth endpoints
+- [ ] Enable HTTPS only
+- [ ] Configure CORS properly
+- [ ] Add CAPTCHA on signup/signin
+- [ ] Set up database backups
+- [ ] Configure firewall rules
+
+## 📖 Documentation
+
+- [Features Documentation](./FEATURES.md) - Comprehensive feature breakdown
+- [Billing Setup](./docs/BILLING_SETUP.md) - Invoice and auto-billing configuration
+- [Copilot Instructions](./.github/copilot-instructions.md) - Development guidelines
+
+## 🧪 Testing
+
+```bash
+# Run linter
+npm run lint
+
+# Build for production (checks TypeScript)
+npm run build
+
+# Test billing cron locally
+./scripts/test-billing-cron.ps1
+```
+
+## 🐛 Troubleshooting
+
+### "Subscription not found" error
+- Check Razorpay plan IDs in `.env.local`
+- Verify plan IDs match Razorpay Dashboard
+
+### "Failed to load seat limits" error
+- Run: `node scripts/fix-company-plans.js`
+- Ensure seats table migration is applied
+
+### Dashboard stats showing 0
+- Check if `subscription_plan` is set in companies table
+- Verify billing_usage table has entries
+
+### Authentication loops
+- Clear cookies
+- Check NEXT_PUBLIC_SUPABASE_URL is correct
+- Verify middleware.ts matcher patterns
+
+## 📞 Support
+
+For issues or questions, check:
+1. [FEATURES.md](./FEATURES.md) for detailed feature explanations
+2. Terminal logs for specific error messages
+3. Supabase logs in Dashboard → Logs
+
+## 📄 License
+
+Proprietary - All rights reserved
+
+## 🔧 Tech Stack
+
+- **Frontend**: Next.js 14 (App Router), TypeScript, Tailwind CSS
+- **Backend**: Next.js API Routes, Supabase (PostgreSQL)
+- **Auth**: Supabase Auth
+- **Payments**: Razorpay
+- **PDF Generation**: @react-pdf/renderer
+- **Barcodes**: qrcode, jsbarcode, bwip-js
+- **ORM**: Prisma (for types)
+- **UI Components**: shadcn/ui
+
+---
+
+Built with ❤️ for the Indian pharmaceutical industry

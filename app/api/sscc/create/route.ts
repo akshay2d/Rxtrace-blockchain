@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { assertCompanyCanOperate, ensureActiveBillingUsage } from "@/lib/billing/usage";
 
 export async function POST(req: Request) {
   const supabase = getSupabaseAdmin();
@@ -14,7 +15,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "sku_id is required" }, { status: 400 });
   }
 
-  const count = Math.max(1, Number(pallet_count) || 1);
+  await assertCompanyCanOperate({ supabase, companyId: company_id });
+  await ensureActiveBillingUsage({ supabase, companyId: company_id });
+
+  const countRaw = Number(pallet_count);
+  const count = Number.isFinite(countRaw) ? Math.trunc(countRaw) : 0;
+  if (!Number.isInteger(count) || count <= 0) {
+    return NextResponse.json({ error: "pallet_count must be a positive integer" }, { status: 400 });
+  }
 
   // sku_id can be either SKU master UUID or a human-readable sku_code from CSV.
   const isUuid = (value: string) =>
@@ -117,12 +125,32 @@ export async function POST(req: Request) {
     sscc_with_ai: `(00)${sscc}`,
   }));
 
+  const { data: reserveRow, error: reserveErr } = await supabase.rpc("billing_usage_consume", {
+    p_company_id: company_id,
+    p_kind: "pallet",
+    p_qty: count,
+  });
+
+  const reserve = Array.isArray(reserveRow) ? reserveRow[0] : reserveRow;
+  if (reserveErr || !reserve?.ok) {
+    return NextResponse.json(
+      {
+        error: "Pallet label quota exceeded. Please purchase extra Pallet labels add-on.",
+        code: reserve?.error ?? reserveErr?.message ?? "quota_exceeded",
+        requires_addon: true,
+        addon: "pallet",
+      },
+      { status: 403 }
+    );
+  }
+
   const { data: inserted, error } = await supabase
     .from("pallets")
     .insert(rows)
     .select();
 
   if (error) {
+    await supabase.rpc("billing_usage_refund", { p_company_id: company_id, p_kind: "pallet", p_qty: count });
     return NextResponse.json({ error }, { status: 400 });
   }
 

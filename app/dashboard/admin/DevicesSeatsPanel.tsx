@@ -1,23 +1,12 @@
 "use client";
 import React, { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
 type Handset = {
   id: string;
   handset_id: string;
-  company_id: string;
-  active: boolean;
-  activated_at: string | null;
-  deactivated_at: string | null;
-  monthly_fee: number;
-};
-
-type Seat = {
-  id: string;
-  seat_id: string;
   company_id: string;
   active: boolean;
   activated_at: string | null;
@@ -32,34 +21,34 @@ type HandsetToken = {
   created_at: string;
 };
 
-export default function DevicesSeatsPanel({ companyId }: { companyId: string }) {
+export default function HandsetManagementPanel({ companyId }: { companyId: string }) {
   const [handsets, setHandsets] = useState<Handset[]>([]);
-  const [seats, setSeats] = useState<Seat[]>([]);
   const [tokens, setTokens] = useState<HandsetToken[]>([]);
   const [loading, setLoading] = useState(false);
-  const [newSeatId, setNewSeatId] = useState("");
   const [generatedToken, setGeneratedToken] = useState("");
+  const [error, setError] = useState("");
 
-  async function fetchAll() {
+  const fetchAll = React.useCallback(async () => {
     setLoading(true);
+    setError("");
     try {
-      const [hRes, sRes, tRes] = await Promise.all([
+      const [hRes, tRes] = await Promise.all([
         fetch(`/api/admin/handsets?company_id=${companyId}`),
-        fetch(`/api/admin/seats?company_id=${companyId}`),
         fetch(`/api/admin/handset-tokens?company_id=${companyId}`),
       ]);
+      
       const hJson = await hRes.json();
-      const sJson = await sRes.json();
       const tJson = await tRes.json();
+      
       setHandsets(hJson.handsets ?? []);
-      setSeats(sJson.seats ?? []);
       setTokens(tJson.tokens ?? []);
     } catch (err) {
       console.error(err);
+      setError("Failed to load data");
     } finally {
       setLoading(false);
     }
-  }
+  }, [companyId]);
 
   async function generateToken() {
     setLoading(true);
@@ -82,27 +71,9 @@ export default function DevicesSeatsPanel({ companyId }: { companyId: string }) 
     }
   }
 
-  async function addNewSeat() {
-    if (!newSeatId.trim()) return;
-    setLoading(true);
-    try {
-      await fetch("/api/seat/allocate", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ company_id: companyId, seat_id: newSeatId.trim() }),
-      });
-      setNewSeatId("");
-      await fetchAll();
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  }
-
   useEffect(() => {
     if (companyId) fetchAll();
-  }, [companyId]);
+  }, [companyId, fetchAll]);
 
   async function activateHandset(handsetId: string) {
     setLoading(true);
@@ -132,37 +103,15 @@ export default function DevicesSeatsPanel({ companyId }: { companyId: string }) 
     }
   }
 
-  async function allocateSeat(seatId: string) {
-    setLoading(true);
-    try {
-      await fetch("/api/seat/allocate", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ company_id: companyId, seat_id: seatId }),
-      });
-      await fetchAll();
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function deactivateSeat(seatId: string) {
-    setLoading(true);
-    try {
-      await fetch("/api/seat/deactivate", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ seat_id: seatId }),
-      });
-      await fetchAll();
-    } finally {
-      setLoading(false);
-    }
-  }
-
   return (
-    <div className="p-6 max-w-7xl space-y-6">
-      <h2 className="text-2xl font-semibold">Devices & Seats Management</h2>
+    <div className="space-y-6">
+      <h2 className="text-2xl font-semibold">Handset Management</h2>
+
+      {error && (
+        <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
+          {error}
+        </div>
+      )}
 
       {/* Token Generation Section */}
       <Card>
@@ -199,85 +148,40 @@ export default function DevicesSeatsPanel({ companyId }: { companyId: string }) 
         </CardContent>
       </Card>
 
-      <div className="grid md:grid-cols-2 gap-6">
-        {/* Handsets Section */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Active Handsets</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {handsets.length === 0 && <p className="text-sm text-muted-foreground">No handsets activated</p>}
-              {handsets.map((h) => (
-                <div key={h.handset_id} className="flex items-center justify-between p-3 border rounded">
-                  <div>
-                    <div className="font-medium">{h.handset_id}</div>
-                    <div className="text-xs text-gray-500">₹{h.monthly_fee}/month</div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge variant={h.active ? "default" : "secondary"}>
-                      {h.active ? "Active" : "Inactive"}
-                    </Badge>
-                    {h.active && (
-                      <Button variant="outline" size="sm" onClick={() => deactivateHandset(h.handset_id)} disabled={loading}>
-                        Deactivate
-                      </Button>
-                    )}
-                  </div>
+      {/* Handsets Section */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Active Handsets ({handsets.length})</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-2">
+            {handsets.length === 0 && <p className="text-sm text-muted-foreground">No handsets activated</p>}
+            {handsets.map((h) => (
+              <div key={h.handset_id} className="flex items-center justify-between p-3 border rounded">
+                <div>
+                  <div className="font-medium">{h.handset_id}</div>
+                  <div className="text-xs text-gray-500">₹{h.monthly_fee}/month</div>
+                  {h.activated_at && (
+                    <div className="text-xs text-gray-400 mt-1">
+                      Activated: {new Date(h.activated_at).toLocaleDateString()}
+                    </div>
+                  )}
                 </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Seats Section */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Seat Allocations</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div className="flex gap-2">
-                <Input
-                  placeholder="Enter Seat ID"
-                  value={newSeatId}
-                  onChange={(e) => setNewSeatId(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && addNewSeat()}
-                />
-                <Button onClick={addNewSeat} disabled={loading || !newSeatId.trim()}>
-                  Allocate
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Badge variant={h.active ? "default" : "secondary"}>
+                    {h.active ? "Active" : "Inactive"}
+                  </Badge>
+                  {h.active && (
+                    <Button variant="outline" size="sm" onClick={() => deactivateHandset(h.handset_id)} disabled={loading}>
+                      Deactivate
+                    </Button>
+                  )}
+                </div>
               </div>
-
-              <div className="space-y-2">
-                {seats.length === 0 && <p className="text-sm text-muted-foreground">No seats allocated</p>}
-                {seats.map((s) => (
-                  <div key={s.seat_id} className="flex items-center justify-between p-3 border rounded">
-                    <div>
-                      <div className="font-medium">{s.seat_id}</div>
-                      <div className="text-xs text-gray-500">₹{s.monthly_fee}/month</div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Badge variant={s.active ? "default" : "secondary"}>
-                        {s.active ? "Active" : "Inactive"}
-                      </Badge>
-                      {s.active ? (
-                        <Button variant="outline" size="sm" onClick={() => deactivateSeat(s.seat_id)} disabled={loading}>
-                          Deactivate
-                        </Button>
-                      ) : (
-                        <Button variant="outline" size="sm" onClick={() => allocateSeat(s.seat_id)} disabled={loading}>
-                          Activate
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

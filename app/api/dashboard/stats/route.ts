@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
+import { ensureActiveBillingUsage } from '@/lib/billing/usage';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -42,6 +43,13 @@ export async function GET() {
     }
 
     const companyId = company.id as string;
+
+    // Billing usage (current trial/paid period): used label quotas are the most accurate
+    // “realtime generation” counters because they are incremented atomically during create APIs.
+    const activeUsage = await ensureActiveBillingUsage({ supabase, companyId }).catch((err) => {
+      console.error('Failed to ensure active billing usage:', err);
+      return null;
+    });
 
     // Total SKUs
     const { count: totalSkus, error: skuErr } = await supabase
@@ -98,6 +106,29 @@ export async function GET() {
       return NextResponse.json({ error: handsetsErr.message }, { status: 500 });
     }
 
+    // Active seats
+    const { count: activeSeats, error: seatsErr } = await supabase
+      .from('seats')
+      .select('id', { count: 'exact', head: true })
+      .eq('company_id', companyId)
+      .eq('active', true);
+
+    if (seatsErr) {
+      return NextResponse.json({ error: seatsErr.message }, { status: 500 });
+    }
+
+    // Recent activity from audit_logs (last 10 entries)
+    const { data: recentActivity, error: activityErr } = await supabase
+      .from('audit_logs')
+      .select('id, action, status, details, created_at')
+      .eq('company_id', companyId)
+      .order('created_at', { ascending: false })
+      .limit(10);
+
+    if (activityErr) {
+      console.warn('Could not fetch recent activity:', activityErr.message);
+    }
+
     // Wallet
     const { data: walletRow, error: walletErr } = await supabase
       .from('company_wallets')
@@ -117,12 +148,20 @@ export async function GET() {
       sscc_generated: ssccGenerated ?? 0,
       total_scans: totalScans ?? 0,
       active_handsets: activeHandsets ?? 0,
+      active_seats: activeSeats ?? 0,
+      label_generation: {
+        unit: activeUsage ? toNumber((activeUsage as any).unit_labels_used) : 0,
+        box: activeUsage ? toNumber((activeUsage as any).box_labels_used) : 0,
+        carton: activeUsage ? toNumber((activeUsage as any).carton_labels_used) : 0,
+        pallet: activeUsage ? toNumber((activeUsage as any).pallet_labels_used) : 0,
+      },
       wallet: {
         balance: walletRow?.balance ?? 0,
         credit_limit: walletRow?.credit_limit ?? 10000,
         status: walletRow?.status ?? 'ACTIVE',
         updated_at: walletRow?.updated_at ?? null,
       },
+      recent_activity: recentActivity ?? [],
     });
   } catch (err: any) {
     return NextResponse.json({ error: err?.message || String(err) }, { status: 500 });

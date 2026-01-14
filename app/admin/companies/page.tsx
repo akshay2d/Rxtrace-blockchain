@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -61,17 +61,27 @@ export default function CompaniesManagement() {
   const [transactions, setTransactions] = useState<BillingTransaction[]>([]);
   const [processingCredit, setProcessingCredit] = useState(false);
 
-  useEffect(() => {
-    fetchCompanies();
+  const fetchWallets = useCallback(async (companyIds: string[]) => {
+    try {
+      const supabase = supabaseClient();
+      const { data, error } = await supabase
+        .from('company_wallets')
+        .select('*')
+        .in('company_id', companyIds);
+
+      if (error) throw error;
+
+      const walletsMap: Record<string, CompanyWallet> = {};
+      data?.forEach((wallet) => {
+        walletsMap[wallet.company_id] = wallet;
+      });
+      setWallets(walletsMap);
+    } catch (error: any) {
+      console.error('Error fetching wallets:', error);
+    }
   }, []);
 
-  useEffect(() => {
-    if (selectedCompany) {
-      fetchTransactions(selectedCompany.id);
-    }
-  }, [selectedCompany]);
-
-  async function fetchCompanies() {
+  const fetchCompanies = useCallback(async () => {
     setLoading(true);
     try {
       const supabase = supabaseClient();
@@ -84,7 +94,7 @@ export default function CompaniesManagement() {
       if (data) {
         setCompanies(data);
         // Fetch wallets for all companies
-        fetchWallets(data.map(c => c.id));
+        fetchWallets(data.map((c) => c.id));
       }
     } catch (error: any) {
       console.error('Error:', error);
@@ -92,27 +102,17 @@ export default function CompaniesManagement() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [fetchWallets]);
 
-  async function fetchWallets(companyIds: string[]) {
-    try {
-      const supabase = supabaseClient();
-      const { data, error } = await supabase
-        .from('company_wallets')
-        .select('*')
-        .in('company_id', companyIds);
+  useEffect(() => {
+    fetchCompanies();
+  }, [fetchCompanies]);
 
-      if (error) throw error;
-      
-      const walletsMap: Record<string, CompanyWallet> = {};
-      data?.forEach(wallet => {
-        walletsMap[wallet.company_id] = wallet;
-      });
-      setWallets(walletsMap);
-    } catch (error: any) {
-      console.error('Error fetching wallets:', error);
+  useEffect(() => {
+    if (selectedCompany) {
+      fetchTransactions(selectedCompany.id);
     }
-  }
+  }, [selectedCompany]);
 
   async function fetchTransactions(companyId: string) {
     try {

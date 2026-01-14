@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 type Job = {
   id: string;
@@ -24,7 +24,7 @@ export default function JobsPage() {
   const [selectedJob, setSelectedJob] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function fetchJobs() {
+  const fetchJobs = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -41,11 +41,11 @@ export default function JobsPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [companyId]);
 
   useEffect(() => {
     fetchJobs();
-  }, []);
+  }, [fetchJobs]);
 
   async function viewJob(jobId: string) {
     setSelectedJob(null);

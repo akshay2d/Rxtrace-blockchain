@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,7 +16,7 @@ import {
   TrendingUp,
   Database
 } from 'lucide-react';
-import DevicesSeatsPanel from './DevicesSeatsPanel';
+import HandsetManagementPanel from './DevicesSeatsPanel';
 
 /* ---------------- TYPES ---------------- */
 
@@ -59,13 +59,7 @@ export default function AdminDashboard() {
     last24h: 0
   });
 
-  useEffect(() => {
-    fetchData();
-  }, [showOnlyProblematic]);
-
-  /* ---------------- DATA FETCH ---------------- */
-
-  async function fetchData() {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       const supabase = supabaseClient();
@@ -140,7 +134,13 @@ export default function AdminDashboard() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [showOnlyProblematic]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  /* ---------------- DATA FETCH ---------------- */
 
   /* ---------------- HELPERS ---------------- */
 
@@ -185,7 +185,7 @@ export default function AdminDashboard() {
 
       {/* HEADER */}
       <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold text-orange-600">🔐 Admin Dashboard</h1>
+        <h1 className="text-3xl font-bold text-orange-600">� Handset Management</h1>
         <div className="flex gap-2">
           <Button
             variant={showOnlyProblematic ? 'default' : 'outline'}
@@ -201,9 +201,9 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {/* HANDSET / SEAT / TOKEN PANEL */}
+      {/* HANDSET MANAGEMENT PANEL */}
       {userCompanyId ? (
-        <DevicesSeatsPanel companyId={userCompanyId} />
+        <HandsetManagementPanel companyId={userCompanyId} />
       ) : (
         <Card>
           <CardContent className="p-6 text-center text-gray-500">

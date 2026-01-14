@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import React, { useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 
@@ -157,9 +158,12 @@ export default function GenerateLabel({
           <div style={{ color: 'crimson' }}>{error}</div>
         ) : codeType === 'QR' ? (
           qrDataUrl ? (
-            <img
+            <Image
               src={qrDataUrl}
               alt="QR Code"
+              width={size}
+              height={size}
+              unoptimized
               style={{ width: '100%', height: '100%', objectFit: 'contain' }}
             />
           ) : (

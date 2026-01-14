@@ -1,4 +1,5 @@
 "use client";
+import Image from "next/image";
 import React, { useState } from "react";
 
 export default function LabelPreview({ companyId }: { companyId?: string }) {
@@ -33,7 +34,15 @@ export default function LabelPreview({ companyId }: { companyId?: string }) {
         <button className="px-3 py-2 border" onClick={preview} disabled={loading}>Preview PNG</button>
         <a className="px-3 py-2 border" href="#" onClick={(e)=>{ e.preventDefault(); /* implement download by requesting ZPL then saving file */}}>Download ZPL</a>
       </div>
-      {imgUrl ? <img src={imgUrl} alt="label" /> : null}
+      {imgUrl ? (
+        <Image
+          src={imgUrl}
+          alt="label"
+          width={300}
+          height={300}
+          unoptimized
+        />
+      ) : null}
     </div>
   );
 }

@@ -2,11 +2,20 @@
 // Centralized billing configuration for RxTrace India
 
 export const PRICING = {
-  // Monthly subscription costs
-  handset_monthly: 200, // ₹200 per handset per month
-  seat_monthly: 50, // ₹50 per seat per month
+  // Label generation costs (per pricing page)
+  unit_label: 0.1, // ₹0.10 per unit label
+  box_label: 0.3, // ₹0.30 per box label
+  carton_label: 1.0, // ₹1.00 per carton label
+  pallet_label: 2.0, // ₹2.00 per pallet label (SSCC)
+  
+  // Handsets are currently unlimited in plans; keep for cost helpers.
+  handset_monthly: 0,
+  
+  // Subscription & add-ons
+  seat_monthly: 3000, // ₹3,000 per additional User ID per month
+  erp_integration_monthly: 3000, // ₹3,000 per additional ERP integration
 
-  // Per-scan costs
+  // Per-scan costs (if different from generation)
   box_scan: 0.1, // ₹0.10 per box scan
   carton_scan: 0.25, // ₹0.25 per carton scan
   pallet_scan: 0.5, // ₹0.50 per pallet scan
@@ -21,23 +30,44 @@ export const PRICING = {
     starter: {
       name: "Starter",
       max_handsets: 5,
-      max_seats: 3,
+      max_seats: 1,
+      max_integrations: 1,
+      unit_labels_quota: 200000,
+      box_labels_quota: 20000,
+      carton_labels_quota: 2000,
+      pallet_labels_quota: 500,
       default_credit_limit: 5000,
-      monthly_base: 0,
+      monthly_base: 18000,
+      quarterly_base: 50000,
+      annual_base: 200000,
     },
-    professional: {
-      name: "Professional",
+    growth: {
+      name: "Growth",
       max_handsets: 20,
-      max_seats: 10,
+      max_seats: 5,
+      max_integrations: 1,
+      unit_labels_quota: 1000000,
+      box_labels_quota: 200000,
+      carton_labels_quota: 20000,
+      pallet_labels_quota: 2000,
       default_credit_limit: 20000,
-      monthly_base: 0,
+      monthly_base: 49000,
+      quarterly_base: 135000,
+      annual_base: 500000,
     },
     enterprise: {
       name: "Enterprise",
       max_handsets: 100,
-      max_seats: 50,
+      max_seats: 10,
+      max_integrations: 1,
+      unit_labels_quota: 10000000,
+      box_labels_quota: 1000000,
+      carton_labels_quota: 100000,
+      pallet_labels_quota: 10000,
       default_credit_limit: 100000,
-      monthly_base: 0,
+      monthly_base: 200000,
+      quarterly_base: 500000,
+      annual_base: 2000000,
     },
   },
 } as const;
@@ -95,7 +125,8 @@ export function getBalanceStatus(
 }
 
 export function formatCurrency(amount: number): string {
-  return `₹${amount.toLocaleString("en-IN", {
+  const safeAmount = typeof amount === 'number' && Number.isFinite(amount) ? amount : 0;
+  return `₹${safeAmount.toLocaleString("en-IN", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;

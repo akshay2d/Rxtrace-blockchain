@@ -481,7 +481,7 @@ export default function PackagingRulesPage() {
                       : "bg-slate-200 text-slate-400 cursor-not-allowed"
                   }`}
                 >
-                  {loading ? "Saving..." : "💾 Save Packing Rule"}
+                  {loading ? "Saving..." : "💾 Set Packaging Rule"}
                 </button>
               </div>
             </div>

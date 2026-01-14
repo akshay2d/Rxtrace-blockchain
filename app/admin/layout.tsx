@@ -22,7 +22,8 @@ export default function AdminLayout({
       const { data: { user } } = await supabaseClient().auth.getUser();
       if (user) {
         setAdminEmail(user.email || '');
-        // TODO: Add role check here - for now, any logged-in user can access
+        // Admin role check: Only authenticated users can access
+        // For super-admin features, add additional role verification in specific pages
         // In production, check if user has admin role
       } else {
         router.push('/admin/signin');

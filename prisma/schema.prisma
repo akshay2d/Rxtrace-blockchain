@@ -80,14 +80,24 @@ model billing_transactions {
 // SEATS
 // -----------------------------------
 model seats {
-  id         String   @id @default(uuid())
-  company_id String
-  active     Boolean  @default(true)
-  created_at DateTime @default(now())
+  id           String    @id @default(uuid())
+  company_id   String
+  user_id      String?
+  email        String?
+  role         String?   @default("operator")
+  active       Boolean   @default(false)
+  status       String    @default("pending")
+  invited_at   DateTime?
+  activated_at DateTime?
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @default(now()) @updatedAt
 
   company companies @relation(fields: [company_id], references: [id])
 
   @@index([company_id])
+  @@index([user_id])
+  @@index([email])
+  @@index([status])
 }
 
 // -----------------------------------

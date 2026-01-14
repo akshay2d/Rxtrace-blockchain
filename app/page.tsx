@@ -20,8 +20,8 @@ export default function HomePage() {
           <nav className="hidden md:flex gap-8 text-sm font-medium">
             <Link href="/compliance">Compliance</Link>
             <Link href="/services">Services</Link>
-            <Link href="#pricing">Pricing</Link>
-            <Link href="#security">Security</Link>
+            <Link href="/pricing">Pricing</Link>
+            <Link href="/contact">Contact Us</Link>
           </nav>
           <div className="flex items-center gap-4">
             <LandingAuthLinks

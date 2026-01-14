@@ -30,22 +30,42 @@ export async function middleware(request: NextRequest) {
     }
   );
 
+  const pathname = request.nextUrl.pathname;
+
+  // Exempt /api/auth/* and /api/setup/* from all auth checks
+  if (pathname.startsWith('/api/auth') || pathname.startsWith('/api/setup')) {
+    return supabaseResponse;
+  }
+
   const {
     data: { session },
   } = await supabase.auth.getSession();
 
   // Protect everything under /dashboard and /regulator
   const isProtectedArea =
-    request.nextUrl.pathname.startsWith('/dashboard') ||
-    request.nextUrl.pathname.startsWith('/regulator');
+    pathname.startsWith('/dashboard') ||
+    pathname.startsWith('/regulator');
 
   if (isProtectedArea && !session) {
     return NextResponse.redirect(new URL('/auth/signin', request.url));
+  }
+
+  // If user is authenticated and accessing dashboard (except setup-company page), check for company
+  if (session && pathname.startsWith('/dashboard') && !pathname.startsWith('/dashboard/setup-company')) {
+    const { data: company } = await supabase
+      .from('companies')
+      .select('id')
+      .eq('user_id', session.user.id)
+      .single();
+
+    if (!company) {
+      return NextResponse.redirect(new URL('/dashboard/setup-company', request.url));
+    }
   }
 
   return supabaseResponse;
 }
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/regulator/:path*'],
+  matcher: ['/dashboard/:path*', '/regulator/:path*', '/api/:path*'],
 };
