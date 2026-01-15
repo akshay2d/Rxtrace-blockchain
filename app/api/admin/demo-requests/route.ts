@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { prisma } from '@/app/lib/prisma';
 
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 async function ensureDemoRequestsTable() {
   await prisma.$executeRawUnsafe(`create extension if not exists pgcrypto;`);
   await prisma.$executeRawUnsafe(`
