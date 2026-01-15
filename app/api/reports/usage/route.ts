@@ -16,7 +16,7 @@ export async function GET(req: Request) {
   const {
     data: { user },
     error: authError,
-  } = await supabaseServer().auth.getUser();
+  } = await (await supabaseServer()).auth.getUser();
 
   if (!user || authError) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });

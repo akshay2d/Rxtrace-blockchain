@@ -31,7 +31,7 @@ async function resolveCompanyPlanType(supabase: ReturnType<typeof getSupabaseAdm
 }
 
 async function resolveAuthCompanyId() {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const {
     data: { user },
     error,

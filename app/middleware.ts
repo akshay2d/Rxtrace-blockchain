@@ -32,8 +32,13 @@ export async function middleware(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname;
 
-  // Exempt /api/auth/* and /api/setup/* from all auth checks
-  if (pathname.startsWith('/api/auth') || pathname.startsWith('/api/setup')) {
+  // Exempt /api/auth/*, /api/setup/*, /pricing, /auth/verify, /onboarding, and /auth/callback from all auth checks
+  if (pathname.startsWith('/api/auth') || 
+      pathname.startsWith('/api/setup') ||
+      pathname === '/pricing' ||
+      pathname.startsWith('/onboarding') ||
+      pathname.startsWith('/auth/verify') ||
+      pathname.startsWith('/auth/callback')) {
     return supabaseResponse;
   }
 
@@ -50,16 +55,20 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL('/auth/signin', request.url));
   }
 
-  // If user is authenticated and accessing dashboard (except setup-company page), check for company
-  if (session && pathname.startsWith('/dashboard') && !pathname.startsWith('/dashboard/setup-company')) {
+  // If user is authenticated and accessing dashboard, check for company and subscription
+  if (session && pathname.startsWith('/dashboard')) {
     const { data: company } = await supabase
       .from('companies')
-      .select('id')
+      .select('id, subscription_status')
       .eq('user_id', session.user.id)
-      .single();
+      .maybeSingle();
 
     if (!company) {
-      return NextResponse.redirect(new URL('/dashboard/setup-company', request.url));
+      return NextResponse.redirect(new URL('/onboarding/setup', request.url));
+    }
+
+    if (!company.subscription_status) {
+      return NextResponse.redirect(new URL('/pricing', request.url));
     }
   }
 
@@ -67,5 +76,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/regulator/:path*', '/api/:path*'],
+  matcher: ['/dashboard/:path*', '/regulator/:path*', '/onboarding/:path*', '/api/:path*', '/pricing', '/auth/callback'],
 };

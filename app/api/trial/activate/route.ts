@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
     const {
       data: { user },
       error: authErr,
-    } = await supabaseServer().auth.getUser();
+    } = await (await supabaseServer()).auth.getUser();
 
     if (!user || authErr) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

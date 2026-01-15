@@ -13,7 +13,7 @@ export const dynamic = 'force-dynamic';
 export async function GET(req: Request) {
   try {
     // Only allow authenticated admins
-    const { data: { user }, error: authErr } = await supabaseServer().auth.getUser();
+    const { data: { user }, error: authErr } = await (await supabaseServer()).auth.getUser();
     if (!user || authErr) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }

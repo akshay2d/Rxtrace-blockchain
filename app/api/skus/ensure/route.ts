@@ -19,7 +19,7 @@ function normalizeText(value: unknown) {
 async function requireCompanyId() {
   const {
     data: { user },
-  } = await supabaseServer().auth.getUser();
+  } = await (await supabaseServer()).auth.getUser();
 
   if (!user) {
     return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };

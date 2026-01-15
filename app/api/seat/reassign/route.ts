@@ -15,7 +15,7 @@ function isValidEmail(email: string): boolean {
 }
 
 async function resolveAuthCompanyId() {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const {
     data: { user },
     error,

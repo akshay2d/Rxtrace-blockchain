@@ -5,204 +5,127 @@ import { useState } from 'react';
 import { supabaseClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useRouter } from 'next/navigation';
+import { getAppUrl } from '@/lib/config';
 
 export default function SignUp() {
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
   const router = useRouter();
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setLoading(true);
+    setError('');
 
     const formData = new FormData(e.currentTarget);
 
-    const data = {
-      email: formData.get('email') as string,
-      password: formData.get('password') as string,
-      company_name: formData.get('company_name') as string,
-      contact_person: formData.get('contact_person') as string,
-      phone: formData.get('phone') as string,
-      address: formData.get('address') as string,
-      gst_number: formData.get('gst_number') as string,
-      gtin_prefix: (formData.get('gtin_prefix') as string) || null,
-      total_skus: formData.get('total_skus') ? Number(formData.get('total_skus')) : null,
-      industry: formData.get('industry') as string,
-      business_type: formData.get('business_type') as string,
-      labels_per_month: (formData.get('labels_per_month') as string) || null,
-    };
+    const email = formData.get('email') as string;
+    const password = formData.get('password') as string;
+    const fullName = formData.get('full_name') as string;
 
-    // Check if user already exists
-    const { data: existingUser } = await supabaseClient().auth.signInWithPassword({
-      email: data.email,
-      password: 'dummy-check-password'
-    });
+    try {
+      // 1. Create Supabase account
+      const { data: authResponse, error: signUpError } = await supabaseClient().auth.signUp({
+        email,
+        password,
+        options: {
+          data: { full_name: fullName },
+          emailRedirectTo: `${getAppUrl()}/dashboard/setup-company`,
+        },
+      });
 
-    // If sign in didn't fail with "Invalid login credentials", user might exist
-    const { data: checkUser } = await supabaseClient()
-      .from('companies')
-      .select('email')
-      .eq('email', data.email)
-      .single();
-
-    if (checkUser) {
-      alert('⚠️ Account Already Exists!\n\nAn account with this email is already registered. Please sign in instead.');
-      setLoading(false);
-      router.push('/auth/signin');
-      return;
-    }
-
-    // 1. Sign up the user (disable email confirmation for smoother flow)
-    const { data: authResponse, error: signUpError } = await supabaseClient().auth.signUp({
-      email: data.email,
-      password: data.password,
-      options: {
-        data: { full_name: data.contact_person },
-        emailRedirectTo: typeof window !== 'undefined' 
-          ? `${window.location.origin}/auth/callback`
-          : 'https://rxtrace.in/auth/callback',
-      },
-    });
-
-    if (signUpError) {
-      // Check if error is due to user already existing
-      if (signUpError.message.includes('already registered') || 
-          signUpError.message.includes('User already registered')) {
-        alert('⚠️ Account Already Exists!\n\nThis email is already registered. Please sign in instead.');
+      if (signUpError) {
+        if (signUpError.message.includes('already registered') || 
+            signUpError.message.includes('User already registered')) {
+          setError('This email is already registered. Please sign in instead.');
+          setLoading(false);
+          setTimeout(() => router.push('/auth/signin'), 2000);
+          return;
+        }
+        setError(signUpError.message);
         setLoading(false);
-        router.push('/auth/signin');
         return;
       }
-      alert('Signup failed: ' + signUpError.message);
+
+      if (!authResponse.user) {
+        setError('Signup failed. Please try again.');
+        setLoading(false);
+        return;
+      }
+
+      // 2. Send OTP for verification
+      const otpResponse = await fetch('/api/auth/send-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+
+      if (!otpResponse.ok) {
+        const error = await otpResponse.json();
+        setError('Failed to send OTP: ' + (error.error || 'Unknown error'));
+        setLoading(false);
+        return;
+      }
+
+      // 3. Store email in localStorage for verification page
+      localStorage.setItem('pending_verification_email', email);
+      localStorage.setItem('pending_user_name', fullName);
+
+      // 4. Redirect to OTP verification page
+      router.push(`/auth/verify?email=${encodeURIComponent(email)}`);
+    } catch (error) {
+      console.error('Signup error:', error);
+      setError('An unexpected error occurred. Please try again.');
       setLoading(false);
-      return;
     }
-
-    if (!authResponse.user) {
-      alert('Signup failed — no user returned');
-      setLoading(false);
-      return;
-    }
-
-    // 2. Save company details (store in localStorage temporarily if email not confirmed)
-    const companyData = {
-      company_name: data.company_name,
-      contact_person: data.contact_person,
-      email: data.email,
-      phone: data.phone,
-      address: data.address,
-      gst_number: data.gst_number,
-      gtin_prefix: data.gtin_prefix,
-      total_skus: data.total_skus,
-      industry: data.industry,
-      business_type: data.business_type,
-      labels_per_month: data.labels_per_month,
-      user_id: authResponse.user.id,
-    };
-
-    // Try to save company details immediately
-    const { error: companyError } = await supabaseClient()
-      .from('companies')
-      .insert(companyData);
-
-    if (companyError) {
-      console.error('Error saving company:', companyError);
-      // Store company data in localStorage to save after email verification
-      localStorage.setItem('pending_company_data', JSON.stringify(companyData));
-    }
-
-    // Auto sign in and redirect to dashboard (email verification is optional in Supabase)
-    if (authResponse.session) {
-      // User is already logged in (email confirmation disabled in Supabase)
-      alert('✅ Registration Successful!\n\nYour account has been created. Redirecting to dashboard...');
-      router.push('/dashboard');
-    } else {
-      // If no session, redirect to signin (user can verify email later)
-      alert('✅ Registration Successful!\n\nPlease sign in with your credentials.');
-      router.push('/auth/signin');
-    }
-    setLoading(false);
   };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-orange-50 flex items-center justify-center p-4">
-      <Card className="max-w-2xl w-full p-8 shadow-2xl">
+      <Card className="max-w-md w-full p-8 shadow-2xl">
         <CardHeader className="text-center mb-6">
-          <CardTitle className="text-3xl font-bold text-[#0052CC]">Register Your Company</CardTitle>
-          <p className="text-gray-600 mt-2">GST optional • One-time registration</p>
+          <CardTitle className="text-3xl font-bold text-[#0052CC]">Create Account</CardTitle>
+          <p className="text-gray-600 mt-2">Start your 15-day free trial • No credit card required</p>
         </CardHeader>
 
         <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-5">
-            <Input name="company_name" placeholder="Company Name *" required />
-            <Input name="contact_person" placeholder="Contact Person Name *" required />
-            <Input name="email" type="email" placeholder="Email *" required />
-            <Input name="password" type="password" placeholder="Password (min 8 characters) *" required minLength={8} />
-            <Input name="phone" placeholder="Phone (with country code) *" required />
-            <textarea
-              name="address"
-              placeholder="Complete Address *"
-              className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-              rows={3}
-              required
-            />
-            <Input name="gst_number" placeholder="GST Number (optional)" />
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              <Input name="gtin_prefix" placeholder="GTIN Prefix (optional)" />
-              <Input name="total_skus" type="number" placeholder="Total SKUs (optional)" />
+          {error && (
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+              {error}
             </div>
+          )}
 
-            <Select name="industry" required>
-              <SelectTrigger>
-                <SelectValue placeholder="Industry *" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="Pharmaceutical">Pharmaceutical</SelectItem>
-                <SelectItem value="Packaged Food">Packaged Food</SelectItem>
-                <SelectItem value="Dairy Products">Dairy Products</SelectItem>
-                <SelectItem value="Others">Others</SelectItem>
-              </SelectContent>
-            </Select>
+          <form onSubmit={handleSubmit} className="space-y-5">
+            <Input name="full_name" placeholder="Full Name *" required />
+            <Input name="email" type="email" placeholder="Email Address *" required />
+            <Input 
+              name="password" 
+              type="password" 
+              placeholder="Password (min 8 characters) *" 
+              required 
+              minLength={8} 
+            />
 
-            <Select name="business_type" required>
-              <SelectTrigger>
-                <SelectValue placeholder="Business Type *" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="Manufacturer">Manufacturer</SelectItem>
-                <SelectItem value="Exporter">Exporter</SelectItem>
-                <SelectItem value="Both">Both</SelectItem>
-              </SelectContent>
-            </Select>
-
-            <Select name="labels_per_month">
-              <SelectTrigger>
-                <SelectValue placeholder="Labels per month (optional)" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="<10k">&lt; 10,000</SelectItem>
-                <SelectItem value="10k-50k">10,000 – 50,000</SelectItem>
-                <SelectItem value="50k-200k">50,000 – 2,00,000</SelectItem>
-                <SelectItem value=">200k">&gt; 2,00,000</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-gray-700">
+              <p className="font-semibold mb-2 text-[#0052CC]">📧 Email Verification with OTP</p>
+              <p>You&apos;ll receive a 6-digit code to verify your email address.</p>
+            </div>
 
             <Button
               type="submit"
               className="w-full bg-orange-500 hover:bg-orange-600 text-lg py-6"
               disabled={loading}
             >
-              {loading ? 'Creating Account...' : 'Register & Continue →'}
+              {loading ? 'Creating Account...' : 'Create Account & Get OTP'}
             </Button>
           </form>
 
           <p className="text-center mt-8 text-gray-600">
-            Already registered?{' '}
+            Already have an account?{' '}
             <a href="/auth/signin" className="text-[#0052CC] font-semibold hover:underline">
-              Sign In here
+              Sign In
             </a>
           </p>
         </CardContent>

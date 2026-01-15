@@ -74,7 +74,7 @@ function normalizeItems(raw: unknown): CartItemInput[] {
 }
 
 async function resolveAuthCompanyId() {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const {
     data: { user },
   } = await supabase.auth.getUser();

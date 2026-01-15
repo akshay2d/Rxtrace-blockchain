@@ -9,6 +9,7 @@ export async function POST(req: NextRequest) {
     const {
       user_id,
       company_name,
+      contact_person_name,
       firm_type,
       address,
       email,
@@ -20,9 +21,9 @@ export async function POST(req: NextRequest) {
     } = await req.json();
 
     // Validate required fields
-    if (!user_id || !company_name || !firm_type || !address || !email || !phone || !business_category || !business_type) {
+    if (!user_id || !company_name || !contact_person_name || !firm_type || !address || !email || !phone || !pan || !business_category || !business_type) {
       return NextResponse.json(
-        { error: 'Missing required fields' },
+        { error: 'Missing required fields. PAN card is mandatory.' },
         { status: 400 }
       );
     }
@@ -62,14 +63,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // For non-proprietorship, GST is mandatory
-    if (firm_type !== 'proprietorship' && !gst) {
-      return NextResponse.json(
-        { error: 'GST number is mandatory for Partnership/LLP/Pvt Ltd/Ltd' },
-        { status: 400 }
-      );
-    }
-
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     // Check if company already exists for this user
@@ -92,11 +85,12 @@ export async function POST(req: NextRequest) {
       .insert({
         user_id,
         company_name: company_name.trim(),
+        contact_person_name: contact_person_name.trim(),
         firm_type,
         address: address.trim(),
         email: email.toLowerCase().trim(),
         phone: phone.trim(),
-        pan: pan ? pan.toUpperCase().trim() : null,
+        pan: pan.toUpperCase().trim(),
         gst: gst ? gst.toUpperCase().trim() : null,
         business_category,
         business_type,

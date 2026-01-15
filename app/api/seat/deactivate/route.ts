@@ -4,7 +4,7 @@ import { supabaseServer } from "@/lib/supabase/server";
 import { writeAuditLog } from "@/lib/audit";
 
 async function resolveAuthCompanyId() {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const {
     data: { user },
     error,

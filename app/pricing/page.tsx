@@ -130,13 +130,20 @@ export default function PricingPage() {
 
   /* ---------- START FREE TRIAL (₹5 AUTH) ---------- */
   async function startFreeTrial() {
+    // Check if user needs to set up company first
+    if (!companyId) {
+      alert('⚠️ Please set up your company profile first');
+      window.location.href = '/onboarding/setup';
+      return;
+    }
+
     const ok = await loadRazorpay();
     if (!ok) return alert("Razorpay failed to load");
 
     const res = await fetch("/api/razorpay/create-order", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ amount: 1, purpose: "trial_auth" }),
+      body: JSON.stringify({ amount: 5, purpose: "trial_auth" }),
     });
 
     const body = await res.json();
@@ -156,9 +163,43 @@ export default function PricingPage() {
       amount: order.amount,
       currency: "INR",
       name: "RxTrace",
-      description: "15-day Free Trial Authorization",
-      handler: () => alert("15-day free trial activated"),
-      theme: { color: "#000000" },
+      description: "15-day Free Trial Authorization (₹5 refundable)",
+      handler: async (response: any) => {
+        try {
+          // Activate trial with payment details
+          const activateRes = await fetch('/api/trial/activate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              company_id: companyId,
+              plan: 'starter',
+              payment_id: response.razorpay_payment_id,
+              order_id: response.razorpay_order_id,
+              signature: response.razorpay_signature,
+            }),
+          });
+
+          const activateBody = await activateRes.json().catch(() => null);
+
+          if (activateRes.ok) {
+            alert('✅ 15-day free trial activated successfully!');
+            // Redirect to dashboard
+            window.location.href = '/dashboard';
+          } else {
+            alert('⚠️ Payment successful but trial activation failed. Please contact support.');
+            console.error('Trial activation error:', activateBody);
+          }
+        } catch (err) {
+          alert('⚠️ Payment processed but activation failed. Please contact support.');
+          console.error('Activation error:', err);
+        }
+      },
+      modal: {
+        ondismiss: () => {
+          alert('Payment cancelled. Please try again to activate your free trial.');
+        },
+      },
+      theme: { color: "#0052CC" },
     }).open();
   }
 
@@ -322,6 +363,27 @@ export default function PricingPage() {
         </p>
         </div>
       </section>
+
+      {/* Company Setup Alert */}
+      {!companyId && (
+        <div className="max-w-7xl mx-auto px-6 py-4">
+          <div className="bg-gradient-to-r from-orange-50 to-yellow-50 border-2 border-orange-300 rounded-xl p-4">
+            <div className="flex items-center gap-3">
+              <div className="text-2xl">⚠️</div>
+              <div className="flex-1">
+                <p className="font-semibold text-orange-900">Complete Company Setup First</p>
+                <p className="text-sm text-orange-700">You need to set up your company profile before starting a free trial.</p>
+              </div>
+              <a
+                href="/dashboard/setup-company"
+                className="px-5 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg font-semibold text-sm transition-colors whitespace-nowrap"
+              >
+                Setup Company →
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* PLANS */}
       <section className="max-w-7xl mx-auto px-6 py-16 grid md:grid-cols-3 gap-8">

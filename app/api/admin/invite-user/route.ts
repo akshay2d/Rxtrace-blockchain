@@ -8,7 +8,7 @@ import { sendInvitationEmail } from "@/lib/email";
 export async function POST(req: Request) {
   try {
     // Authenticate user
-    const { data: { user }, error: authErr } = await supabaseServer().auth.getUser();
+    const { data: { user }, error: authErr } = await (await supabaseServer()).auth.getUser();
     if (!user || authErr) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
