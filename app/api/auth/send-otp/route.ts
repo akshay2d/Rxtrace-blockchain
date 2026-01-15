@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
@@ -49,10 +52,15 @@ export async function POST(req: NextRequest) {
     // Send email
     try {
       await sendOTPEmail(email, otp);
-    } catch (emailError) {
-      console.error('Email error:', emailError);
+    } catch (emailError: any) {
+      console.error('Email error details:', {
+        message: emailError?.message,
+        stack: emailError?.stack,
+        code: emailError?.code,
+        response: emailError?.response?.data
+      });
       return NextResponse.json(
-        { error: 'Failed to send OTP email. Please check your email address.' },
+        { error: `Failed to send OTP email: ${emailError?.message || 'Unknown error'}` },
         { status: 500 }
       );
     }
@@ -132,8 +140,13 @@ async function sendOTPEmail(email: string, otp: string) {
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(`Resend API error: ${error.message || 'Unknown error'}`);
+      const errorData = await response.json().catch(() => ({}));
+      console.error('Resend API error:', {
+        status: response.status,
+        statusText: response.statusText,
+        error: errorData
+      });
+      throw new Error(`Resend API error (${response.status}): ${errorData.message || response.statusText}`);
     }
 
     return;
