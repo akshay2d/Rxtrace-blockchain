@@ -74,7 +74,10 @@ export default function SignIn() {
         }
         
         // Redirect to pricing if company exists but no active subscription or trial
-        if (companyData.subscription_status !== 'trial' && companyData.subscription_status !== 'active') {
+        const status = String(companyData.subscription_status ?? '').toLowerCase();
+        const allowed = new Set(['trial', 'trialing', 'active', 'paid', 'live']);
+
+        if (!allowed.has(status)) {
           router.push('/pricing');
           return;
         }

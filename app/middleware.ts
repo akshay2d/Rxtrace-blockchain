@@ -80,7 +80,10 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(new URL('/onboarding/setup', request.url));
     }
 
-    if (company.subscription_status !== 'trial' && company.subscription_status !== 'active') {
+    const status = String(company.subscription_status ?? '').toLowerCase();
+    const allowed = new Set(['trial', 'trialing', 'active', 'paid', 'live']);
+
+    if (!allowed.has(status)) {
       // Trial not activated yet - redirect to pricing
       return NextResponse.redirect(new URL('/pricing', request.url));
     }

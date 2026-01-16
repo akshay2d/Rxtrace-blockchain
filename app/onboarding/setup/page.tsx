@@ -47,16 +47,18 @@ export default function OnboardingSetupPage() {
 
       if (existingCompany?.id) {
         // Check if subscription is active or trial is still valid
-        if (existingCompany.subscription_status === 'trial' || existingCompany.subscription_status === 'active') {
+        const status = String(existingCompany.subscription_status ?? '').toLowerCase();
+        const allowed = new Set(['trial', 'trialing', 'active', 'paid', 'live']);
+
+        if (allowed.has(status)) {
           // Already has active trial or subscription - redirect to dashboard
           router.replace('/dashboard');
           return;
         }
+
         // If company exists but no active subscription/trial, redirect to pricing
-        if (!existingCompany.subscription_status) {
-          router.replace('/pricing');
-          return;
-        }
+        router.replace('/pricing');
+        return;
       }
 
       // Pre-fill email from auth user
