@@ -15,6 +15,8 @@ export default function OnboardingSetupPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [setupComplete, setSetupComplete] = useState(false);
+  const [companyId, setCompanyId] = useState('');
 
   // Form fields
   const [companyName, setCompanyName] = useState('');
@@ -115,10 +117,86 @@ export default function OnboardingSetupPage() {
         return;
       }
 
-      // Profile saved successfully - redirect to pricing page
-      router.push('/pricing?onboarding=true');
+      // Profile saved successfully - show trial activation button
+      setCompanyId(out.companyId);
+      setSetupComplete(true);
+      setSubmitting(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save profile');
+      setSubmitting(false);
+    }
+  };
+
+  const handleStartTrial = async () => {
+    setSubmitting(true);
+    setError('');
+
+    try {
+      const supabase = supabaseClient();
+      const { data: { user } } = await supabase.auth.getUser();
+
+      if (!user) {
+        router.replace('/auth/signin');
+        return;
+      }
+
+      // Load Razorpay script
+      const script = document.createElement('script');
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+      script.async = true;
+      document.body.appendChild(script);
+
+      script.onload = () => {
+        const options = {
+          key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
+          amount: 500, // ₹5 in paise
+          currency: 'INR',
+          name: 'RxTrace India',
+          description: 'Trial Activation Fee',
+          handler: async function (response: any) {
+            try {
+              // Verify payment and activate trial
+              const verifyRes = await fetch('/api/trial/activate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  payment_id: response.razorpay_payment_id,
+                  company_id: companyId,
+                  user_id: user.id,
+                }),
+              });
+
+              if (verifyRes.ok) {
+                router.push('/dashboard');
+              } else {
+                const errorData = await verifyRes.json();
+                setError(errorData.error || 'Failed to activate trial');
+                setSubmitting(false);
+              }
+            } catch (err) {
+              setError('Payment verification failed');
+              setSubmitting(false);
+            }
+          },
+          prefill: {
+            email: email,
+            contact: phone,
+          },
+          theme: {
+            color: '#0052CC',
+          },
+          modal: {
+            ondismiss: function() {
+              setSubmitting(false);
+            }
+          }
+        };
+
+        const razorpay = new (window as any).Razorpay(options);
+        razorpay.open();
+      };
+    } catch (err) {
+      setError('Failed to initialize payment');
       setSubmitting(false);
     }
   };
@@ -136,10 +214,12 @@ export default function OnboardingSetupPage() {
       <Card className="w-full max-w-3xl">
         <CardHeader>
           <CardTitle className="text-2xl text-[#0052CC]">
-            Company Profile Setup
+            {setupComplete ? 'Profile Setup Complete! 🎉' : 'Company Profile Setup'}
           </CardTitle>
           <p className="text-sm text-gray-600 mt-2">
-            Complete your company profile to proceed to pricing and trial activation
+            {setupComplete 
+              ? 'Your profile is saved. Activate your 15-day free trial with a one-time ₹5 payment.'
+              : 'Complete your company profile to proceed to trial activation'}
           </p>
         </CardHeader>
         <CardContent>
@@ -149,7 +229,39 @@ export default function OnboardingSetupPage() {
             </div>
           )}
 
-          <form onSubmit={handleProfileSubmit} className="space-y-4">
+          {setupComplete ? (
+            <div className="space-y-6">
+              <div className="bg-green-50 border border-green-200 rounded-lg p-6 text-center">
+                <p className="text-lg font-semibold text-green-800 mb-2">
+                  ✓ Company profile created successfully!
+                </p>
+                <p className="text-sm text-gray-700">
+                  Pay ₹5 to activate your 15-day free trial and start generating labels immediately.
+                </p>
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <p className="text-sm text-gray-700 mb-2">
+                  <strong>What you get with trial:</strong>
+                </p>
+                <ul className="text-sm text-gray-700 space-y-1 ml-4">
+                  <li>✓ Generate up to 1,000 labels</li>
+                  <li>✓ Full access to all features</li>
+                  <li>✓ GS1-compliant QR codes & barcodes</li>
+                  <li>✓ Real-time authentication</li>
+                </ul>
+              </div>
+
+              <Button
+                onClick={handleStartTrial}
+                className="w-full bg-orange-500 hover:bg-orange-600 text-lg py-6"
+                disabled={submitting}
+              >
+                {submitting ? 'Processing...' : 'Pay ₹5 & Start Free Trial →'}
+              </Button>
+            </div>
+          ) : (
+            <form onSubmit={handleProfileSubmit} className="space-y-4">
               {/* Company Name */}
               <Input
                 value={companyName}
@@ -262,9 +374,10 @@ export default function OnboardingSetupPage() {
                 className="w-full bg-orange-500 hover:bg-orange-600"
                 disabled={submitting || !companyName.trim() || !contactPersonName.trim() || !businessCategory || !businessType}
               >
-                {submitting ? 'Saving…' : 'Save Profile & Continue to Pricing →'}
+                {submitting ? 'Saving…' : 'Save Profile & Continue →'}
               </Button>
             </form>
+          )}
         </CardContent>
       </Card>
     </div>

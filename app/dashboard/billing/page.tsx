@@ -167,14 +167,27 @@ export default function BillingPage() {
                         return `${daysLeft} days left`;
                       })()}
                     </div>
-                    <div className="text-xs text-yellow-700 mt-1">
-                      Ends: {new Date(company.trial_end_date).toLocaleDateString('en-IN', {
-                        day: 'numeric',
-                        month: 'long',
-                        year: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit'
-                      })}
+                    <div className="text-xs text-yellow-700 mt-2 space-y-1">
+                      {company.trial_start_date && (
+                        <div>
+                          Starts: {new Date(company.trial_start_date).toLocaleDateString('en-IN', {
+                            day: 'numeric',
+                            month: 'long',
+                            year: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </div>
+                      )}
+                      <div>
+                        Ends: {new Date(company.trial_end_date).toLocaleDateString('en-IN', {
+                          day: 'numeric',
+                          month: 'long',
+                          year: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </div>
                     </div>
                   </div>
                 )}

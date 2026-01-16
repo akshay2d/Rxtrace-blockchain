@@ -38,9 +38,59 @@ function razorpayPlanIdFor(plan: string): string {
   return planId;
 }
 
+async function handleSimpleTrialActivation(payment_id: string, company_id: string, user_id: string) {
+  const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+  // Calculate trial end date (15 days from now)
+  const trialEndDate = new Date();
+  trialEndDate.setDate(trialEndDate.getDate() + 15);
+
+  // Update company with trial status
+  const { error: companyError } = await supabase
+    .from('companies')
+    .update({
+      subscription_status: 'trial',
+      trial_end_date: trialEndDate.toISOString(),
+      trial_activated_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', company_id)
+    .eq('user_id', user_id);
+
+  if (companyError) {
+    console.error('Company update error:', companyError);
+    return NextResponse.json({ error: 'Failed to activate trial' }, { status: 500 });
+  }
+
+  // Record billing transaction
+  await supabase.from('billing_transactions').insert({
+    company_id,
+    user_id,
+    amount: 5.0,
+    currency: 'INR',
+    status: 'success',
+    payment_method: 'razorpay',
+    payment_id,
+    description: 'Trial Activation Fee',
+    transaction_type: 'trial_activation',
+    created_at: new Date().toISOString(),
+  });
+
+  return NextResponse.json({
+    success: true,
+    message: 'Trial activated successfully',
+    trial_end_date: trialEndDate.toISOString(),
+  });
+}
+
 export async function POST(req: NextRequest) {
   try {
-    const { payment_id, order_id, signature, company_id, plan } = await req.json();
+    const { payment_id, order_id, signature, company_id, plan, user_id } = await req.json();
+
+    // Handle simple ₹5 trial activation (no order_id/signature)
+    if (!order_id && payment_id && company_id && user_id) {
+      return handleSimpleTrialActivation(payment_id, company_id, user_id);
+    }
 
     if (!payment_id || !order_id || !company_id || !plan) {
       return NextResponse.json(

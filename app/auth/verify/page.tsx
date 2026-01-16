@@ -119,15 +119,29 @@ function VerifyOTPContent() {
         return;
       }
 
-      // 2. Clear localStorage
+      // 2. Try to auto sign-in using stored credentials
+      const pendingPassword = localStorage.getItem('pending_verification_password') || '';
+
+      // Clear stored values regardless of outcome
       localStorage.removeItem('pending_verification_email');
       localStorage.removeItem('pending_user_name');
+      localStorage.removeItem('pending_verification_password');
 
-      // 3. Success message and redirect to company setup
-      setResendMessage('✅ Email verified successfully!');
-      setTimeout(() => {
-        router.push('/onboarding/setup');
-      }, 1500);
+      if (pendingPassword) {
+        const { error: signInError } = await supabaseClient().auth.signInWithPassword({
+          email,
+          password: pendingPassword,
+        });
+
+        if (signInError) {
+          // If sign-in fails, send user to signin page
+          router.replace('/auth/signin?verified=1');
+          return;
+        }
+      }
+
+      // 3. Redirect directly to company setup
+      router.replace('/onboarding/setup');
     } catch (error) {
       console.error('Verification error:', error);
       setError('An unexpected error occurred. Please try again.');

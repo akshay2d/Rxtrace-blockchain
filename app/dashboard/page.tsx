@@ -109,10 +109,12 @@ export default function DashboardPage() {
     return () => {
       mounted = false;
       window.clearInterval(id);
-      try {
-        controller.abort();
-      } catch {
-        // Ignore abort errors during cleanup
+      if (!controller.signal.aborted) {
+        try {
+          controller.abort();
+        } catch {
+          // Ignore abort errors during cleanup
+        }
       }
     };
   }, []);

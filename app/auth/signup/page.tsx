@@ -55,7 +55,25 @@ export default function SignUp() {
         return;
       }
 
-      // 2. Send OTP for verification
+      // Save user profile
+      await fetch('/api/auth/create-user-profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          email, 
+          fullName,
+          user_id: authResponse.user.id 
+        }),
+      }).catch(err => console.warn('Profile save failed:', err));
+
+      // 2. Send welcome email (non-blocking)
+      fetch('/api/auth/send-welcome', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, fullName }),
+      }).catch(err => console.warn('Welcome email failed:', err));
+
+      // 3. Send OTP for verification
       const otpResponse = await fetch('/api/auth/send-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -69,11 +87,13 @@ export default function SignUp() {
         return;
       }
 
-      // 3. Store email in localStorage for verification page
+      // 4. Store email in localStorage for verification page
       localStorage.setItem('pending_verification_email', email);
       localStorage.setItem('pending_user_name', fullName);
+      // Store password temporarily to auto sign-in after OTP verification
+      localStorage.setItem('pending_verification_password', password);
 
-      // 4. Redirect to OTP verification page
+      // 5. Redirect to OTP verification page
       router.push(`/auth/verify?email=${encodeURIComponent(email)}`);
     } catch (error) {
       console.error('Signup error:', error);
@@ -103,10 +123,14 @@ export default function SignUp() {
             <Input 
               name="password" 
               type="password" 
-              placeholder="Password (min 8 characters) *" 
+              placeholder="Password (min 8 characters, include letters & numbers) *" 
               required 
-              minLength={8} 
+              minLength={8}
+              autoComplete="new-password"
             />
+            <p className="text-xs text-gray-500 -mt-3">
+              Password must be at least 8 characters long
+            </p>
 
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-gray-700">
               <p className="font-semibold mb-2 text-[#0052CC]">📧 Email Verification with OTP</p>

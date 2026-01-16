@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { getAdminClient, fetchLatestOTP, deleteOTPById, markOTPVerified } from '@/lib/auth/otp';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+// Supabase admin client and helpers are centralized in lib/auth/otp
 
 export async function POST(req: NextRequest) {
   try {
@@ -25,17 +24,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const supabase = getAdminClient();
 
     // Fetch OTP record
-    const { data: otpRecord, error: fetchError } = await supabase
-      .from('otp_verifications')
-      .select('*')
-      .eq('email', email.toLowerCase())
-      .eq('verified', false)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    const { data: otpRecord, error: fetchError } = await fetchLatestOTP(email, supabase);
 
     if (fetchError) {
       console.error('Database fetch error:', fetchError);
@@ -58,10 +50,7 @@ export async function POST(req: NextRequest) {
 
     if (now > expiresAt) {
       // Delete expired OTP
-      await supabase
-        .from('otp_verifications')
-        .delete()
-        .eq('id', otpRecord.id);
+      await deleteOTPById(otpRecord.id, supabase);
 
       return NextResponse.json(
         { error: 'OTP has expired. Please request a new one.' },
@@ -77,11 +66,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Mark OTP as verified
-    const { error: updateError } = await supabase
-      .from('otp_verifications')
-      .update({ verified: true })
-      .eq('id', otpRecord.id);
+    // Mark OTP as verified in database
+    const { error: updateError } = await markOTPVerified(otpRecord.id, supabase);
 
     if (updateError) {
       console.error('Update error:', updateError);

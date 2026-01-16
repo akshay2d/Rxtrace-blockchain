@@ -94,7 +94,7 @@ export async function POST(req: NextRequest) {
         gst: gst ? gst.toUpperCase().trim() : null,
         business_category,
         business_type,
-        subscription_status: null, // Will be set after trial activation
+        subscription_status: null,
         created_at: new Date().toISOString(),
       })
       .select('id, company_name, email')
