@@ -32,13 +32,18 @@ export async function middleware(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname;
 
-  // Exempt /api/auth/*, /api/setup/*, /pricing, /auth/verify, /onboarding, and /auth/callback from all auth checks
+  // Exempt certain routes from all auth checks
   if (pathname.startsWith('/api/auth') || 
       pathname.startsWith('/api/setup') ||
       pathname === '/pricing' ||
-      pathname.startsWith('/onboarding') ||
       pathname.startsWith('/auth/verify') ||
-      pathname.startsWith('/auth/callback')) {
+      pathname.startsWith('/auth/callback') ||
+      pathname.startsWith('/auth/signin') ||
+      pathname.startsWith('/auth/signup') ||
+      pathname === '/onboarding/setup' ||
+      pathname === '/' ||
+      pathname.startsWith('/compliance') ||
+      pathname.startsWith('/contact')) {
     return supabaseResponse;
   }
 
@@ -57,17 +62,26 @@ export async function middleware(request: NextRequest) {
 
   // If user is authenticated and accessing dashboard, check for company and subscription
   if (session && pathname.startsWith('/dashboard')) {
-    const { data: company } = await supabase
+    // Always refresh company data to get latest subscription status after payment
+    const { data: company, error } = await supabase
       .from('companies')
       .select('id, subscription_status')
       .eq('user_id', session.user.id)
       .maybeSingle();
 
+    if (error) {
+      console.error('Error fetching company from middleware:', error);
+      // Allow access on error to prevent redirect loops
+      return supabaseResponse;
+    }
+
     if (!company) {
+      // No company profile yet - redirect to setup
       return NextResponse.redirect(new URL('/onboarding/setup', request.url));
     }
 
-    if (!company.subscription_status) {
+    if (company.subscription_status !== 'trial' && company.subscription_status !== 'active') {
+      // Trial not activated yet - redirect to pricing
       return NextResponse.redirect(new URL('/pricing', request.url));
     }
   }
@@ -76,5 +90,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/regulator/:path*', '/onboarding/:path*', '/api/:path*', '/pricing', '/auth/callback'],
+  matcher: ['/dashboard/:path*', '/regulator/:path*', '/api/:path*', '/pricing', '/auth/callback'],
 };

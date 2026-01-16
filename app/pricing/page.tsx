@@ -5,6 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { loadRazorpay } from "@/lib/razorpay";
 import { supabaseClient } from "@/lib/supabase/client";
+import { useRouter } from "next/navigation";
 
 /* ===================== TYPES ===================== */
 
@@ -92,11 +93,13 @@ function formatINRFromPaise(paise: number): string {
 /* ================================================== */
 
 export default function PricingPage() {
-
+  const router = useRouter();
   const [companyId, setCompanyId] = React.useState<string | null>(null);
+  const [company, setCompany] = React.useState<any>(null);
   const [cart, setCart] = React.useState<Record<string, number>>({});
   const [checkoutLoading, setCheckoutLoading] = React.useState(false);
   const [checkoutMessage, setCheckoutMessage] = React.useState<string | null>(null);
+  const [trialMessage, setTrialMessage] = React.useState<string | null>(null);
 
   const [qtyByKey, setQtyByKey] = React.useState<Record<string, string>>(() =>
     Object.fromEntries(ADDONS.map((a) => [a.key, ""]))
@@ -113,11 +116,14 @@ export default function PricingPage() {
 
         const { data: company } = await supabase
           .from("companies")
-          .select("id")
+          .select("id, subscription_status, trial_start_date, trial_end_date")
           .eq("user_id", user.id)
           .maybeSingle();
 
-        if (!cancelled) setCompanyId((company as any)?.id ?? null);
+        if (!cancelled) {
+          setCompany(company ?? null);
+          setCompanyId((company as any)?.id ?? null);
+        }
       } catch {
         // ignore
       }
@@ -130,15 +136,25 @@ export default function PricingPage() {
 
   /* ---------- START FREE TRIAL (₹5 AUTH) ---------- */
   async function startFreeTrial() {
+    setTrialMessage(null);
+
     // Check if user needs to set up company first
     if (!companyId) {
-      alert('⚠️ Please set up your company profile first');
-      window.location.href = '/onboarding/setup';
+      router.push('/onboarding/setup');
+      return;
+    }
+
+    // If trial or subscription already exists, send to billing
+    if (company?.subscription_status) {
+      router.push('/dashboard/billing');
       return;
     }
 
     const ok = await loadRazorpay();
-    if (!ok) return alert("Razorpay failed to load");
+    if (!ok) {
+      setTrialMessage('Razorpay failed to load. Please refresh and try again.');
+      return;
+    }
 
     const res = await fetch("/api/razorpay/create-order", {
       method: "POST",
@@ -151,10 +167,12 @@ export default function PricingPage() {
     const keyId = body?.keyId ?? process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
 
     if (!res.ok || !order?.id) {
-      return alert(order?.error || body?.error || "Failed to create order");
+      setTrialMessage(order?.error || body?.error || "Failed to create order");
+      return;
     }
     if (!keyId) {
-      return alert("Razorpay key not configured (NEXT_PUBLIC_RAZORPAY_KEY_ID)");
+      setTrialMessage("Razorpay key not configured (NEXT_PUBLIC_RAZORPAY_KEY_ID)");
+      return;
     }
 
     new (window as any).Razorpay({
@@ -182,26 +200,38 @@ export default function PricingPage() {
           const activateBody = await activateRes.json().catch(() => null);
 
           if (activateRes.ok) {
-            alert('✅ 15-day free trial activated successfully!');
-            // Redirect to dashboard
-            window.location.href = '/dashboard';
+            // Force refresh auth session to get updated company subscription status
+            await supabaseClient().auth.refreshSession();
+            
+            // Wait a moment for session to update
+            await new Promise(resolve => setTimeout(resolve, 500));
+            
+            // Redirect to dashboard - middleware will route appropriately
+            router.push('/dashboard');
           } else {
-            alert('⚠️ Payment successful but trial activation failed. Please contact support.');
+            setTrialMessage('Payment successful but trial activation failed. Please contact support.');
             console.error('Trial activation error:', activateBody);
           }
         } catch (err) {
-          alert('⚠️ Payment processed but activation failed. Please contact support.');
+          setTrialMessage('Payment processed but activation failed. Please contact support.');
           console.error('Activation error:', err);
         }
       },
       modal: {
         ondismiss: () => {
-          alert('Payment cancelled. Please try again to activate your free trial.');
+          setTrialMessage('Payment cancelled. Please try again to activate your free trial.');
         },
       },
       theme: { color: "#0052CC" },
     }).open();
   }
+
+  const trialEligible = Boolean(companyId && !company?.subscription_status);
+  const trialDisabledReason = !companyId
+    ? 'Complete company setup to start your free trial.'
+    : company?.subscription_status
+    ? 'Trial already active. Manage subscription in Billing.'
+    : null;
 
   const cartItems = React.useMemo(() => {
     const items = Object.entries(cart)
@@ -375,12 +405,20 @@ export default function PricingPage() {
                 <p className="text-sm text-orange-700">You need to set up your company profile before starting a free trial.</p>
               </div>
               <a
-                href="/dashboard/setup-company"
+                href="/onboarding/setup"
                 className="px-5 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg font-semibold text-sm transition-colors whitespace-nowrap"
               >
                 Setup Company →
               </a>
             </div>
+          </div>
+        </div>
+      )}
+
+      {trialMessage && (
+        <div className="max-w-7xl mx-auto px-6 pb-2">
+          <div className="bg-red-50 border border-red-200 text-red-800 rounded-lg p-3 text-sm">
+            {trialMessage}
           </div>
         </div>
       )}
@@ -402,8 +440,10 @@ export default function PricingPage() {
             "1 ERP integration",
             "Unlimited handsets",
           ]}
-          actionLabel="Start Free Trial"
-          onAction={startFreeTrial}
+          actionLabel={company?.subscription_status ? "Go to Billing" : "Start Free Trial"}
+          onAction={company?.subscription_status ? () => router.push('/dashboard/billing') : startFreeTrial}
+          disabled={!trialEligible}
+          disabledReason={trialDisabledReason}
         />
 
         <PlanCard
@@ -421,8 +461,10 @@ export default function PricingPage() {
             "1 ERP integration",
             "Unlimited handsets",
           ]}
-          actionLabel="Start Free Trial"
-          onAction={startFreeTrial}
+          actionLabel={company?.subscription_status ? "Go to Billing" : "Start Free Trial"}
+          onAction={company?.subscription_status ? () => router.push('/dashboard/billing') : startFreeTrial}
+          disabled={!trialEligible}
+          disabledReason={trialDisabledReason}
         />
 
         <PlanCard
@@ -439,8 +481,10 @@ export default function PricingPage() {
             "1 ERP integration",
             "Unlimited handsets",
           ]}
-          actionLabel="Start Free Trial"
-          onAction={startFreeTrial}
+          actionLabel={company?.subscription_status ? "Go to Billing" : "Start Free Trial"}
+          onAction={company?.subscription_status ? () => router.push('/dashboard/billing') : startFreeTrial}
+          disabled={!trialEligible}
+          disabledReason={trialDisabledReason}
         />
       </section>
 
@@ -746,6 +790,8 @@ function PlanCard({
   savings,
   actionLabel,
   onAction,
+  disabled = false,
+  disabledReason,
   highlight = false,
 }: {
   title: string;
@@ -755,6 +801,8 @@ function PlanCard({
   savings: string;
   actionLabel: string;
   onAction: () => void;
+  disabled?: boolean;
+  disabledReason?: string | null;
   highlight?: boolean;
 }) {
   return (
@@ -781,14 +829,21 @@ function PlanCard({
 
       <button
         onClick={onAction}
-        className={`mt-8 w-full py-3 rounded-lg font-semibold ${
-          highlight
+        disabled={disabled}
+        className={`mt-8 w-full py-3 rounded-lg font-semibold transition ${
+          disabled
+            ? "bg-slate-200 text-slate-500 cursor-not-allowed"
+            : highlight
             ? "bg-blue-600 text-white hover:bg-blue-700"
             : "border border-slate-300 hover:bg-blue-600 hover:text-white hover:border-blue-600"
         }`}
       >
         {actionLabel}
       </button>
+
+      {disabledReason && (
+        <p className="mt-3 text-xs text-slate-600">{disabledReason}</p>
+      )}
     </div>
   );
 }

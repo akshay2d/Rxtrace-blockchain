@@ -73,8 +73,8 @@ export default function SignIn() {
           return;
         }
         
-        // Redirect to pricing if company exists but no subscription
-        if (!companyData.subscription_status) {
+        // Redirect to pricing if company exists but no active subscription or trial
+        if (companyData.subscription_status !== 'trial' && companyData.subscription_status !== 'active') {
           router.push('/pricing');
           return;
         }

@@ -38,23 +38,25 @@ export default function OnboardingSetupPage() {
         return;
       }
 
-      // Check if company profile already exists with active subscription
+      // Check if company profile already exists with active subscription or trial
       const { data: existingCompany } = await supabase
         .from('companies')
         .select('id, company_name, subscription_status, trial_end_date')
         .eq('user_id', user.id)
         .maybeSingle();
 
-      if (existingCompany?.id && existingCompany.subscription_status) {
-        // Already has subscription or trial - redirect to dashboard
-        router.replace('/dashboard');
-        return;
-      }
-
-      // If company exists but no subscription, redirect to pricing
-      if (existingCompany?.id && !existingCompany.subscription_status) {
-        router.replace('/pricing');
-        return;
+      if (existingCompany?.id) {
+        // Check if subscription is active or trial is still valid
+        if (existingCompany.subscription_status === 'trial' || existingCompany.subscription_status === 'active') {
+          // Already has active trial or subscription - redirect to dashboard
+          router.replace('/dashboard');
+          return;
+        }
+        // If company exists but no active subscription/trial, redirect to pricing
+        if (!existingCompany.subscription_status) {
+          router.replace('/pricing');
+          return;
+        }
       }
 
       // Pre-fill email from auth user
