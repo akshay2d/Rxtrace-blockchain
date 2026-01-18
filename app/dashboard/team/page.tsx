@@ -409,7 +409,11 @@ export default function TeamManagementPage() {
 
   const activeSeats = seats.filter(s => s.status === "active");
   const pendingSeats = seats.filter(s => s.status === "pending");
-  const availableSeats = seatLimits ? seatLimits.available_seats : (companyPlan ? companyPlan.max_seats - (activeSeats.length + pendingSeats.length) : 0);
+  // Ensure minimum 1 active seat (primary user is always active)
+  const usedSeatsCount = Math.max(1, activeSeats.length);
+  const availableSeats = seatLimits 
+    ? seatLimits.available_seats 
+    : (companyPlan ? Math.max(0, companyPlan.max_seats - usedSeatsCount) : 0);
 
   const filteredSeats = seats.filter(s => 
     (s.email?.toLowerCase().includes(searchTerm.toLowerCase())) ||
@@ -474,47 +478,63 @@ export default function TeamManagementPage() {
         </div>
       )}
 
-      {/* Overview Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">Total User IDs</CardTitle>
-            <Users className="w-5 h-5 text-blue-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-gray-900">{companyPlan?.max_seats ?? 0}</div>
-            <p className="text-xs text-gray-500 mt-1">
-              {companyPlan ? companyPlan.plan.charAt(0).toUpperCase() + companyPlan.plan.slice(1) : ''} Plan
-            </p>
-          </CardContent>
-        </Card>
+      {/* Seat Summary Display (Required Format) */}
+      <Card className="border-gray-200">
+        <CardHeader>
+          <CardTitle className="text-lg font-semibold text-gray-900">Seat Usage</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            <div className="text-lg font-semibold text-gray-900">
+              Seats: {seatLimits ? seatLimits.max_seats : Math.max(1, companyPlan?.max_seats ?? 1)} total | {seatLimits ? Math.max(1, seatLimits.used_seats) : Math.max(1, activeSeats.length)} active | {availableSeats} available
+            </div>
+            <div className="grid md:grid-cols-3 gap-4">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardTitle className="text-sm font-medium text-gray-600">Total Allowed</CardTitle>
+                  <Users className="w-5 h-5 text-blue-600" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-3xl font-bold text-gray-900">
+                    {seatLimits ? seatLimits.max_seats : (companyPlan?.max_seats ?? 1)}
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {companyPlan ? companyPlan.plan.charAt(0).toUpperCase() + companyPlan.plan.slice(1) : ''} Plan
+                  </p>
+                </CardContent>
+              </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">Active Users</CardTitle>
-            <Shield className="w-5 h-5 text-green-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-gray-900">{activeSeats.length}</div>
-            <p className="text-xs text-gray-500 mt-1">
-              Currently using seats
-            </p>
-          </CardContent>
-        </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardTitle className="text-sm font-medium text-gray-600">Active Users</CardTitle>
+                  <Shield className="w-5 h-5 text-green-600" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-3xl font-bold text-gray-900">
+                    {seatLimits ? Math.max(1, seatLimits.used_seats) : usedSeatsCount}
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Currently using seats
+                  </p>
+                </CardContent>
+              </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">Available</CardTitle>
-            <Mail className="w-5 h-5 text-orange-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-gray-900">{availableSeats}</div>
-            <p className="text-xs text-gray-500 mt-1">
-              {pendingSeats.length > 0 && `${pendingSeats.length} pending invites`}
-            </p>
-          </CardContent>
-        </Card>
-      </div>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardTitle className="text-sm font-medium text-gray-600">Available</CardTitle>
+                  <Mail className="w-5 h-5 text-orange-600" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-3xl font-bold text-gray-900">{availableSeats}</div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {pendingSeats.length > 0 ? `${pendingSeats.length} pending invites` : 'Seats available'}
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Plan Limit Notice */}
       {availableSeats <= 0 && (

@@ -1,0 +1,779 @@
+'use client';
+
+import React, { useEffect, useState } from 'react';
+import Papa from 'papaparse';
+import { saveAs } from 'file-saver';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Download, Upload, FileText, AlertCircle, CheckCircle, XCircle } from 'lucide-react';
+import GenerateLabel from '@/lib/generateLabel';
+import { buildGs1ElementString } from '@/lib/gs1Builder';
+import IssuePrinterSelector, { Printer } from '@/components/IssuePrinterSelector';
+import QRCodeComponent from '@/components/custom/QRCodeComponent';
+import DataMatrixComponent from '@/components/custom/DataMatrixComponent';
+import { supabaseClient } from '@/lib/supabase/client';
+import { exportLabels as exportLabelsUtil, LabelData } from '@/lib/labelExporter';
+
+// ---------- Types ----------
+type Gs1Fields = {
+  gtin: string;
+  mfdYYMMDD?: string;
+  expiryYYMMDD?: string;
+  batch?: string;
+  mrp?: string;
+  sku?: string;
+  company?: string;
+  serial?: string;
+};
+
+type CodeType = 'QR' | 'DATAMATRIX';
+
+type UnitFormState = {
+  sku: string;
+  batch: string;
+  expiryDate: string;
+  quantity: number;
+  codeType: CodeType;
+  gtinSource: 'customer' | 'internal';
+  printerId: string;
+  mfdDate?: string;
+  mrp?: string;
+};
+
+type UnitBatchRow = {
+  id: string;
+  fields: Gs1Fields;
+  payload: string;
+  codeType: CodeType;
+};
+
+type CSVValidationError = {
+  row: number;
+  column: string;
+  message: string;
+};
+
+// ---------- Helpers ----------
+function generateGTIN(prefix = '890'): string {
+  const remainingDigits = 13 - prefix.length;
+  const random = Math.floor(Math.random() * Math.pow(10, remainingDigits))
+    .toString()
+    .padStart(remainingDigits, '0');
+  return `${prefix}${random}`;
+}
+
+function isoDateToYYMMDD(iso?: string): string | undefined {
+  if (!iso) return undefined;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return undefined;
+  const yy = String(d.getFullYear()).slice(-2);
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yy}${mm}${dd}`;
+}
+
+// ---------- CSV Template Generation ----------
+function downloadUnitCSVTemplate(companyName: string, companyId: string) {
+  const headers = [
+    'Company Name',
+    'Company ID',
+    'Generation Type',
+    'Code Format',
+    'GTIN Source',
+    'SKU Code',
+    'Batch Number',
+    'Expiry Date',
+    'Quantity',
+    'Product Name',
+    'MRP',
+    'Manufacturing Date'
+  ];
+
+  const exampleRow = [
+    companyName,
+    companyId,
+    'UNIT',
+    'QR',
+    'customer',
+    'SKU001',
+    'BATCH123',
+    '2025-12-31',
+    '10',
+    'Paracetamol 650mg',
+    '100.00',
+    '2024-01-15'
+  ];
+
+  const csv = Papa.unparse([headers, exampleRow], { header: true });
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  saveAs(blob, `UNIT_CODE_GENERATION_TEMPLATE_${new Date().toISOString().split('T')[0].replace(/-/g, '')}.csv`);
+}
+
+// ---------- CSV Validation ----------
+function validateUnitCSV(rows: Record<string, string>[], companyId: string): { valid: boolean; errors: CSVValidationError[] } {
+  const errors: CSVValidationError[] = [];
+  
+  rows.forEach((row, index) => {
+    const rowNum = index + 2; // +2 because row 1 is header, and index is 0-based
+    
+    // Required fields
+    if (!row['SKU Code']?.trim() && !row['sku_code']?.trim() && !row['SKU']?.trim()) {
+      errors.push({ row: rowNum, column: 'SKU Code', message: 'SKU Code is required' });
+    }
+    
+    if (!row['Batch Number']?.trim() && !row['batch_number']?.trim() && !row['BATCH']?.trim()) {
+      errors.push({ row: rowNum, column: 'Batch Number', message: 'Batch Number is required' });
+    }
+    
+    if (!row['Expiry Date']?.trim() && !row['expiry_date']?.trim() && !row['EXP']?.trim()) {
+      errors.push({ row: rowNum, column: 'Expiry Date', message: 'Expiry Date is required' });
+    }
+    
+    const qtyStr = row['Quantity'] || row['quantity'] || row['QTY'] || '1';
+    const qty = parseInt(qtyStr, 10);
+    if (isNaN(qty) || qty < 1) {
+      errors.push({ row: rowNum, column: 'Quantity', message: 'Quantity must be a positive integer' });
+    }
+    
+    // Validate date format
+    const expiryDate = row['Expiry Date'] || row['expiry_date'] || row['EXP'] || '';
+    if (expiryDate && !/^\d{4}-\d{2}-\d{2}$/.test(expiryDate) && !/^\d{6}$/.test(expiryDate)) {
+      errors.push({ row: rowNum, column: 'Expiry Date', message: 'Expiry Date must be YYYY-MM-DD or YYMMDD format' });
+    }
+  });
+  
+  return { valid: errors.length === 0, errors };
+}
+
+// ---------- CSV Processing ----------
+async function processUnitCSV(csvText: string, companyId: string, companyName: string, printerId: string): Promise<UnitBatchRow[]> {
+  const parsed = Papa.parse<Record<string, string>>(csvText, { header: true, skipEmptyLines: true });
+  const out: UnitBatchRow[] = [];
+
+  for (const row of parsed.data) {
+    const sku = (row['SKU Code'] || row['sku_code'] || row['SKU'] || '').toString().trim();
+    const batch = (row['Batch Number'] || row['batch_number'] || row['BATCH'] || '').toString().trim();
+    const expRaw = (row['Expiry Date'] || row['expiry_date'] || row['EXP'] || '').toString().trim();
+    const qty = Math.max(1, parseInt((row['Quantity'] || row['quantity'] || row['QTY'] || '1').toString(), 10) || 1);
+    const mrp = (row['MRP'] || row['mrp'] || '').toString().trim();
+    const mfdRaw = (row['Manufacturing Date'] || row['mfd'] || row['MFD'] || '').toString().trim();
+    const gtinSource = (row['GTIN Source'] || row['gtin_source'] || 'customer').toString().toLowerCase();
+    const codeType: CodeType = ((row['Code Format'] || row['code_format'] || 'QR').toString().toUpperCase() === 'DATAMATRIX') ? 'DATAMATRIX' : 'QR';
+    
+    // Generate or use customer GTIN
+    const gtin = gtinSource === 'customer' && row['GTIN']?.trim() 
+      ? row['GTIN'].trim() 
+      : generateGTIN();
+    
+    const mfdISO = mfdRaw.length === 6 ? `20${mfdRaw.slice(0,2)}-${mfdRaw.slice(2,4)}-${mfdRaw.slice(4,6)}` : mfdRaw;
+    const expISO = expRaw.length === 6 ? `20${expRaw.slice(0,2)}-${expRaw.slice(2,4)}-${expRaw.slice(4,6)}` : expRaw;
+
+    // Keep SKU master updated (non-blocking)
+    if (sku) {
+      try {
+        await fetch('/api/skus/ensure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sku_code: sku }),
+        });
+      } catch {
+        // ignore
+      }
+    }
+
+    // Generate unit codes via API
+    const res = await fetch('/api/issues', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        gtin,
+        batch,
+        mfd: mfdISO || null,
+        exp: expISO,
+        quantity: qty,
+        printer_id: printerId,
+        mrp: mrp || undefined,
+        sku: sku || undefined,
+        company: companyName || undefined
+      })
+    });
+
+    if (!res.ok) {
+      throw new Error(`Failed to generate codes for SKU: ${sku}`);
+    }
+
+    const result = await res.json();
+    result.items.forEach((item: any) => {
+      out.push({
+        id: `r${out.length + 1}`,
+        fields: {
+          gtin,
+          mfdYYMMDD: isoDateToYYMMDD(mfdISO),
+          expiryYYMMDD: isoDateToYYMMDD(expISO),
+          batch: batch || undefined,
+          mrp: mrp || undefined,
+          sku: sku || undefined,
+          company: companyName || undefined,
+          serial: item.serial
+        },
+        payload: item.gs1,
+        codeType: codeType
+      });
+    });
+  }
+
+  return out;
+}
+
+// ---------- Export Functions ----------
+function exportUnitCodesCSV(batch: UnitBatchRow[]): void {
+  const rows = batch.map((item, idx) => ({
+    'Row Number': idx + 1,
+    'GTIN': item.fields.gtin,
+    'Serial Number': item.fields.serial || '',
+    'Batch Number': item.fields.batch || '',
+    'Expiry Date': item.fields.expiryYYMMDD || '',
+    'SKU Code': item.fields.sku || '',
+    'GS1 Payload': item.payload,
+    'Code Format': item.codeType,
+    'Company Name': item.fields.company || ''
+  }));
+
+  const csv = Papa.unparse(rows, { header: true });
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const filename = `UNIT_CODE_GENERATION_${new Date().toISOString().split('T')[0].replace(/-/g, '')}.csv`;
+  saveAs(blob, filename);
+}
+
+// ---------- Main Component ----------
+export default function UnitCodeGenerationPage() {
+  const [form, setForm] = useState<UnitFormState>({
+    sku: '',
+    batch: '',
+    expiryDate: '',
+    quantity: 1,
+    codeType: 'QR',
+    gtinSource: 'customer',
+    printerId: '',
+    mfdDate: '',
+    mrp: ''
+  });
+
+  const [batch, setBatch] = useState<UnitBatchRow[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [printers, setPrinters] = useState<Printer[]>([]);
+  const [company, setCompany] = useState<string>('');
+  const [companyId, setCompanyId] = useState<string>('');
+  const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [csvValidation, setCsvValidation] = useState<{ valid: boolean; errors: CSVValidationError[] } | null>(null);
+  const [csvProcessing, setCsvProcessing] = useState(false);
+  const [skus, setSkus] = useState<Array<{ id: string; sku_code: string; sku_name: string | null }>>([]);
+
+  useEffect(() => {
+    (async () => {
+      const { data: { user } } = await supabaseClient().auth.getUser();
+      if (user) {
+        const { data } = await supabaseClient()
+          .from('companies')
+          .select('id, company_name')
+          .eq('user_id', user.id)
+          .single();
+        if (data?.company_name) {
+          setCompany(data.company_name);
+          setCompanyId(data.id);
+        }
+
+        // Fetch SKUs
+        const skuRes = await fetch('/api/skus', { cache: 'no-store' });
+        const skuData = await skuRes.json();
+        if (skuData?.skus) {
+          setSkus(skuData.skus);
+        }
+      }
+    })();
+  }, []);
+
+  async function fetchPrinters(): Promise<Printer[]> {
+    const res = await fetch('/api/printers');
+    if (res.ok) {
+      const data = await res.json();
+      setPrinters(data);
+      return data;
+    }
+    return [];
+  }
+
+  function update<K extends keyof UnitFormState>(k: K, v: UnitFormState[K]) {
+    setForm(s => ({ ...s, [k]: v }));
+  }
+
+  async function handleGenerateSingle() {
+    setError(null);
+    setSuccess(null);
+
+    if (!form.sku || !form.batch || !form.expiryDate) {
+      setError('SKU Code, Batch Number, and Expiry Date are required');
+      return;
+    }
+
+    try {
+      const gtin = form.gtinSource === 'customer' ? generateGTIN() : generateGTIN();
+      
+      const res = await fetch('/api/issues', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          gtin,
+          batch: form.batch,
+          mfd: form.mfdDate || null,
+          exp: form.expiryDate,
+          quantity: form.quantity,
+          printer_id: form.printerId,
+          mrp: form.mrp || undefined,
+          sku: form.sku || undefined,
+          company: company || undefined
+        })
+      });
+
+      if (!res.ok) {
+        const body = await res.json();
+        throw new Error(body.error || 'Failed to generate codes');
+      }
+
+      const result = await res.json();
+      const newRows: UnitBatchRow[] = result.items.map((item: any, idx: number) => ({
+        id: `s${batch.length + idx + 1}`,
+        fields: {
+          gtin,
+          mfdYYMMDD: isoDateToYYMMDD(form.mfdDate),
+          expiryYYMMDD: isoDateToYYMMDD(form.expiryDate),
+          batch: form.batch,
+          mrp: form.mrp,
+          sku: form.sku,
+          company: company || undefined,
+          serial: item.serial
+        },
+        payload: item.gs1,
+        codeType: form.codeType
+      }));
+
+      setBatch(prev => [...prev, ...newRows]);
+      setSuccess(`Generated ${newRows.length} unit code(s) successfully`);
+    } catch (e: any) {
+      setError(e?.message || 'Failed to generate codes');
+    }
+  }
+
+  async function handleCSVUpload(file: File) {
+    setError(null);
+    setSuccess(null);
+    setCsvValidation(null);
+    setCsvFile(file);
+
+    try {
+      const text = await file.text();
+      const parsed = Papa.parse<Record<string, string>>(text, { header: true, skipEmptyLines: true });
+      
+      // Validate CSV
+      const validation = validateUnitCSV(parsed.data, companyId);
+      setCsvValidation(validation);
+
+      if (!validation.valid) {
+        setError(`CSV validation failed. Please fix ${validation.errors.length} error(s) before generating codes.`);
+        return;
+      }
+
+      // Process CSV
+      setCsvProcessing(true);
+      const rows = await processUnitCSV(text, companyId, company, form.printerId);
+      setBatch(prev => [...prev, ...rows]);
+      setSuccess(`Processed CSV: Generated ${rows.length} unit code(s)`);
+    } catch (e: any) {
+      setError(e?.message || 'Failed to process CSV');
+    } finally {
+      setCsvProcessing(false);
+    }
+  }
+
+  function batchToLabelData(): LabelData[] {
+    return batch.map(item => ({
+      id: item.id,
+      payload: item.payload,
+      codeType: item.codeType,
+      displayText: `GTIN: ${item.fields.gtin} | Batch: ${item.fields.batch || 'N/A'} | Serial: ${item.fields.serial || 'N/A'}`,
+      metadata: item.fields
+    }));
+  }
+
+  async function handleExport(format: 'PDF' | 'PNG' | 'ZPL' | 'EPL' | 'ZIP' | 'PRINT') {
+    if (!batch.length) return;
+    setError(null);
+    try {
+      const labels = batchToLabelData();
+      await exportLabelsUtil(labels, format, `unit_labels_${Date.now()}`);
+    } catch (e: any) {
+      setError(e?.message || `Failed to export ${format}`);
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div>
+        <h1 className="text-3xl font-semibold text-gray-900 mb-1.5">Unit-Level Code Generation</h1>
+        <p className="text-sm text-gray-600">Generate GS1-compliant unit-level codes for saleable packs</p>
+      </div>
+
+      {/* Alerts */}
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {success && (
+        <Alert className="bg-green-50 border-green-200">
+          <CheckCircle className="h-4 w-4 text-green-600" />
+          <AlertDescription className="text-green-800">{success}</AlertDescription>
+        </Alert>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Form Section */}
+        <div className="lg:col-span-2 space-y-6">
+          {/* Single Generation Form */}
+          <Card className="border-gray-200">
+            <CardHeader>
+              <CardTitle className="text-lg font-semibold">Single Unit Generation</CardTitle>
+              <CardDescription>Generate unit codes one at a time</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="sku">SKU Code *</Label>
+                  <Select value={form.sku} onValueChange={(v) => update('sku', v)}>
+                    <SelectTrigger id="sku">
+                      <SelectValue placeholder="Select SKU" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {skus.map((s) => (
+                        <SelectItem key={s.id} value={s.sku_code}>
+                          {s.sku_code} {s.sku_name ? `- ${s.sku_name}` : ''}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <Label htmlFor="batch">Batch Number *</Label>
+                  <Input
+                    id="batch"
+                    value={form.batch}
+                    onChange={(e) => update('batch', e.target.value)}
+                    placeholder="BATCH123"
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="expiry">Expiry Date *</Label>
+                  <Input
+                    id="expiry"
+                    type="date"
+                    value={form.expiryDate}
+                    onChange={(e) => update('expiryDate', e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="quantity">Quantity *</Label>
+                  <Input
+                    id="quantity"
+                    type="number"
+                    min="1"
+                    value={form.quantity}
+                    onChange={(e) => update('quantity', parseInt(e.target.value) || 1)}
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="codeType">Code Format</Label>
+                  <Select value={form.codeType} onValueChange={(v) => update('codeType', v as CodeType)}>
+                    <SelectTrigger id="codeType">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="QR">GS1 QR Code</SelectItem>
+                      <SelectItem value="DATAMATRIX">GS1 DataMatrix</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <Label htmlFor="gtinSource">GTIN Source</Label>
+                  <Select value={form.gtinSource} onValueChange={(v) => update('gtinSource', v as 'customer' | 'internal')}>
+                    <SelectTrigger id="gtinSource">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="customer">Customer GS1</SelectItem>
+                      <SelectItem value="internal">RxTrace Internal</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {form.gtinSource === 'internal' && (
+                    <p className="text-xs text-amber-600 mt-1">
+                      Internal GTINs are valid for India only and may not be export compliant
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <Label htmlFor="mfd">Manufacturing Date (Optional)</Label>
+                  <Input
+                    id="mfd"
+                    type="date"
+                    value={form.mfdDate || ''}
+                    onChange={(e) => update('mfdDate', e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="mrp">MRP (Optional)</Label>
+                  <Input
+                    id="mrp"
+                    type="text"
+                    value={form.mrp || ''}
+                    onChange={(e) => update('mrp', e.target.value)}
+                    placeholder="100.00"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <Label htmlFor="printer">Printer (Optional)</Label>
+                <IssuePrinterSelector
+                  printers={printers}
+                  selectedPrinter={form.printerId}
+                  onChange={(v) => update('printerId', v || '')}
+                  fetchPrinters={fetchPrinters}
+                />
+              </div>
+
+              <Button onClick={handleGenerateSingle} className="w-full bg-blue-600 hover:bg-blue-700">
+                Generate Unit Codes
+              </Button>
+            </CardContent>
+          </Card>
+
+          {/* CSV Bulk Generation */}
+          <Card className="border-gray-200">
+            <CardHeader>
+              <CardTitle className="text-lg font-semibold">Bulk Unit Generation (CSV)</CardTitle>
+              <CardDescription>Upload CSV file for bulk unit code generation</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* CSV Template Download */}
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-900 mb-1">Download CSV Template</h4>
+                    <p className="text-xs text-gray-600">
+                      Use this template to prepare your unit code generation data
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => downloadUnitCSVTemplate(company, companyId)}
+                    className="border-gray-300"
+                  >
+                    <Download className="w-4 h-4 mr-2" />
+                    Download Template
+                  </Button>
+                </div>
+              </div>
+
+              {/* CSV Example Preview */}
+              <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                <h4 className="text-sm font-semibold text-gray-900 mb-2">CSV Column Requirements</h4>
+                <div className="text-xs text-gray-700 space-y-1">
+                  <p><strong>Required:</strong> SKU Code, Batch Number, Expiry Date, Quantity</p>
+                  <p><strong>Optional:</strong> Product Name, MRP, Manufacturing Date, GTIN (if customer-provided)</p>
+                  <p><strong>Auto-filled:</strong> Company Name, Company ID, Generation Type, Code Format, GTIN Source</p>
+                </div>
+              </div>
+
+              {/* CSV Upload */}
+              <div>
+                <Label htmlFor="csv-upload">Upload CSV File</Label>
+                <div className="flex gap-2 mt-2">
+                  <Input
+                    id="csv-upload"
+                    type="file"
+                    accept=".csv,text/csv"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleCSVUpload(file);
+                      e.currentTarget.value = '';
+                    }}
+                    disabled={csvProcessing}
+                  />
+                  {csvFile && (
+                    <Badge variant="outline" className="flex items-center gap-1">
+                      <FileText className="w-3 h-3" />
+                      {csvFile.name}
+                    </Badge>
+                  )}
+                </div>
+              </div>
+
+              {/* CSV Validation Results */}
+              {csvValidation && (
+                <div className={`p-4 rounded-lg border ${
+                  csvValidation.valid 
+                    ? 'bg-green-50 border-green-200' 
+                    : 'bg-red-50 border-red-200'
+                }`}>
+                  <div className="flex items-center gap-2 mb-2">
+                    {csvValidation.valid ? (
+                      <CheckCircle className="w-4 h-4 text-green-600" />
+                    ) : (
+                      <XCircle className="w-4 h-4 text-red-600" />
+                    )}
+                    <span className={`text-sm font-semibold ${
+                      csvValidation.valid ? 'text-green-800' : 'text-red-800'
+                    }`}>
+                      {csvValidation.valid 
+                        ? 'CSV validation passed' 
+                        : `CSV validation failed: ${csvValidation.errors.length} error(s)`}
+                    </span>
+                  </div>
+                  
+                  {csvValidation.errors.length > 0 && (
+                    <div className="mt-3 space-y-2">
+                      <p className="text-xs font-semibold text-red-800">Validation Errors:</p>
+                      <div className="max-h-48 overflow-y-auto">
+                        <table className="w-full text-xs">
+                          <thead className="bg-red-100">
+                            <tr>
+                              <th className="px-2 py-1 text-left">Row</th>
+                              <th className="px-2 py-1 text-left">Column</th>
+                              <th className="px-2 py-1 text-left">Error</th>
+                            </tr>
+                          </thead>
+                          <tbody className="bg-white">
+                            {csvValidation.errors.map((err, idx) => (
+                              <tr key={idx} className="border-b">
+                                <td className="px-2 py-1">{err.row}</td>
+                                <td className="px-2 py-1">{err.column}</td>
+                                <td className="px-2 py-1 text-red-700">{err.message}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {csvProcessing && (
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
+                  Processing CSV file...
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Preview & Batch Section */}
+        <div className="lg:col-span-1 space-y-6">
+          {/* Batch Queue */}
+          <Card className="border-gray-200">
+            <CardHeader>
+              <CardTitle className="text-lg font-semibold">Generated Unit Codes</CardTitle>
+              <CardDescription>{batch.length} unit code(s) generated</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3 max-h-96 overflow-y-auto mb-4">
+                {batch.length === 0 ? (
+                  <div className="text-center py-8 text-gray-400">
+                    <FileText className="w-10 h-10 mx-auto mb-2" />
+                    <p className="text-sm">No unit codes generated yet</p>
+                  </div>
+                ) : (
+                  batch.map((b) => (
+                    <div key={b.id} className="p-3 border border-gray-200 rounded-lg bg-gray-50">
+                      <div className="text-xs font-mono text-gray-600 mb-2 break-all line-clamp-2">{b.payload}</div>
+                      <div className="flex justify-center py-2 bg-white rounded overflow-hidden">
+                        {b.codeType === 'QR' ? (
+                          <QRCodeComponent value={b.payload} size={70} />
+                        ) : (
+                          <DataMatrixComponent value={b.payload} size={70} />
+                        )}
+                      </div>
+                      <div className="text-xs text-gray-600 mt-2">
+                        GTIN: {b.fields.gtin} | Serial: {b.fields.serial || 'N/A'}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {batch.length > 0 && (
+                <div className="space-y-2 pt-4 border-t">
+                  <Button
+                    onClick={() => exportUnitCodesCSV(batch)}
+                    variant="outline"
+                    className="w-full border-gray-300"
+                  >
+                    <Download className="w-4 h-4 mr-2" />
+                    Export Unit Codes CSV
+                  </Button>
+                  <Button
+                    onClick={() => handleExport('PDF')}
+                    className="w-full bg-blue-600 hover:bg-blue-700"
+                  >
+                    Export PDF
+                  </Button>
+                  <Button
+                    onClick={() => handleExport('ZIP')}
+                    variant="outline"
+                    className="w-full border-gray-300"
+                  >
+                    Export ZIP (PNGs)
+                  </Button>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      onClick={() => handleExport('ZPL')}
+                      variant="outline"
+                      size="sm"
+                      className="border-gray-300"
+                    >
+                      ZPL
+                    </Button>
+                    <Button
+                      onClick={() => handleExport('EPL')}
+                      variant="outline"
+                      size="sm"
+                      className="border-gray-300"
+                    >
+                      EPL
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}

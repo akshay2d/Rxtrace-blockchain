@@ -4,6 +4,95 @@ import { useCallback, useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { formatCurrency } from '@/lib/billingConfig';
+import { PRICING } from '@/lib/billingConfig';
+import { normalizePlanType } from '@/lib/billing/period';
+
+// Seat summary component (inline for billing page)
+function SeatSummaryDisplay({ company }: { company: any }) {
+  const [seatLimits, setSeatLimits] = useState<{
+    max_seats: number;
+    used_seats: number;
+    available_seats: number;
+  } | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!company?.id) {
+      setLoading(false);
+      return;
+    }
+
+    // Calculate fallback from company data (same logic as team page)
+    const planRaw = company?.subscription_plan ?? company?.plan_type ?? company?.plan ?? company?.tier;
+    const planType = normalizePlanType(planRaw) ?? 'starter';
+    const baseMax = PRICING.plans[planType]?.max_seats ?? 1;
+    const extra = Number(company?.extra_user_seats ?? 0);
+    const maxSeatsFallback = Math.max(1, baseMax + (Number.isFinite(extra) ? extra : 0));
+
+    // Fetch seat limits from API
+    fetch(`/api/admin/seat-limits?company_id=${company.id}`)
+      .then((res) => res.json())
+      .then((body) => {
+        if (body?.max_seats !== undefined) {
+          setSeatLimits({
+            max_seats: Math.max(1, Number(body.max_seats)),
+            used_seats: Math.max(1, Number(body.used_seats ?? 1)), // Minimum 1 (primary user)
+            available_seats: Math.max(0, Number(body.available_seats ?? 0)),
+          });
+        } else {
+          // Fallback to calculated values
+          setSeatLimits({
+            max_seats: maxSeatsFallback,
+            used_seats: 1, // At least primary user is active
+            available_seats: Math.max(0, maxSeatsFallback - 1),
+          });
+        }
+      })
+      .catch(() => {
+        // Fallback to calculated values on error
+        setSeatLimits({
+          max_seats: maxSeatsFallback,
+          used_seats: 1,
+          available_seats: Math.max(0, maxSeatsFallback - 1),
+        });
+      })
+      .finally(() => setLoading(false));
+  }, [company?.id, company?.subscription_plan, company?.extra_user_seats]);
+
+  if (loading || !seatLimits) {
+    return <div className="text-sm text-gray-500">Loading seat information...</div>;
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="text-lg font-semibold text-gray-900">
+        Seats: {seatLimits.max_seats} total | {seatLimits.used_seats} active | {seatLimits.available_seats} available
+      </div>
+      <div className="grid md:grid-cols-3 gap-4">
+        <div className="rounded-md border border-gray-200 p-4 bg-gray-50">
+          <div className="text-sm text-gray-600 mb-1">Total Allowed</div>
+          <div className="text-2xl font-semibold text-gray-900">{seatLimits.max_seats}</div>
+        </div>
+        <div className="rounded-md border border-gray-200 p-4 bg-blue-50">
+          <div className="text-sm text-gray-600 mb-1">Active Users</div>
+          <div className="text-2xl font-semibold text-blue-900">{seatLimits.used_seats}</div>
+        </div>
+        <div className="rounded-md border border-gray-200 p-4 bg-green-50">
+          <div className="text-sm text-gray-600 mb-1">Available</div>
+          <div className="text-2xl font-semibold text-green-900">{seatLimits.available_seats}</div>
+        </div>
+      </div>
+      {seatLimits.available_seats === 0 && (
+        <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+          <p className="font-medium mb-1">Seat limit reached</p>
+          <p className="text-xs text-amber-700">
+            Purchase additional seats to invite more users. Additional seats: ₹3,000/month each.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function BillingPage() {
   const [loading, setLoading] = useState(false);
@@ -234,16 +323,40 @@ export default function BillingPage() {
               </div>
             )}
 
+            {/* Payment Status Banner */}
+            {(company.subscription_status === 'pending' || company.subscription_status === 'past_due' || 
+              (company as any)?.razorpay_subscription_status === 'pending' || 
+              (company as any)?.razorpay_subscription_status === 'past_due') && (
+              <div className="p-4 bg-amber-50 border-2 border-amber-300 rounded-lg">
+                <p className="text-sm font-semibold text-amber-900 mb-1">Payment Status: Pending</p>
+                <p className="text-xs text-amber-800">
+                  Your subscription payment is pending. Please complete payment to restore full access.
+                  Invite User and Upgrade actions are disabled until payment is confirmed.
+                </p>
+              </div>
+            )}
+
             {/* Action Buttons */}
             <div className="grid md:grid-cols-2 gap-3 pt-4 border-t">
-              <Button asChild variant="outline" size="lg" className="w-full">
+              <Button 
+                asChild 
+                variant="outline" 
+                size="lg" 
+                className="w-full"
+                disabled={
+                  company.subscription_status === 'pending' || 
+                  company.subscription_status === 'past_due' ||
+                  (company as any)?.razorpay_subscription_status === 'pending' ||
+                  (company as any)?.razorpay_subscription_status === 'past_due'
+                }
+              >
                 <a href="/dashboard/billing/upgrade">
-                  <span className="text-base">⬆️ Upgrade Plan</span>
+                  <span className="text-base">Upgrade Plan</span>
                 </a>
               </Button>
               <Button asChild variant="destructive" size="lg" className="w-full">
                 <a href="/dashboard/billing/cancel">
-                  <span className="text-base">🚫 Cancel Subscription</span>
+                  <span className="text-base">Cancel Subscription</span>
                 </a>
               </Button>
             </div>
@@ -258,34 +371,88 @@ export default function BillingPage() {
         </Card>
       )}
 
+      {/* Company Profile Section */}
+      <Card className="border-gray-200">
+        <CardHeader>
+          <CardTitle className="text-lg font-semibold text-gray-900">Company Profile</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {company && company.company_name ? (
+            <div className="space-y-4">
+              <div className="grid md:grid-cols-2 gap-4 text-sm">
+                <div>
+                  <span className="text-gray-600">Company Name:</span>
+                  <p className="font-medium text-gray-900 mt-1">{company.company_name}</p>
+                </div>
+                {company.pan && (
+                  <div>
+                    <span className="text-gray-600">PAN:</span>
+                    <p className="font-medium text-gray-900 mt-1">{company.pan}</p>
+                  </div>
+                )}
+                {company.gst && (
+                  <div>
+                    <span className="text-gray-600">GST:</span>
+                    <p className="font-medium text-gray-900 mt-1">{company.gst}</p>
+                  </div>
+                )}
+                {company.address && (
+                  <div className="md:col-span-2">
+                    <span className="text-gray-600">Address:</span>
+                    <p className="font-medium text-gray-900 mt-1">{company.address}</p>
+                  </div>
+                )}
+              </div>
+              <div className="pt-2 border-t">
+                <Button asChild variant="outline" className="border-gray-300">
+                  <a href="/dashboard/settings">Edit Company Profile</a>
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-sm text-gray-600">Company profile is not set up yet.</p>
+              <Button asChild className="bg-blue-600 hover:bg-blue-700">
+                <a href="/dashboard/settings">Set Up Company Profile</a>
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Seat Usage Summary */}
+      {company && (
+        <Card className="border-gray-200">
+          <CardHeader>
+            <CardTitle className="text-lg font-semibold text-gray-900">Seat Usage</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <SeatSummaryDisplay company={company} />
+          </CardContent>
+        </Card>
+      )}
+
       {/* Add-ons */}
       {company && (
-        <Card>
+        <Card className="border-gray-200">
           <CardHeader>
-            <CardTitle>Add-ons</CardTitle>
+            <CardTitle className="text-lg font-semibold text-gray-900">Add-ons</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
-            <div className="grid sm:grid-cols-2 gap-4">
-              <div className="rounded-md border p-3">
-                <div className="text-gray-500">Extra User IDs (Seats)</div>
-                <div className="text-lg font-semibold">
-                  {Number((company as any)?.extra_user_seats ?? 0) || 0}
-                </div>
+            <div className="rounded-md border border-gray-200 p-4 bg-gray-50">
+              <div className="text-gray-600 mb-1">Additional User IDs (Seats)</div>
+              <div className="text-2xl font-semibold text-gray-900">
+                {Number((company as any)?.extra_user_seats ?? 0) || 0}
               </div>
-              <div className="rounded-md border p-3">
-                <div className="text-gray-500">Extra ERP Integrations</div>
-                <div className="text-lg font-semibold">
-                  {Number((company as any)?.extra_erp_integrations ?? 0) || 0}
-                </div>
-              </div>
+              <p className="text-xs text-gray-500 mt-2">Additional seats purchased beyond plan limits</p>
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-              <div className="text-gray-600">
-                Purchase add-ons (labels, seats, integrations) from the pricing page.
+              <div className="text-gray-600 text-sm">
+                Purchase additional seats or labels from the pricing page.
               </div>
-              <Button asChild size="sm">
-                <a href="/pricing">Buy add-ons</a>
+              <Button asChild size="sm" variant="outline" className="border-gray-300">
+                <a href="/pricing">Buy Add-ons</a>
               </Button>
             </div>
           </CardContent>

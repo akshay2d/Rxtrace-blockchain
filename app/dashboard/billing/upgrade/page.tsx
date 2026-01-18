@@ -3,6 +3,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 type CompanySubscription = {
   subscription_plan?: string | null;
@@ -28,6 +38,8 @@ export default function UpgradePlanPage() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [result, setResult] = useState<UpgradeResult | null>(null);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [pendingConfirm, setPendingConfirm] = useState(false);
 
   const planOptions = useMemo(() => {
     const availability = razorpay?.planAvailability;
@@ -182,8 +194,12 @@ export default function UpgradePlanPage() {
             </select>
           </div>
 
-          <Button onClick={upgrade} disabled={loading || !razorpay?.configured || !hasAnyConfiguredPlan}>
-            {loading ? 'Processing…' : 'Upgrade'}
+          <Button 
+            onClick={() => setShowConfirmModal(true)} 
+            disabled={loading || !razorpay?.configured || !hasAnyConfiguredPlan}
+            className="bg-blue-600 hover:bg-blue-700"
+          >
+            {loading ? 'Processing…' : 'Upgrade Plan'}
           </Button>
 
           {result?.short_url ? (
@@ -196,6 +212,54 @@ export default function UpgradePlanPage() {
           ) : null}
         </CardContent>
       </Card>
+
+      {/* Razorpay Upgrade Confirmation Modal */}
+      <AlertDialog open={showConfirmModal} onOpenChange={setShowConfirmModal}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm Plan Change</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-3 pt-2">
+              <div>
+                <p className="text-sm text-gray-700 mb-2">
+                  Your plan change will take effect as per Razorpay billing cycle.
+                </p>
+                <div className="bg-gray-50 p-3 rounded-md space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Current Plan:</span>
+                    <span className="font-medium text-gray-900">
+                      {company?.subscription_plan ? String(company.subscription_plan).replace(/_/g, ' ').toUpperCase() : 'None'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">New Plan:</span>
+                    <span className="font-medium text-gray-900">
+                      {planOptions.find(p => p.key === plan)?.label || plan.replace(/_/g, ' ').toUpperCase()}
+                    </span>
+                  </div>
+                </div>
+                <p className="text-xs text-gray-600 mt-3">
+                  Plan changes are processed by Razorpay at your next billing cycle. You will receive a confirmation email once the change is processed.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={loading || pendingConfirm}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={async () => {
+                setPendingConfirm(true);
+                setShowConfirmModal(false);
+                await upgrade();
+                setPendingConfirm(false);
+              }}
+              disabled={loading || pendingConfirm}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              {pendingConfirm ? 'Processing...' : 'Confirm Upgrade'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -319,6 +319,98 @@ export default function Page() {
         </div>
       </div>
 
+      {/* Password & Security Section */}
+      <div className="bg-white border border-gray-200 rounded-2xl shadow-sm">
+        <div className="p-8 space-y-6">
+          <div>
+            <h2 className="text-xl font-medium">Password & Security</h2>
+            <p className="text-sm text-gray-500 mt-1">
+              Update your account password. Use a strong password for better security.
+            </p>
+          </div>
+
+          <form 
+            onSubmit={(e) => {
+              e.preventDefault();
+              // UI-only validation - no backend implementation
+              const form = e.currentTarget;
+              const currentPassword = (form.currentPassword as HTMLInputElement).value;
+              const newPassword = (form.newPassword as HTMLInputElement).value;
+              const confirmPassword = (form.confirmPassword as HTMLInputElement).value;
+
+              if (!currentPassword || !newPassword || !confirmPassword) {
+                alert('All password fields are required');
+                return;
+              }
+
+              if (newPassword !== confirmPassword) {
+                alert('New password and confirm password do not match');
+                return;
+              }
+
+              if (newPassword.length < 8) {
+                alert('New password must be at least 8 characters long');
+                return;
+              }
+
+              // UI-only - actual password update would be handled by backend
+              alert('Password update functionality will be implemented by backend API');
+              form.reset();
+            }}
+            className="grid grid-cols-1 md:grid-cols-2 gap-6"
+          >
+            {/* Current Password */}
+            <div>
+              <label className="label">Current Password *</label>
+              <input
+                name="currentPassword"
+                type="password"
+                className="input"
+                placeholder="Enter current password"
+                required
+              />
+            </div>
+
+            {/* New Password */}
+            <div>
+              <label className="label">New Password *</label>
+              <input
+                name="newPassword"
+                type="password"
+                className="input"
+                placeholder="Enter new password (min 8 characters)"
+                required
+                minLength={8}
+              />
+              <p className="text-xs text-gray-500 mt-1">Password must be at least 8 characters long</p>
+            </div>
+
+            {/* Confirm New Password */}
+            <div className="md:col-span-2">
+              <label className="label">Confirm New Password *</label>
+              <input
+                name="confirmPassword"
+                type="password"
+                className="input"
+                placeholder="Confirm new password"
+                required
+                minLength={8}
+              />
+            </div>
+
+            {/* Footer */}
+            <div className="md:col-span-2 flex items-center justify-end pt-4 border-t">
+              <button
+                type="submit"
+                className="btn-primary px-6 py-2"
+              >
+                Update Password
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
       {/* Company Profile Section */}
       <div className="bg-white border border-gray-200 rounded-2xl shadow-sm">
         <div className="p-8 space-y-6">

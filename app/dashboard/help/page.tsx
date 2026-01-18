@@ -10,42 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { HelpCircle, MessageSquare, FileText, Send } from 'lucide-react';
-
-// Zoho SalesIQ Script Component
-function ZohoSalesIQWidget() {
-  useEffect(() => {
-    // Load Zoho SalesIQ script
-    const script = document.createElement('script');
-    script.type = 'text/javascript';
-    script.innerHTML = `
-      var $zoho = $zoho || {};
-      $zoho.salesiq = $zoho.salesiq || {
-        widgetcode: "YOUR_ZOHO_SALESIQ_WIDGET_CODE",
-        values: {},
-        ready: function() {}
-      };
-      var d = document;
-      s = d.createElement("script");
-      s.type = "text/javascript";
-      s.id = "zsiqscript";
-      s.defer = true;
-      s.src = "https://salesiq.zoho.in/widget";
-      t = d.getElementsByTagName("script")[0];
-      t.parentNode.insertBefore(s, t);
-    `;
-    document.body.appendChild(script);
-
-    return () => {
-      // Cleanup: Remove script on unmount
-      const existingScript = document.getElementById('zsiqscript');
-      if (existingScript) {
-        existingScript.remove();
-      }
-    };
-  }, []);
-
-  return null;
-}
+import TawkToChat from '@/components/TawkToChat';
 
 // FAQ Data
 const faqData = {
@@ -142,13 +107,29 @@ export default function HelpSupportPage() {
   });
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState<string>('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
+    setError('');
 
-    // Simulate form submission (UI only - actual email sending would be handled by backend)
-    setTimeout(() => {
+    try {
+      const res = await fetch('/api/support/request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData),
+      });
+
+      const result = await res.json().catch(() => ({}));
+
+      if (!res.ok || !result?.success) {
+        setError(result?.error || 'Failed to submit request. Please try again.');
+        setSubmitting(false);
+        return;
+      }
+
+      // Success - reset form and show success message
       setSubmitted(true);
       setSubmitting(false);
       setFormData({
@@ -159,10 +140,13 @@ export default function HelpSupportPage() {
         priority: 'normal',
         message: '',
       });
-      
+
       // Reset success message after 5 seconds
       setTimeout(() => setSubmitted(false), 5000);
-    }, 1000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to submit request. Please try again.');
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -173,8 +157,8 @@ export default function HelpSupportPage() {
         <p className="text-sm text-gray-600">Get assistance with technical issues, billing, and compliance</p>
       </div>
 
-      {/* Zoho SalesIQ Widget - Only visible on this page */}
-      <ZohoSalesIQWidget />
+      {/* Tawk.to Chat Widget - Only visible on this page */}
+      <TawkToChat />
 
       {/* Tabs */}
       <Tabs defaultValue="faq" className="space-y-6">
@@ -285,7 +269,7 @@ export default function HelpSupportPage() {
               {submitted ? (
                 <div className="p-6 bg-green-50 border border-green-200 rounded-lg text-center">
                   <p className="text-green-800 font-medium mb-1">Request submitted successfully</p>
-                  <p className="text-sm text-green-700">We will respond to your query at the provided email address.</p>
+                  <p className="text-sm text-green-700">Your request has been received. Our support team will contact you shortly.</p>
                 </div>
               ) : (
                 <form onSubmit={handleSubmit} className="space-y-4">
@@ -373,6 +357,12 @@ export default function HelpSupportPage() {
                     />
                   </div>
 
+                  {error && (
+                    <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                      <p className="text-sm text-red-800">{error}</p>
+                    </div>
+                  )}
+
                   <div className="flex justify-end">
                     <Button type="submit" disabled={submitting} className="bg-blue-600 hover:bg-blue-700">
                       {submitting ? 'Submitting...' : 'Submit Request'}
@@ -399,11 +389,11 @@ export default function HelpSupportPage() {
             <CardContent>
               <div className="p-8 text-center border-2 border-dashed border-gray-300 rounded-lg">
                 <HelpCircle className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-700 font-medium mb-2">Zoho SalesIQ Chat Widget</p>
+                <p className="text-gray-700 font-medium mb-2">Tawk.to Live Chat</p>
                 <p className="text-sm text-gray-600 mb-4">
                   The chat widget is loaded on this page. Look for the chat icon in the bottom-right corner to start a conversation.
                 </p>
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-gray-500 mb-4">
                   Available for: Technical issues, Billing queries, Audit & Compliance questions
                 </p>
               </div>

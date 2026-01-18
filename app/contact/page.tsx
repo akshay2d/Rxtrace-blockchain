@@ -2,9 +2,9 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import Script from "next/script";
 import { useState } from "react";
 import { ChevronDown, ChevronUp, Mail, Phone, MapPin, MessageCircle } from "lucide-react";
+import TawkToChat from "@/components/TawkToChat";
 
 // FAQ data
 const faqs = [
@@ -46,7 +46,7 @@ const faqs = [
   },
   {
     question: "What support options are available?",
-    answer: "We offer email support, live chat through Zoho SalesIQ (available on this page), and dedicated account managers for enterprise customers. Our team is available Monday to Saturday, 9 AM to 6 PM IST."
+    answer: "We offer email support, live chat through Tawk.to (available on this page), and dedicated account managers for enterprise customers. Our team is available Monday to Saturday, 9 AM to 6 PM IST."
   }
 ];
 
@@ -224,19 +224,8 @@ export default function ContactPage() {
         </div>
       </footer>
 
-      {/* Zoho SalesIQ Chat Widget */}
-      <Script
-        id="zsiq-init"
-        strategy="lazyOnload"
-        dangerouslySetInnerHTML={{
-          __html: `window.$zoho=window.$zoho || {};$zoho.salesiq=$zoho.salesiq||{ready:function(){}}`
-        }}
-      />
-      <Script
-        id="zsiqscript"
-        src="https://salesiq.zohopublic.com/widget?wc=siqcecfcedfa5b305691e74550295f8139f35985d3ba57ce52b89d13d30f45a4642"
-        strategy="lazyOnload"
-      />
+      {/* Tawk.to Chat Widget - Client-side only */}
+      <TawkToChat />
     </main>
   );
 }

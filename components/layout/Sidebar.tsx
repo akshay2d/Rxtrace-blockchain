@@ -24,7 +24,7 @@ import { cn } from "@/lib/utils";
 const MENU = [
   { label: "Dashboard", path: "/dashboard", icon: LayoutDashboard },
   { label: "SKU Master", path: "/dashboard/sku", icon: Package },
-  { label: "Code Generation", path: "/dashboard/generate", icon: QrCode },
+  { label: "Code Generation", path: "/dashboard/code-generation", icon: QrCode },
   { label: "Trace Hierarchy", path: "/dashboard/search", icon: Boxes },
   { label: "Scan Logs", path: "/dashboard/scans", icon: ScanLine },
   { label: "Reports", path: "/dashboard/audit", icon: FileText },
