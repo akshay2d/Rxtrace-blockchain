@@ -8,6 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "billing:cron": "powershell -ExecutionPolicy Bypass -File scripts/test-billing-cron.ps1",
+    "test:gs1": "node scripts/test-gs1-roundtrip.js",
+    "test:gs1:ts": "tsx scripts/test-gs1-roundtrip.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {

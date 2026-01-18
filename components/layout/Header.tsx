@@ -2,19 +2,36 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { supabaseClient } from "@/lib/supabase/client";
+import { Bell, LogOut, User, Settings as SettingsIcon } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Badge } from "@/components/ui/badge";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 type HeaderState = {
   companyName: string | null;
   profileInitial: string;
+  userEmail: string | null;
 };
 
 export default function Header() {
+  const router = useRouter();
   const [state, setState] = useState<HeaderState>({
     companyName: null,
     profileInitial: "A",
+    userEmail: null,
   });
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [showWelcomeNotification, setShowWelcomeNotification] = useState(false);
 
-  const companyText = useMemo(() => state.companyName ?? "RxTrace India", [state.companyName]);
+  const companyText = useMemo(() => state.companyName ?? "RxTrace", [state.companyName]);
 
   useEffect(() => {
     let cancelled = false;
@@ -37,11 +54,18 @@ export default function Header() {
           setState({
             companyName: body?.company?.company_name ?? null,
             profileInitial: initial,
+            userEmail: user.email ?? null,
           });
-          return;
+        } else {
+          setState((prev) => ({ ...prev, profileInitial: initial, userEmail: user.email ?? null }));
         }
 
-        setState((prev) => ({ ...prev, profileInitial: initial }));
+        // Check for first login welcome notification
+        const hasSeenWelcome = localStorage.getItem("rxtrace_welcome_seen");
+        if (!hasSeenWelcome) {
+          setShowWelcomeNotification(true);
+          setUnreadCount(1);
+        }
       } catch {
         // keep header stable even if fetch fails
       }
@@ -52,24 +76,115 @@ export default function Header() {
     };
   }, []);
 
-  return (
-    <header className="h-14 bg-white border-b flex items-center justify-end px-6 gap-6">
-      {/* Alerts */}
-      <button
-        aria-label="Alerts"
-        className="text-gray-500 hover:text-gray-700"
-      >
-        🔔
-      </button>
+  const handleSignOut = async () => {
+    await supabaseClient().auth.signOut();
+    router.push("/auth/signin");
+  };
 
-      {/* Company */}
-      <div className="text-sm text-gray-700">
-        {companyText}
+  const handleMarkAsRead = () => {
+    setUnreadCount(0);
+    setShowWelcomeNotification(false);
+    localStorage.setItem("rxtrace_welcome_seen", "true");
+  };
+
+  return (
+    <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6">
+      {/* Left: Application Name */}
+      <div className="flex items-center">
+        <h1 className="text-xl font-semibold text-gray-900">RxTrace</h1>
       </div>
 
-      {/* Profile */}
-      <div className="w-8 h-8 rounded-full bg-blue-700 text-white flex items-center justify-center text-sm font-semibold">
-        {state.profileInitial}
+      {/* Right: Actions */}
+      <div className="flex items-center gap-4">
+        {/* Notification Bell */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              className="relative p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-md transition"
+              aria-label="Notifications"
+            >
+              <Bell className="w-5 h-5" />
+              {unreadCount > 0 && (
+                <Badge className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-xs bg-red-500 border-0">
+                  {unreadCount}
+                </Badge>
+              )}
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-80">
+            <DropdownMenuLabel>Notifications</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {showWelcomeNotification ? (
+              <div className="p-4">
+                <div className="space-y-2">
+                  <p className="text-sm font-medium text-gray-900">
+                    Welcome to RxTrace
+                  </p>
+                  <p className="text-sm text-gray-600">
+                    Your system is ready for pharmaceutical traceability.
+                  </p>
+                  <div className="flex gap-2 mt-3">
+                    <Link
+                      href="/dashboard"
+                      onClick={handleMarkAsRead}
+                      className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition"
+                    >
+                      Go to Dashboard
+                    </Link>
+                    <button
+                      onClick={handleMarkAsRead}
+                      className="text-xs px-3 py-1.5 text-gray-600 hover:bg-gray-100 rounded-md transition"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="p-4 text-sm text-gray-500 text-center">
+                No new notifications
+              </div>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        {/* Company Name */}
+        {state.companyName && (
+          <div className="hidden md:block text-sm text-gray-600 px-3 py-1.5 bg-gray-50 rounded-md">
+            {companyText}
+          </div>
+        )}
+
+        {/* Profile Dropdown */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="w-9 h-9 rounded-full bg-blue-700 text-white flex items-center justify-center text-sm font-semibold hover:bg-blue-800 transition">
+              {state.profileInitial}
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuLabel>
+              <div className="flex flex-col space-y-1">
+                <p className="text-sm font-medium">Account</p>
+                {state.userEmail && (
+                  <p className="text-xs text-gray-500 truncate">{state.userEmail}</p>
+                )}
+              </div>
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem asChild>
+              <Link href="/dashboard/settings" className="cursor-pointer">
+                <SettingsIcon className="w-4 h-4 mr-2" />
+                Settings
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={handleSignOut} className="cursor-pointer text-red-600 focus:text-red-600">
+              <LogOut className="w-4 h-4 mr-2" />
+              Sign Out
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </header>
   );

@@ -2,42 +2,13 @@ import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { assertCompanyCanOperate, ensureActiveBillingUsage } from "@/lib/billing/usage";
+import { generateCanonicalGS1 } from "@/lib/gs1Canonical";
 
 // ---------- utils ----------
-const pad2 = (n: number) => n.toString().padStart(2, "0");
-
-const toYYMMDD = (d: string | Date) => {
-  const dt = new Date(d);
-  return (
-    dt.getFullYear().toString().slice(-2) +
-    pad2(dt.getMonth() + 1) +
-    pad2(dt.getDate())
-  );
-};
-
 const generateSerial = (companyId: string) =>
   `U${companyId.slice(0, 4)}${Date.now().toString(36)}${crypto
     .randomBytes(3)
     .toString("hex")}`;
-
-const buildGS1 = (p: {
-  gtin: string;
-  expiry: string;
-  mfd: string;
-  batch: string;
-  serial: string;
-  mrp: number;
-  sku: string;
-  company: string;
-}) =>
-  `(01)${p.gtin}` +
-  `(17)${toYYMMDD(p.expiry)}` +
-  `(11)${toYYMMDD(p.mfd)}` +
-  `(10)${p.batch}` +
-  `(21)${p.serial}` +
-  `(91)${p.mrp.toFixed(2)}` +
-  `(92)${p.sku}` +
-  `(93)${p.company}`;
 
 // ---------- API ----------
 export async function POST(req: Request) {
@@ -121,10 +92,59 @@ export async function POST(req: Request) {
     if (skuErr || !sku) throw skuErr;
 
     // ---------- UNIT GENERATION ----------
-    const rows = Array.from({ length: qty }).map(() => {
-      const serial = generateSerial(company_id);
+    // Generate units with uniqueness validation
+    const rows: any[] = [];
+    const maxAttempts = 10; // Maximum retries per unit to avoid infinite loops
+    
+    for (let i = 0; i < qty; i++) {
+      let serial: string;
+      let attempts = 0;
+      let isUnique = false;
+      
+      // Generate unique serial with retry logic
+      while (!isUnique && attempts < maxAttempts) {
+        serial = generateSerial(company_id);
+        
+        // Check if serial already exists for this company/GTIN/batch combination
+        const { data: existing } = await supabase
+          .from("labels_units")
+          .select("id")
+          .eq("company_id", company_id)
+          .eq("gtin", gtin)
+          .eq("batch", batch)
+          .eq("serial", serial)
+          .maybeSingle();
+        
+        if (!existing) {
+          isUnique = true;
+        } else {
+          attempts++;
+          // Add small delay to avoid timestamp collisions
+          await new Promise(resolve => setTimeout(resolve, 1));
+        }
+      }
+      
+      if (!isUnique) {
+        await supabase.rpc('billing_usage_refund', { p_company_id: company_id, p_kind: 'unit', p_qty: qty });
+        return NextResponse.json(
+          { error: `Failed to generate unique serial after ${maxAttempts} attempts for unit ${i + 1}` },
+          { status: 500 }
+        );
+      }
 
-      return {
+      // Generate canonical GS1 payload (machine format, no parentheses)
+      const gs1Payload = generateCanonicalGS1({
+        gtin,
+        expiry,
+        mfgDate: mfd,
+        batch,
+        serial: serial!,
+        mrp: Number(mrp),
+        sku: sku_code,
+        company: company_name || ""
+      });
+
+      rows.push({
         company_id,
         sku_id: sku.id,
         gtin,
@@ -132,22 +152,22 @@ export async function POST(req: Request) {
         mfd,
         expiry,
         mrp,
-        serial,
-        gs1_payload: buildGS1({
-          gtin,
-          expiry,
-          mfd,
-          batch,
-          serial,
-          mrp: Number(mrp),
-          sku: sku_code,
-          company: company_name || ""
-        })
-      };
-    });
+        serial: serial!,
+        gs1_payload: gs1Payload
+      });
+    }
 
+    // Insert all rows in a single transaction
     const { error } = await supabase.from("labels_units").insert(rows);
     if (error) {
+      // Check if it's a uniqueness constraint violation
+      if (error.code === '23505' || error.message?.includes('unique')) {
+        await supabase.rpc('billing_usage_refund', { p_company_id: company_id, p_kind: 'unit', p_qty: qty });
+        return NextResponse.json(
+          { error: "Duplicate serial detected. Please try again." },
+          { status: 409 }
+        );
+      }
       await supabase.rpc('billing_usage_refund', { p_company_id: company_id, p_kind: 'unit', p_qty: qty });
       throw error;
     }

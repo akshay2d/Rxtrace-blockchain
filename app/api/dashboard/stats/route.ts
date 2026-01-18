@@ -95,6 +95,34 @@ export async function GET() {
       return NextResponse.json({ error: scansErr.message }, { status: 500 });
     }
 
+    // Scan breakdown by expiry status (CRITICAL BLOCKER FIX)
+    const { data: scanLogs, error: scanLogsErr } = await supabase
+      .from('scan_logs')
+      .select('metadata, status')
+      .eq('company_id', companyId);
+
+    if (scanLogsErr) {
+      console.warn('Could not fetch scan breakdown:', scanLogsErr.message);
+    }
+
+    const validProductScans = (scanLogs || []).filter(log => {
+      const expiryStatus = log.metadata?.expiry_status;
+      return expiryStatus === 'VALID' || (!expiryStatus && log.status === 'SUCCESS');
+    }).length;
+
+    const expiredProductScans = (scanLogs || []).filter(log => {
+      const expiryStatus = log.metadata?.expiry_status;
+      return expiryStatus === 'EXPIRED' || (log.metadata?.error_reason === 'PRODUCT_EXPIRED');
+    }).length;
+
+    const duplicateScans = (scanLogs || []).filter(log => {
+      return log.metadata?.status === 'DUPLICATE';
+    }).length;
+
+    const errorScans = (scanLogs || []).filter(log => {
+      return log.status === 'ERROR' || log.status === 'FAILED';
+    }).length;
+
     // Active handsets
     const { count: activeHandsets, error: handsetsErr } = await supabase
       .from('handsets')
@@ -149,6 +177,12 @@ export async function GET() {
       total_scans: totalScans ?? 0,
       active_handsets: activeHandsets ?? 0,
       active_seats: activeSeats ?? 0,
+      scan_breakdown: {
+        valid_product_scans: validProductScans,
+        expired_product_scans: expiredProductScans,
+        duplicate_scans: duplicateScans,
+        error_scans: errorScans,
+      },
       label_generation: {
         unit: activeUsage ? toNumber((activeUsage as any).unit_labels_used) : 0,
         box: activeUsage ? toNumber((activeUsage as any).box_labels_used) : 0,

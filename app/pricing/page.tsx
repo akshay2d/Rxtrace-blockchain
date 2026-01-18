@@ -55,13 +55,7 @@ const ADDONS: AddOn[] = [
     unitPricePaise: 3000 * 100,
     quantityPlaceholder: "e.g. 1",
   },
-  {
-    key: "erp",
-    name: "Additional ERP integration",
-    priceLabel: "₹3,000 / month",
-    unitPricePaise: 3000 * 100,
-    quantityPlaceholder: "e.g. 1",
-  },
+  // ERP removed: 1 ERP integration per User ID is FREE (not sold as add-on)
 ];
 
 function parseQuantity(input: string): number | null {

@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-type AddonKind = "unit" | "box" | "carton" | "pallet" | "userid" | "erp";
+type AddonKind = "unit" | "box" | "carton" | "pallet" | "userid";
 
 type CartItemInput = {
   kind: AddonKind;
@@ -40,7 +40,7 @@ function unitPricePaise(kind: AddonKind): number {
   if (kind === "carton") return Math.round(PRICING.carton_label * 100);
   if (kind === "pallet") return Math.round(PRICING.pallet_label * 100);
   if (kind === "userid") return Math.round(PRICING.seat_monthly * 100);
-  if (kind === "erp") return Math.round(PRICING.erp_integration_monthly * 100);
+  // ERP removed: 1 ERP per user_id is FREE (not sold as add-on)
   // exhaustive
   return 0;
 }
@@ -57,7 +57,7 @@ function normalizeItems(raw: unknown): CartItemInput[] {
     const qtyRaw = obj.qty ?? obj.quantity ?? obj.count;
     const qty = typeof qtyRaw === "string" ? Number(qtyRaw) : Number(qtyRaw);
 
-    const validKind = kind === "unit" || kind === "box" || kind === "carton" || kind === "pallet" || kind === "userid" || kind === "erp";
+    const validKind = kind === "unit" || kind === "box" || kind === "carton" || kind === "pallet" || kind === "userid";
     if (!validKind) continue;
     if (!Number.isInteger(qty) || qty <= 0) continue;
 

@@ -27,19 +27,22 @@ function extractIdentifiers(input: string): { sscc?: string; serial?: string } {
 async function buildHierarchyForPallet(opts: {
   supabase: ReturnType<typeof getSupabaseAdmin>;
   palletId: string;
+  companyId: string;  // Priority 2 fix: Add company_id parameter for multi-tenant isolation
 }) {
-  const { supabase, palletId } = opts;
+  const { supabase, palletId, companyId } = opts;
 
   const { data: pallet, error: palletErr } = await supabase
     .from("pallets")
     .select("id, sscc, sscc_with_ai, sku_id, created_at, meta")
     .eq("id", palletId)
+    .eq("company_id", companyId)  // Priority 2 fix: Add company filter
     .single();
   if (palletErr || !pallet) return null;
 
   const { data: cartons } = await supabase
     .from("cartons")
     .select("id, pallet_id, sscc, sscc_with_ai, code, sku_id, created_at, meta")
+    .eq("company_id", companyId)  // Priority 2 fix: Add company filter
     .eq("pallet_id", palletId)
     .order("created_at", { ascending: true });
 
@@ -48,6 +51,7 @@ async function buildHierarchyForPallet(opts: {
     ? await supabase
         .from("boxes")
         .select("id, carton_id, pallet_id, sscc, sscc_with_ai, code, sku_id, created_at, meta")
+        .eq("company_id", companyId)  // Priority 2 fix: Add company filter
         .in("carton_id", cartonIds)
         .order("created_at", { ascending: true })
     : { data: [] as any[] };
@@ -57,6 +61,7 @@ async function buildHierarchyForPallet(opts: {
     ? await supabase
         .from("labels_units")
         .select("id, box_id, serial, created_at")
+        .eq("company_id", companyId)  // Priority 2 fix: Add company filter for security
         .in("box_id", boxIds)
         .order("created_at", { ascending: true })
     : { data: [] as any[] };
@@ -112,7 +117,7 @@ export async function GET(req: Request) {
         .eq("sscc", sscc)
         .maybeSingle();
       if (pallet?.id) {
-        const hierarchy = await buildHierarchyForPallet({ supabase, palletId: pallet.id });
+        const hierarchy = await buildHierarchyForPallet({ supabase, palletId: pallet.id, companyId });
         return NextResponse.json({ type: "pallet", level: "pallet", data: hierarchy });
       }
 
@@ -127,6 +132,7 @@ export async function GET(req: Request) {
         const { data: boxes } = await supabase
           .from("boxes")
           .select("id, carton_id, pallet_id, sscc, sscc_with_ai, code, sku_id, created_at, meta")
+          .eq("company_id", companyId)  // Priority 2 fix: Add company filter
           .eq("carton_id", carton.id)
           .order("created_at", { ascending: true });
 
@@ -135,6 +141,7 @@ export async function GET(req: Request) {
           ? await supabase
               .from("labels_units")
               .select("id, box_id, serial, created_at")
+              .eq("company_id", companyId)  // Priority 2 fix: Add company filter for security
               .in("box_id", boxIds)
               .order("created_at", { ascending: true })
           : { data: [] as any[] };
@@ -154,7 +161,7 @@ export async function GET(req: Request) {
         }));
 
         const palletNode = carton.pallet_id
-          ? await buildHierarchyForPallet({ supabase, palletId: carton.pallet_id })
+          ? await buildHierarchyForPallet({ supabase, palletId: carton.pallet_id, companyId })
           : null;
 
         return NextResponse.json({
@@ -176,6 +183,7 @@ export async function GET(req: Request) {
         const { data: units } = await supabase
           .from("labels_units")
           .select("id, box_id, serial, created_at")
+          .eq("company_id", companyId)  // Priority 2 fix: Add company filter for security
           .eq("box_id", box.id)
           .order("created_at", { ascending: true });
 
@@ -188,7 +196,7 @@ export async function GET(req: Request) {
           : { data: null as any };
 
         const palletId = (cartonNode as any)?.data?.pallet_id ?? box.pallet_id ?? null;
-        const palletNode = palletId ? await buildHierarchyForPallet({ supabase, palletId }) : null;
+        const palletNode = palletId ? await buildHierarchyForPallet({ supabase, palletId, companyId }) : null;
 
         return NextResponse.json({
           type: "box",

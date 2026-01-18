@@ -9,6 +9,11 @@ import {
   Wallet,
   Smartphone,
   Activity,
+  Package,
+  CheckCircle,
+  XCircle,
+  Copy,
+  AlertCircle,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { LabelGenerationTrend } from '@/components/charts/LabelGenerationTrend';
@@ -24,6 +29,12 @@ type DashboardStats = {
   total_scans: number;
   active_seats?: number;
   active_handsets: number;
+  scan_breakdown?: {
+    valid_product_scans: number;
+    expired_product_scans: number;
+    duplicate_scans: number;
+    error_scans: number;
+  };
   label_generation?: {
     unit: number;
     box: number;
@@ -53,27 +64,31 @@ function KpiCard({
   value,
   icon: Icon,
   href,
+  className,
 }: {
   title: string;
   value: string;
   icon: LucideIcon;
   href?: string;
+  className?: string;
 }) {
   const content = (
-    <div className="bg-white border rounded-lg p-4 hover:shadow-md transition cursor-pointer">
+    <div className={`bg-white border border-gray-200 rounded-lg p-5 hover:shadow-sm transition ${className || ''}`}>
       <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm text-gray-500">{title}</p>
-          <p className="text-2xl font-semibold text-blue-700 mt-1">
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-medium text-gray-600 uppercase tracking-wide mb-1">{title}</p>
+          <p className="text-2xl font-semibold text-gray-900">
             {value}
           </p>
         </div>
-        <Icon className="w-6 h-6 text-blue-600" />
+        <div className="ml-4 shrink-0">
+          <Icon className="w-5 h-5 text-gray-400" />
+        </div>
       </div>
     </div>
   );
 
-  return href ? <Link href={href}>{content}</Link> : content;
+  return href ? <Link href={href} className="block">{content}</Link> : content;
 }
 
 /* -----------------------------
@@ -138,6 +153,12 @@ export default function DashboardPage() {
       boxLabels: labelGen ? dash(labelGen.box) : (loading ? '—' : '0'),
       cartonLabels: labelGen ? dash(labelGen.carton) : (loading ? '—' : '0'),
       palletLabels: labelGen ? dash(labelGen.pallet) : (loading ? '—' : '0'),
+
+      // Scan breakdown by expiry status
+      validProductScans: stats?.scan_breakdown ? dash(stats.scan_breakdown.valid_product_scans) : (loading ? '—' : '0'),
+      expiredProductScans: stats?.scan_breakdown ? dash(stats.scan_breakdown.expired_product_scans) : (loading ? '—' : '0'),
+      duplicateScans: stats?.scan_breakdown ? dash(stats.scan_breakdown.duplicate_scans) : (loading ? '—' : '0'),
+      errorScans: stats?.scan_breakdown ? dash(stats.scan_breakdown.error_scans) : (loading ? '—' : '0'),
     };
   }, [stats, loading]);
 
@@ -145,32 +166,16 @@ export default function DashboardPage() {
     <div className="space-y-8">
       {/* Header */}
       <div>
-        <h1 className="text-3xl font-bold text-blue-700">
-          Dashboard Overview
+        <h1 className="text-3xl font-semibold text-gray-900">
+          Dashboard
         </h1>
-        <p className="text-gray-600 mt-1">
-          Quick snapshot of your traceability activity
+        <p className="text-gray-600 mt-1.5 text-sm">
+          Overview of your traceability operations
         </p>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-4">
-        <KpiCard
-          title="Total SKUs"
-          value={kpi.totalSkus}
-          icon={QrCode}
-          href="/dashboard/sku"
-        />
-        <KpiCard
-          title="Units Generated"
-          value={kpi.unitsGenerated}
-          icon={QrCode}
-        />
-        <KpiCard
-          title="SSCC Generated"
-          value={kpi.ssccGenerated}
-          icon={Boxes}
-        />
+      {/* Summary Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiCard
           title="Total Scans"
           value={kpi.totalScans}
@@ -178,31 +183,62 @@ export default function DashboardPage() {
           href="/dashboard/scans"
         />
         <KpiCard
-          title="Wallet Balance"
-          value={kpi.walletBalance}
-          icon={Wallet}
-          href="/dashboard/billing"
+          title="Unit Scans"
+          value={kpi.unitsGenerated}
+          icon={QrCode}
         />
         <KpiCard
-          title="Active Seats"
-          value={kpi.activeSeats}
-          icon={Activity}
-          href="/dashboard/team"
+          title="SSCC Scans"
+          value={kpi.ssccGenerated}
+          icon={Boxes}
         />
         <KpiCard
-          title="Active Handsets"
-          value={kpi.activeHandsets}
-          icon={Smartphone}
-          href="/dashboard/handsets"
+          title="Total SKUs"
+          value={kpi.totalSkus}
+          icon={Package}
+          href="/dashboard/sku"
         />
       </div>
 
-      {/* Realtime label generation (current billing period) */}
+      {/* Scan Analytics */}
       <div>
-        <h2 className="text-lg font-semibold text-slate-900">Label Generation (Realtime)</h2>
-        <p className="text-sm text-gray-600 mt-1">Shows labels generated in the current trial/subscription period.</p>
+        <h2 className="text-lg font-semibold text-gray-900 mb-1">Scan Analytics</h2>
+        <p className="text-sm text-gray-600 mb-4">Product expiry status and scan breakdown</p>
 
-        <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <KpiCard 
+            title="Valid Product Scans" 
+            value={kpi.validProductScans} 
+            icon={CheckCircle}
+            className="bg-green-50 border-green-200"
+          />
+          <KpiCard 
+            title="Expired Product Scans" 
+            value={kpi.expiredProductScans} 
+            icon={XCircle}
+            className="bg-red-50 border-red-200"
+          />
+          <KpiCard 
+            title="Duplicate Scans" 
+            value={kpi.duplicateScans} 
+            icon={Copy}
+            className="bg-yellow-50 border-yellow-200"
+          />
+          <KpiCard 
+            title="Error Scans" 
+            value={kpi.errorScans} 
+            icon={AlertCircle}
+            className="bg-gray-50 border-gray-200"
+          />
+        </div>
+      </div>
+
+      {/* Label Generation */}
+      <div>
+        <h2 className="text-lg font-semibold text-gray-900 mb-1">Label Generation</h2>
+        <p className="text-sm text-gray-600 mb-4">Labels generated in current billing period</p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <KpiCard title="Unit Labels" value={kpi.unitLabels} icon={QrCode} />
           <KpiCard title="Box Labels" value={kpi.boxLabels} icon={Boxes} />
           <KpiCard title="Carton Labels" value={kpi.cartonLabels} icon={Boxes} />
@@ -212,83 +248,76 @@ export default function DashboardPage() {
 
       {/* Charts Section */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="bg-white border rounded-lg p-4 h-64">
-          <h3 className="text-sm font-semibold text-gray-700 mb-2">Label Generation Trend</h3>
-          <LabelGenerationTrend data={[
-            { date: '5 days ago', unit: stats?.label_generation?.unit ?? 0, box: stats?.label_generation?.box ?? 0, carton: stats?.label_generation?.carton ?? 0, pallet: stats?.label_generation?.pallet ?? 0 },
-          ]} />
+        <div className="bg-white border border-gray-200 rounded-lg p-6">
+          <h3 className="text-sm font-semibold text-gray-900 mb-4">Label Generation Trend</h3>
+          <div className="h-48">
+            <LabelGenerationTrend data={[
+              { date: '5 days ago', unit: stats?.label_generation?.unit ?? 0, box: stats?.label_generation?.box ?? 0, carton: stats?.label_generation?.carton ?? 0, pallet: stats?.label_generation?.pallet ?? 0 },
+            ]} />
+          </div>
         </div>
 
-        <div className="bg-white border rounded-lg p-4 h-64">
-          <h3 className="text-sm font-semibold text-gray-700 mb-2">Labels by Level</h3>
-          <LabelsByLevel data={{
-            unit: stats?.label_generation?.unit ?? 0,
-            box: stats?.label_generation?.box ?? 0,
-            carton: stats?.label_generation?.carton ?? 0,
-            pallet: stats?.label_generation?.pallet ?? 0,
-          }} />
+        <div className="bg-white border border-gray-200 rounded-lg p-6">
+          <h3 className="text-sm font-semibold text-gray-900 mb-4">Labels by Level</h3>
+          <div className="h-48">
+            <LabelsByLevel data={{
+              unit: stats?.label_generation?.unit ?? 0,
+              box: stats?.label_generation?.box ?? 0,
+              carton: stats?.label_generation?.carton ?? 0,
+              pallet: stats?.label_generation?.pallet ?? 0,
+            }} />
+          </div>
         </div>
 
-        <div className="bg-white border rounded-lg p-4 h-64">
-          <h3 className="text-sm font-semibold text-gray-700 mb-2">Cost Usage Distribution</h3>
-          <CostUsageChart data={{
-            unit: stats?.label_generation?.unit ?? 0,
-            box: stats?.label_generation?.box ?? 0,
-            carton: stats?.label_generation?.carton ?? 0,
-            pallet: stats?.label_generation?.pallet ?? 0,
-          }} />
+        <div className="bg-white border border-gray-200 rounded-lg p-6">
+          <h3 className="text-sm font-semibold text-gray-900 mb-4">Cost Usage Distribution</h3>
+          <div className="h-48">
+            <CostUsageChart data={{
+              unit: stats?.label_generation?.unit ?? 0,
+              box: stats?.label_generation?.box ?? 0,
+              carton: stats?.label_generation?.carton ?? 0,
+              pallet: stats?.label_generation?.pallet ?? 0,
+            }} />
+          </div>
         </div>
       </div>
 
       {/* Recent Activity */}
-      <div className="bg-white border rounded-lg p-6">
-        <h2 className="text-lg font-semibold mb-4">
+      <div className="bg-white border border-gray-200 rounded-lg p-6">
+        <h2 className="text-lg font-semibold text-gray-900 mb-4">
           Recent Activity
         </h2>
 
         {stats?.recent_activity && stats.recent_activity.length > 0 ? (
-          <ul className="space-y-3 text-sm text-gray-600">
+          <div className="space-y-3">
             {stats.recent_activity.map((activity) => (
-              <li key={activity.id} className="flex items-start gap-2">
-                <span className={activity.status === 'success' ? 'text-green-500' : activity.status === 'error' ? 'text-red-500' : 'text-yellow-500'}>
-                  {activity.status === 'success' ? '✔' : activity.status === 'error' ? '✖' : '⚠'}
-                </span>
-                <div className="flex-1">
-                  <span className="font-medium">{activity.action.replace(/_/g, ' ')}</span>
+              <div key={activity.id} className="flex items-start gap-3 py-2 border-b border-gray-100 last:border-0">
+                <div className={`w-2 h-2 rounded-full mt-2 shrink-0 ${
+                  activity.status === 'success' ? 'bg-green-500' : 
+                  activity.status === 'error' ? 'bg-red-500' : 
+                  'bg-yellow-500'
+                }`} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-gray-900">
+                    {activity.action.replace(/_/g, ' ')}
+                  </p>
                   {activity.details?.description && (
-                    <span className="text-gray-500"> — {activity.details.description}</span>
+                    <p className="text-sm text-gray-600 mt-0.5">
+                      {activity.details.description}
+                    </p>
                   )}
-                  <span className="text-xs text-gray-400 ml-2">
+                  <p className="text-xs text-gray-500 mt-1">
                     {new Date(activity.created_at).toLocaleString('en-IN', { 
-                      day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' 
+                      day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' 
                     })}
-                  </span>
+                  </p>
                 </div>
-              </li>
+              </div>
             ))}
-          </ul>
+          </div>
         ) : (
-          <p className="text-sm text-gray-500">No recent activity to display.</p>
+          <p className="text-sm text-gray-500 py-4">No recent activity to display</p>
         )}
-      </div>
-
-      {/* CTA Section */}
-      <div className="bg-gradient-to-r from-blue-50 to-white border rounded-xl p-8 flex flex-col md:flex-row items-center justify-between gap-6">
-        <div>
-          <h3 className="text-2xl font-bold text-blue-700">
-            Ready to generate labels?
-          </h3>
-          <p className="text-gray-600 mt-1">
-            Start generating GS1-compliant QR & DataMatrix codes
-          </p>
-        </div>
-
-        <Link
-          href="/dashboard/generate"
-          className="bg-orange-500 hover:bg-orange-600 text-white px-8 py-4 rounded-lg font-medium text-lg"
-        >
-          Generate Labels
-        </Link>
       </div>
     </div>
   );

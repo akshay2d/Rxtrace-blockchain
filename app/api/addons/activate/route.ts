@@ -12,11 +12,12 @@ export const revalidate = 0;
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
-type AddonKind = "unit" | "box" | "carton" | "pallet" | "userid" | "erp";
+type AddonKind = "unit" | "box" | "carton" | "pallet" | "userid";
 
 function parseAddonPurpose(purpose: string): { kind: AddonKind; companyId: string; qty: number } | null {
   // Expected: addon_<kind>_company_<companyId>_qty_<qty>
-  const match = purpose.match(/^addon_(unit|box|carton|pallet|userid|erp)_company_(.+)_qty_(\d+)$/);
+  // ERP removed: 1 ERP per user_id is FREE (not sold as add-on)
+  const match = purpose.match(/^addon_(unit|box|carton|pallet|userid)_company_(.+)_qty_(\d+)$/);
   if (!match) return null;
   const kind = match[1] as AddonKind;
   const companyId = match[2];
@@ -51,8 +52,7 @@ function normalizeCartItems(raw: unknown): Array<{ kind: AddonKind; qty: number 
         kindRaw === "box" ||
         kindRaw === "carton" ||
         kindRaw === "pallet" ||
-        kindRaw === "userid" ||
-        kindRaw === "erp") &&
+        kindRaw === "userid") &&
       Number.isInteger(qty) &&
       qty > 0
     ) {
@@ -209,37 +209,8 @@ async function applySingleAddon(params: {
     return { kind, qty, extra_user_seats: nextExtra };
   }
 
-  if (kind === "erp") {
-    const { data: companyRow, error: companyError } = await supabase
-      .from("companies")
-      .select("id, extra_erp_integrations")
-      .eq("id", companyId)
-      .maybeSingle();
-
-    if (companyError) throw new Error(companyError.message);
-    if (!companyRow) throw new Error("Company not found");
-
-    const currentExtra = Number((companyRow as any).extra_erp_integrations ?? 0);
-    const nextExtra = currentExtra + qty;
-
-    const { error: companyUpdateError } = await supabase
-      .from("companies")
-      .update({ extra_erp_integrations: nextExtra, updated_at: paidAt })
-      .eq("id", companyId);
-
-    if (companyUpdateError) throw new Error(companyUpdateError.message);
-
-    await writeAuditLog({
-      companyId,
-      actor: "system",
-      action: "addon_erp_activated",
-      status: "success",
-      integrationSystem: "razorpay",
-      metadata: { order_id: orderId, payment_id: paymentId, qty, extra_erp_integrations: nextExtra },
-    }).catch(() => undefined);
-
-    return { kind, qty, extra_erp_integrations: nextExtra };
-  }
+  // ERP removed: 1 ERP per user_id is FREE (not sold as add-on)
+  // ERP integration limit is enforced in /api/integrations/save route using user_id check
 
   await ensureActiveBillingUsage({ supabase: admin, companyId });
   const { data: addRow, error: addErr } = await admin.rpc("billing_usage_add_quota", {

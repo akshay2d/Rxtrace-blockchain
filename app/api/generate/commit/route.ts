@@ -1,5 +1,6 @@
 import { supabase } from "@/lib/supabase";
-import { generateUnitGS1, generateSSCC } from "@/lib/gs1";
+import { generateCanonicalGS1 } from "@/lib/gs1Canonical";
+import { generateSSCC } from "@/lib/gs1";
 import { generateSerial } from "@/lib/serial";
 import { NextResponse } from "next/server";
 
@@ -23,17 +24,30 @@ export async function POST(req: Request) {
 
   for (let i = 0; i < quantity; i++) {
     const serial = generateSerial(job.id);
-    const gs1 = generateUnitGS1({
-      gtin, exp, mfd, batch,
-      serial, mrp,
+    
+    // Use canonical GS1 generation (machine format)
+    const gs1 = generateCanonicalGS1({
+      gtin,
+      expiry: exp,
+      mfgDate: mfd,
+      batch,
+      serial,
+      mrp: mrp,
       sku: sku.code,
       company: company.code
     });
 
+    // Insert with all required fields (Priority 1 fix: align with database schema)
     await supabase.from("labels_units").insert({
-      job_id: job.id,
-      gs1_payload: gs1,
-      serial
+      company_id: company.id,
+      sku_id: sku.id,
+      gtin,
+      batch,
+      mfd,
+      expiry: exp,
+      mrp: mrp || null,
+      serial,
+      gs1_payload: gs1
     });
   }
 

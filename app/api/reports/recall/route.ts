@@ -68,13 +68,27 @@ export async function GET(req: Request) {
      STEP 1: FIND AFFECTED UNITS
      ===================================================== */
 
+  // Priority 1 fix: Add company_id filter and fix column names
   let unitQuery = supabase
     .from("labels_units")
-    .select("unit_code, gtin, sku, batch");
+    .select("id, serial, gtin, batch, mfd, expiry, sku_id, created_at")
+    .eq("company_id", companyId);  // CRITICAL: Filter by company_id for multi-tenant isolation
 
   if (batch) unitQuery = unitQuery.eq("batch", batch);
-  if (sku) unitQuery = unitQuery.eq("sku", sku);
   if (gtin) unitQuery = unitQuery.eq("gtin", gtin);
+  
+  // SKU filtering: Resolve sku_id from sku_code if needed
+  if (sku) {
+    const { data: skuRow } = await supabase
+      .from("skus")
+      .select("id")
+      .eq("company_id", companyId)
+      .eq("sku_code", sku.toUpperCase())
+      .maybeSingle();
+    if (skuRow?.id) {
+      unitQuery = unitQuery.eq("sku_id", skuRow.id);
+    }
+  }
 
   const { data: units, error: unitError } = await unitQuery;
 
@@ -133,14 +147,15 @@ export async function GET(req: Request) {
   const results: any[] = [];
 
   for (const unit of units || []) {
-    const unitCode = unit.unit_code;
+    // Priority 1 fix: Use serial instead of unit_code (column name fix)
+    const unitSerial = unit.serial;
 
     const { data: path } = await supabase
       .from("packaging_hierarchy")
       .select("*")
       .eq("company_id", companyId)
       .or(
-        `child_code.eq.${unitCode},parent_code.eq.${unitCode}`
+        `child_code.eq.${unitSerial},parent_code.eq.${unitSerial}`
       );
 
     const box = path?.find((p) => p.child_level === "unit")?.parent_code;
@@ -148,9 +163,9 @@ export async function GET(req: Request) {
     const palletCode = path?.find((p) => p.child_code === carton)?.parent_code;
 
     results.push({
-      unit_code: unitCode,
+      serial: unitSerial,  // Fixed: use serial instead of unit_code
       gtin: unit.gtin,
-      sku: unit.sku,
+      sku_id: unit.sku_id,  // Fixed: use sku_id (UUID) instead of sku (string)
       batch: unit.batch,
       box,
       carton,
@@ -163,10 +178,10 @@ export async function GET(req: Request) {
      ===================================================== */
 
   const csv = [
-    "Unit Code,GTIN,SKU,Batch,Box SSCC,Carton SSCC,Pallet SSCC",
+    "Serial,GTIN,SKU ID,Batch,Box SSCC,Carton SSCC,Pallet SSCC",
     ...results.map(
       (r) =>
-        `"${r.unit_code}","${r.gtin}","${r.sku}","${r.batch}","${r.box || ""}","${r.carton || ""}","${r.pallet || ""}"`
+        `"${r.serial}","${r.gtin}","${r.sku_id || ""}","${r.batch}","${r.box || ""}","${r.carton || ""}","${r.pallet || ""}"`
     ),
   ].join("\n");
 

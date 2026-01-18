@@ -31,7 +31,7 @@ export async function POST(req: Request) {
 
   const { data: company, error: companyError } = await supabase
     .from("companies")
-    .select("id, subscription_plan, extra_erp_integrations")
+    .select("id, subscription_plan")
     .eq("user_id", user.id)
     .maybeSingle();
 
@@ -39,38 +39,50 @@ export async function POST(req: Request) {
   if (!company?.id) return NextResponse.json({ error: "Company not found" }, { status: 404 });
 
   const companyId = company.id as string;
-  const planType = normalizePlanType((company as any).subscription_plan);
-  const baseAllowed = planType ? PRICING.plans[planType].max_integrations : 1;
-  const extraAllowed = Number((company as any).extra_erp_integrations ?? 0);
-  const allowed = baseAllowed + Math.max(0, extraAllowed);
 
+  // ERP limit: 1 ERP per user_id (NOT company_id) = FREE
+  // Check if user already has an ERP integration
   const { data: existing, error: existingErr } = await supabase
     .from("integrations")
-    .select("system, api_key_secret_id")
+    .select("system, api_key_secret_id, company_id")
     .eq("company_id", companyId)
     .eq("system", system)
     .maybeSingle();
 
   if (existingErr) return NextResponse.json({ error: existingErr.message }, { status: 500 });
 
+  // If this is a new integration (not updating existing), check user_id limit
   if (!existing) {
-    const { count, error: countErr } = await supabase
-      .from("integrations")
-      .select("id", { count: "exact", head: true })
-      .eq("company_id", companyId);
+    // Check if user has ANY ERP integration across all companies
+    // Get all companies owned by this user_id
+    const { data: userCompanies, error: companiesErr } = await supabase
+      .from("companies")
+      .select("id")
+      .eq("user_id", user.id);
 
-    if (countErr) return NextResponse.json({ error: countErr.message }, { status: 500 });
-    const current = Number(count ?? 0);
-    if (current >= allowed) {
-      return NextResponse.json(
-        {
-          error: "ERP integration limit reached. Please purchase Additional ERP integration add-on.",
-          requires_addon: true,
-          addon: "erp",
-          limit: allowed,
-        },
-        { status: 403 }
-      );
+    if (companiesErr) return NextResponse.json({ error: companiesErr.message }, { status: 500 });
+
+    const companyIds = (userCompanies || []).map((c: any) => c.id);
+
+    if (companyIds.length > 0) {
+      const { count, error: countErr } = await supabase
+        .from("integrations")
+        .select("id", { count: "exact", head: true })
+        .in("company_id", companyIds);
+
+      if (countErr) return NextResponse.json({ error: countErr.message }, { status: 500 });
+      
+      // Limit: 1 ERP per user_id (first ERP is FREE, no additional ERPs allowed)
+      const current = Number(count ?? 0);
+      if (current >= 1) {
+        return NextResponse.json(
+          {
+            error: "ERP integration limit reached. You can have only 1 ERP integration per User ID (free).",
+            limit: 1,
+          },
+          { status: 403 }
+        );
+      }
     }
   }
 

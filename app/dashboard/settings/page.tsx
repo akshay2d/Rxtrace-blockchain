@@ -1,15 +1,206 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { supabaseClient } from "@/lib/supabase/client";
+
+type UserProfile = {
+  id: string;
+  email: string;
+  full_name: string | null;
+  phone?: string | null;
+};
+
+type CompanyProfile = {
+  id: string;
+  company_name: string | null;
+  pan: string | null;
+  gst: string | null;
+  address: string | null;
+  email: string | null;
+  user_id: string;
+};
 
 export default function Page() {
-  const [loading, setLoading] = useState(false);
-  const [saved, setSaved] = useState(false);
+  // User Profile state
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [userLoading, setUserLoading] = useState(true);
+  const [userSaving, setUserSaving] = useState(false);
+  const [userFormData, setUserFormData] = useState({ full_name: '', phone: '' });
+  const [userError, setUserError] = useState('');
+  const [userSuccess, setUserSuccess] = useState('');
+  
+  // Company Profile state
+  const [companyProfile, setCompanyProfile] = useState<CompanyProfile | null>(null);
+  const [companyLoading, setCompanyLoading] = useState(true);
+  const [companySaving, setCompanySaving] = useState(false);
+  const [companyFormData, setCompanyFormData] = useState({ company_name: '', pan: '', gst: '', address: '' });
+  const [companyError, setCompanyError] = useState('');
+  const [companySuccess, setCompanySuccess] = useState('');
+  
+  // ERP Integration state
+  const [erpLoading, setErpLoading] = useState(false);
+  const [erpSaved, setErpSaved] = useState(false);
 
-  async function handleSave(e: React.FormEvent<HTMLFormElement>) {
+  // Fetch user profile on mount
+  useEffect(() => {
+    async function fetchUserProfile() {
+      try {
+        const supabase = supabaseClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        
+        if (!user) {
+          setUserLoading(false);
+          return;
+        }
+
+        // Fetch user profile
+        const { data: profile } = await supabase
+          .from('user_profiles')
+          .select('id, email, full_name')
+          .eq('id', user.id)
+          .maybeSingle();
+
+        if (profile) {
+          setUserProfile(profile);
+          setUserFormData({
+            full_name: profile.full_name || '',
+            phone: '', // Phone may not be in user_profiles yet
+          });
+        } else {
+          // Create profile if doesn't exist
+          setUserProfile({
+            id: user.id,
+            email: user.email || '',
+            full_name: user.user_metadata?.full_name || null,
+            phone: null,
+          });
+          setUserFormData({
+            full_name: user.user_metadata?.full_name || '',
+            phone: '',
+          });
+        }
+      } catch (err: any) {
+        console.error('Failed to fetch user profile:', err);
+      } finally {
+        setUserLoading(false);
+      }
+    }
+
+    fetchUserProfile();
+  }, []);
+
+  // Fetch company profile on mount
+  useEffect(() => {
+    async function fetchCompanyProfile() {
+      try {
+        const supabase = supabaseClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        
+        if (!user) {
+          setCompanyLoading(false);
+          return;
+        }
+
+        // Fetch company profile
+        const { data: company } = await supabase
+          .from('companies')
+          .select('id, company_name, pan, gst, address, email, user_id')
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+        if (company) {
+          setCompanyProfile(company);
+          setCompanyFormData({
+            company_name: company.company_name || '',
+            pan: company.pan || '',
+            gst: company.gst || '',
+            address: company.address || '',
+          });
+        }
+      } catch (err: any) {
+        console.error('Failed to fetch company profile:', err);
+      } finally {
+        setCompanyLoading(false);
+      }
+    }
+
+    fetchCompanyProfile();
+  }, []);
+
+  async function handleUserProfileSave(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setLoading(true);
-    setSaved(false);
+    setUserSaving(true);
+    setUserError('');
+    setUserSuccess('');
+
+    try {
+      const res = await fetch('/api/user/profile/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          full_name: userFormData.full_name,
+          phone: userFormData.phone,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setUserError(data.error || 'Failed to update profile');
+        return;
+      }
+
+      setUserSuccess('Profile updated successfully');
+      if (data.profile) {
+        setUserProfile(data.profile);
+      }
+    } catch (err: any) {
+      setUserError(err.message || 'Failed to update profile');
+    } finally {
+      setUserSaving(false);
+    }
+  }
+
+  async function handleCompanyProfileSave(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setCompanySaving(true);
+    setCompanyError('');
+    setCompanySuccess('');
+
+    try {
+      const res = await fetch('/api/company/profile/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          company_name: companyFormData.company_name,
+          pan: companyFormData.pan,
+          gst: companyFormData.gst,
+          address: companyFormData.address,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setCompanyError(data.error || 'Failed to update company profile');
+        return;
+      }
+
+      setCompanySuccess('Company profile updated successfully');
+      if (data.company) {
+        setCompanyProfile(data.company);
+      }
+    } catch (err: any) {
+      setCompanyError(err.message || 'Failed to update company profile');
+    } finally {
+      setCompanySaving(false);
+    }
+  }
+
+  async function handleErpSave(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setErpLoading(true);
+    setErpSaved(false);
 
     await fetch("/api/integrations/save", {
       method: "POST",
@@ -22,41 +213,255 @@ export default function Page() {
       }),
     });
 
-    setLoading(false);
-    setSaved(true);
+    setErpLoading(false);
+    setErpSaved(true);
   }
 
   return (
-    <div className="max-w-5xl mx-auto px-8 py-10">
+    <div className="max-w-5xl mx-auto px-8 py-10 space-y-8">
       {/* Header */}
       <div className="mb-10">
         <h1 className="text-3xl font-semibold tracking-tight">
-          Integrations
+          Settings
         </h1>
         <p className="text-gray-500 mt-2 max-w-2xl">
-          Securely connect RxTrace with your ERP or enterprise systems.
-          Credentials are encrypted and never exposed.
+          Manage your user profile, company information, and integrations.
         </p>
       </div>
 
-      {/* Card */}
+      {/* User Profile Section */}
+      <div className="bg-white border border-gray-200 rounded-2xl shadow-sm">
+        <div className="p-8 space-y-6">
+          <div>
+            <h2 className="text-xl font-medium">User Profile</h2>
+            <p className="text-sm text-gray-500 mt-1">
+              Update your personal information. Email and User ID cannot be changed.
+            </p>
+          </div>
+
+          {userLoading ? (
+            <div className="p-4 text-gray-500">Loading profile...</div>
+          ) : (
+            <form onSubmit={handleUserProfileSave} className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Email (Read-only) */}
+              <div>
+                <label className="label">Email</label>
+                <input
+                  type="email"
+                  className="input bg-gray-50 cursor-not-allowed"
+                  value={userProfile?.email || ''}
+                  disabled
+                  readOnly
+                />
+                <p className="text-xs text-gray-500 mt-1">Email cannot be changed</p>
+              </div>
+
+              {/* User ID (Read-only, hidden by default) */}
+              <div className="hidden">
+                <label className="label">User ID</label>
+                <input
+                  type="text"
+                  className="input bg-gray-50 cursor-not-allowed"
+                  value={userProfile?.id || ''}
+                  disabled
+                  readOnly
+                />
+              </div>
+
+              {/* Full Name (Editable) */}
+              <div>
+                <label className="label">Full Name</label>
+                <input
+                  type="text"
+                  className="input"
+                  value={userFormData.full_name}
+                  onChange={(e) => setUserFormData({ ...userFormData, full_name: e.target.value })}
+                  placeholder="Enter your full name"
+                />
+              </div>
+
+              {/* Phone (Editable) */}
+              <div>
+                <label className="label">Phone</label>
+                <input
+                  type="tel"
+                  className="input"
+                  value={userFormData.phone}
+                  onChange={(e) => setUserFormData({ ...userFormData, phone: e.target.value })}
+                  placeholder="Enter your phone number"
+                />
+              </div>
+
+              {/* Error/Success Messages */}
+              <div className="md:col-span-2">
+                {userError && (
+                  <div className="text-sm text-red-600 mb-2">{userError}</div>
+                )}
+                {userSuccess && (
+                  <div className="text-sm text-green-600 mb-2">{userSuccess}</div>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="md:col-span-2 flex items-center justify-between pt-4">
+                <div className="text-sm text-gray-500">
+                  User ID: {userProfile?.id ? `${userProfile.id.substring(0, 8)}...` : 'N/A'}
+                </div>
+                <button
+                  disabled={userSaving}
+                  className="btn-primary px-6 py-2"
+                >
+                  {userSaving ? "Saving..." : "Save Profile"}
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+      </div>
+
+      {/* Company Profile Section */}
+      <div className="bg-white border border-gray-200 rounded-2xl shadow-sm">
+        <div className="p-8 space-y-6">
+          <div>
+            <h2 className="text-xl font-medium">Company Profile</h2>
+            <p className="text-sm text-gray-500 mt-1">
+              Update your company information. Company ID, Owner Email, and Owner User ID cannot be changed.
+            </p>
+          </div>
+
+          {companyLoading ? (
+            <div className="p-4 text-gray-500">Loading company profile...</div>
+          ) : companyProfile ? (
+            <form onSubmit={handleCompanyProfileSave} className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Company ID (Read-only, hidden) */}
+              <div className="hidden">
+                <label className="label">Company ID</label>
+                <input
+                  type="text"
+                  className="input bg-gray-50 cursor-not-allowed"
+                  value={companyProfile.id}
+                  disabled
+                  readOnly
+                />
+              </div>
+
+              {/* Owner Email (Read-only) */}
+              <div>
+                <label className="label">Owner Email</label>
+                <input
+                  type="email"
+                  className="input bg-gray-50 cursor-not-allowed"
+                  value={companyProfile.email || ''}
+                  disabled
+                  readOnly
+                />
+                <p className="text-xs text-gray-500 mt-1">Owner email cannot be changed</p>
+              </div>
+
+              {/* Owner User ID (Read-only) */}
+              <div>
+                <label className="label">Owner User ID</label>
+                <input
+                  type="text"
+                  className="input bg-gray-50 cursor-not-allowed"
+                  value={companyProfile.user_id ? `${companyProfile.user_id.substring(0, 8)}...` : ''}
+                  disabled
+                  readOnly
+                />
+                <p className="text-xs text-gray-500 mt-1">Owner User ID cannot be changed</p>
+              </div>
+
+              {/* Company Name (Editable) */}
+              <div className="md:col-span-2">
+                <label className="label">Company Name</label>
+                <input
+                  type="text"
+                  className="input"
+                  value={companyFormData.company_name}
+                  onChange={(e) => setCompanyFormData({ ...companyFormData, company_name: e.target.value })}
+                  placeholder="Enter company name"
+                  required
+                />
+              </div>
+
+              {/* PAN (Editable) */}
+              <div>
+                <label className="label">PAN Number</label>
+                <input
+                  type="text"
+                  className="input"
+                  value={companyFormData.pan}
+                  onChange={(e) => setCompanyFormData({ ...companyFormData, pan: e.target.value.toUpperCase() })}
+                  placeholder="Enter PAN number"
+                  maxLength={10}
+                />
+              </div>
+
+              {/* GST (Editable) */}
+              <div>
+                <label className="label">GST Number</label>
+                <input
+                  type="text"
+                  className="input"
+                  value={companyFormData.gst}
+                  onChange={(e) => setCompanyFormData({ ...companyFormData, gst: e.target.value.toUpperCase() })}
+                  placeholder="Enter GST number"
+                />
+              </div>
+
+              {/* Address (Editable) */}
+              <div className="md:col-span-2">
+                <label className="label">Address</label>
+                <textarea
+                  className="input min-h-[100px]"
+                  value={companyFormData.address}
+                  onChange={(e) => setCompanyFormData({ ...companyFormData, address: e.target.value })}
+                  placeholder="Enter company address"
+                />
+              </div>
+
+              {/* Error/Success Messages */}
+              <div className="md:col-span-2">
+                {companyError && (
+                  <div className="text-sm text-red-600 mb-2">{companyError}</div>
+                )}
+                {companySuccess && (
+                  <div className="text-sm text-green-600 mb-2">{companySuccess}</div>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="md:col-span-2 flex items-center justify-between pt-4">
+                <div className="text-sm text-gray-500">
+                  Company ID: {companyProfile.id ? `${companyProfile.id.substring(0, 8)}...` : 'N/A'}
+                </div>
+                <button
+                  disabled={companySaving}
+                  className="btn-primary px-6 py-2"
+                >
+                  {companySaving ? "Saving..." : "Save Company Profile"}
+                </button>
+              </div>
+            </form>
+          ) : (
+            <div className="p-4 text-gray-500">No company profile found. Please complete onboarding first.</div>
+          )}
+        </div>
+      </div>
+
+      {/* ERP Integration Section */}
       <div className="bg-white border border-gray-200 rounded-2xl shadow-sm">
         <div className="p-8 space-y-8">
-
-          {/* Section title */}
           <div>
             <h2 className="text-xl font-medium">
               ERP / SaaS Integration
             </h2>
             <p className="text-sm text-gray-500 mt-1">
-              Used for invoice sync, batch reporting, EPCIS events and compliance exports.
+              Securely connect RxTrace with your ERP or enterprise systems. Credentials are encrypted and never exposed.
             </p>
           </div>
 
-          {/* Form */}
-          <form onSubmit={handleSave} className="grid grid-cols-1 md:grid-cols-2 gap-6">
-
-            {/* System */}
+          <form onSubmit={handleErpSave} className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <label className="label">Integration System</label>
               <select name="system" className="input" required>
@@ -68,7 +473,6 @@ export default function Page() {
               </select>
             </div>
 
-            {/* Sync Mode */}
             <div>
               <label className="label">Sync Mode</label>
               <select name="sync" className="input">
@@ -78,7 +482,6 @@ export default function Page() {
               </select>
             </div>
 
-            {/* API URL */}
             <div className="md:col-span-2">
               <label className="label">API Base URL</label>
               <input
@@ -89,7 +492,6 @@ export default function Page() {
               />
             </div>
 
-            {/* API Key */}
             <div className="md:col-span-2">
               <label className="label">API Key / Token</label>
               <input
@@ -103,57 +505,57 @@ export default function Page() {
                 Stored encrypted. Visible only during creation.
               </p>
             </div>
-            {/* ================= ROTATE KEY ================= */}
-<div className="border-t pt-8 mt-10">
-  <h3 className="text-lg font-medium mb-2">Rotate API Key</h3>
-  <p className="text-sm text-gray-500 mb-4">
-    Replace the existing API key. The old key will be permanently revoked.
-  </p>
 
-  <form
-    onSubmit={async (e) => {
-      e.preventDefault();
-      const form = e.currentTarget as HTMLFormElement;
-      const newKey = (form.newKey as HTMLInputElement).value;
+            {/* Rotate API Key */}
+            <div className="md:col-span-2 border-t pt-8 mt-10">
+              <h3 className="text-lg font-medium mb-2">Rotate API Key</h3>
+              <p className="text-sm text-gray-500 mb-4">
+                Replace the existing API key. The old key will be permanently revoked.
+              </p>
 
-      if (!confirm("This will revoke the old API key. Continue?")) return;
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  const form = e.currentTarget as HTMLFormElement;
+                  const newKey = (form.newKey as HTMLInputElement).value;
 
-      await fetch("/api/integrations/rotate-key", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ apiKey: newKey }),
-      });
+                  if (!confirm("This will revoke the old API key. Continue?")) return;
 
-      alert("API key rotated successfully");
-      form.reset();
-    }}
-    className="space-y-4 max-w-lg"
-  >
-    <div>
-      <label className="label">New API Key</label>
-      <input
-        name="newKey"
-        type="password"
-        className="input"
-        placeholder="••••••••••••••••"
-        required
-      />
-      <p className="text-xs text-gray-500 mt-1">
-        This key will be stored securely and never shown again.
-      </p>
-    </div>
+                  await fetch("/api/integrations/rotate-key", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ apiKey: newKey }),
+                  });
 
-    <button className="btn-primary">
-      Rotate API Key
-    </button>
-  </form>
-</div>
+                  alert("API key rotated successfully");
+                  form.reset();
+                }}
+                className="space-y-4 max-w-lg"
+              >
+                <div>
+                  <label className="label">New API Key</label>
+                  <input
+                    name="newKey"
+                    type="password"
+                    className="input"
+                    placeholder="••••••••••••••••"
+                    required
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    This key will be stored securely and never shown again.
+                  </p>
+                </div>
 
+                <button className="btn-primary">
+                  Rotate API Key
+                </button>
+              </form>
+            </div>
 
             {/* Footer */}
             <div className="md:col-span-2 flex items-center justify-between pt-4">
               <div className="text-sm">
-                {saved && (
+                {erpSaved && (
                   <span className="text-green-600">
                     ✔ Integration settings saved
                   </span>
@@ -161,13 +563,12 @@ export default function Page() {
               </div>
 
               <button
-                disabled={loading}
+                disabled={erpLoading}
                 className="btn-primary px-6 py-2"
               >
-                {loading ? "Saving..." : "Save Integration"}
+                {erpLoading ? "Saving..." : "Save Integration"}
               </button>
             </div>
-
           </form>
         </div>
       </div>

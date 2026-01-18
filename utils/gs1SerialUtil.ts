@@ -85,8 +85,11 @@ export function generateSerial(opts: SerialOptions = {}) {
 }
 
 /* ---------------------------------------------------
-   PRODUCT GS1 MACHINE PAYLOAD (UNCHANGED)
+   PRODUCT GS1 MACHINE PAYLOAD
+   Now uses canonical generation function
 --------------------------------------------------- */
+import { generateCanonicalGS1 } from '@/lib/gs1Canonical';
+
 export function buildGs1MachinePayload(params: {
   gtin: string;
   expDate?: string | Date;
@@ -97,24 +100,33 @@ export function buildGs1MachinePayload(params: {
   sku?: string;
   company?: string;
 }) {
-  const GS = String.fromCharCode(29);
-  const gtin14 = normalizeGtinTo14(params.gtin);
+  // Validate mandatory fields
+  if (!params.gtin) {
+    throw new Error("GTIN is required");
+  }
+  if (!params.expDate) {
+    throw new Error("Expiry date is required");
+  }
+  if (!params.mfgDate) {
+    throw new Error("Manufacturing date is required");
+  }
+  if (!params.batch) {
+    throw new Error("Batch number is required");
+  }
+  
+  // Generate serial if not provided
+  const serial = params.serial || generateSerial({ prefix: "RX", randomLen: 6 });
 
-  let payload = `01${gtin14}`;
-
-  if (params.expDate) payload += `17${formatDateYYMMDD(params.expDate)}`;
-  if (params.mfgDate) payload += `11${formatDateYYMMDD(params.mfgDate)}`;
-  if (params.batch) payload += `10${params.batch}${GS}`;
-
-  const serial =
-    params.serial || generateSerial({ prefix: "RX", randomLen: 6 });
-  payload += `21${serial}${GS}`;
-
-  if (params.mrp) payload += `91${params.mrp}${GS}`;
-  if (params.sku) payload += `92${params.sku}${GS}`;
-  if (params.company) payload += `93${params.company}${GS}`;
-
-  return payload;
+  return generateCanonicalGS1({
+    gtin: params.gtin,
+    expiry: params.expDate,
+    mfgDate: params.mfgDate,
+    batch: params.batch,
+    serial: serial,
+    mrp: params.mrp,
+    sku: params.sku,
+    company: params.company,
+  });
 }
 
 /* ---------------------------------------------------
