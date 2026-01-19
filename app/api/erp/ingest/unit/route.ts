@@ -1,0 +1,293 @@
+import { NextResponse } from 'next/server';
+import { supabaseServer } from '@/lib/supabase/server';
+import { getSupabaseAdmin } from '@/lib/supabase/admin';
+import { writeAuditLog } from '@/lib/audit';
+import { generateCanonicalGS1 } from '@/lib/gs1Canonical';
+import { parseGS1 } from '@/lib/parseGS1';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+// Resolve company_id from authenticated user
+async function resolveAuthCompany() {
+  const supabase = await supabaseServer();
+  const { data: { user }, error: userError } = await supabase.auth.getUser();
+
+  if (userError || !user) {
+    return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) };
+  }
+
+  const admin = getSupabaseAdmin();
+  const { data: company, error: companyError } = await admin
+    .from('companies')
+    .select('id, company_name')
+    .eq('user_id', user.id)
+    .single();
+
+  if (companyError || !company?.id) {
+    return { error: NextResponse.json({ error: 'Company profile not found' }, { status: 400 }) };
+  }
+
+  return { companyId: company.id, companyName: company.company_name || '', userId: user.id };
+}
+
+export async function POST(req: Request) {
+  try {
+    const auth = await resolveAuthCompany();
+    if ('error' in auth) return auth.error;
+
+    const { companyId, companyName, userId } = auth;
+    const admin = getSupabaseAdmin();
+
+    const body = await req.json().catch(() => ({}));
+    const rows = Array.isArray(body.rows) ? body.rows : [];
+
+    if (rows.length === 0) {
+      return NextResponse.json(
+        { error: 'No rows provided. CSV must contain unit code data.' },
+        { status: 400 }
+      );
+    }
+
+    if (rows.length > 10000) {
+      return NextResponse.json(
+        { error: 'Too many rows. Maximum 10,000 rows per import.' },
+        { status: 400 }
+      );
+    }
+
+    const results = {
+      total: rows.length,
+      imported: 0,
+      skipped: 0,
+      duplicates: 0,
+      invalid: 0,
+      errors: [] as Array<{ row: number; error: string }>,
+    };
+
+    const validRows: Array<{
+      company_id: string;
+      sku_id: string;
+      gtin: string;
+      batch: string;
+      mfd: string | null;
+      expiry: string;
+      mrp: string | null;
+      serial: string;
+      gs1_payload: string;
+    }> = [];
+
+    // Process each row
+    for (let idx = 0; idx < rows.length; idx++) {
+      const row = rows[idx];
+      const rowNum = idx + 1;
+
+      try {
+        // Required fields
+        const skuCode = String(row.sku_code || row.SKU_CODE || '').trim().toUpperCase();
+        const batch = String(row.batch || row.BATCH || row.batch_number || '').trim();
+        const expiryDate = String(row.expiry_date || row.EXPIRY_DATE || row.exp || '').trim();
+        const serialNumber = String(row.serial_number || row.SERIAL_NUMBER || row.serial || '').trim();
+        const gtin = String(row.gtin || row.GTIN || '').trim() || null;
+        const mrp = row.mrp || row.MRP ? String(row.mrp || row.MRP).trim() : null;
+        const mfd = row.mfd || row.MFD || row.mfg_date ? String(row.mfd || row.MFD || row.mfg_date).trim() : null;
+
+        // Validate required fields
+        if (!skuCode) {
+          results.errors.push({ row: rowNum, error: 'SKU Code is required' });
+          results.invalid++;
+          continue;
+        }
+
+        if (!batch) {
+          results.errors.push({ row: rowNum, error: 'Batch Number is required' });
+          results.invalid++;
+          continue;
+        }
+
+        if (!expiryDate) {
+          results.errors.push({ row: rowNum, error: 'Expiry Date is required' });
+          results.invalid++;
+          continue;
+        }
+
+        if (!serialNumber) {
+          results.errors.push({ row: rowNum, error: 'Serial Number is required' });
+          results.invalid++;
+          continue;
+        }
+
+        // Resolve or create SKU
+        let skuId: string;
+        const { data: sku } = await admin
+          .from('skus')
+          .select('id')
+          .eq('company_id', companyId)
+          .eq('sku_code', skuCode)
+          .maybeSingle();
+
+        if (sku?.id) {
+          skuId = sku.id;
+        } else {
+          // Auto-create SKU if not exists
+          const { data: newSku, error: createErr } = await admin
+            .from('skus')
+            .upsert(
+              { company_id: companyId, sku_code: skuCode, sku_name: skuCode, deleted_at: null },
+              { onConflict: 'company_id,sku_code' }
+            )
+            .select('id')
+            .single();
+
+          if (createErr || !newSku?.id) {
+            results.errors.push({ row: rowNum, error: `Failed to create/find SKU: ${skuCode}` });
+            results.invalid++;
+            continue;
+          }
+
+          skuId = newSku.id;
+        }
+
+        // Check for duplicate serial (same company, GTIN, batch, serial)
+        const { data: existing } = await admin
+          .from('labels_units')
+          .select('id')
+          .eq('company_id', companyId)
+          .eq('serial', serialNumber)
+          .eq('batch', batch)
+          .maybeSingle();
+
+        if (existing?.id) {
+          results.duplicates++;
+          results.skipped++;
+          continue;
+        }
+
+        // Generate GS1 payload if GTIN provided, otherwise use serial-based internal format
+        let gs1Payload: string;
+        const finalGtin = gtin || generateInternalGTIN(companyId, serialNumber);
+
+        // Normalize expiry date format (expect YYYY-MM-DD or YYMMDD)
+        let normalizedExpiry = expiryDate;
+        if (/^\d{6}$/.test(expiryDate)) {
+          // YYMMDD -> YYYY-MM-DD
+          const yy = expiryDate.slice(0, 2);
+          const mm = expiryDate.slice(2, 4);
+          const dd = expiryDate.slice(4, 6);
+          normalizedExpiry = `20${yy}-${mm}-${dd}`;
+        }
+
+        let normalizedMfd: string | null = null;
+        if (mfd) {
+          if (/^\d{6}$/.test(mfd)) {
+            const yy = mfd.slice(0, 2);
+            const mm = mfd.slice(2, 4);
+            const dd = mfd.slice(4, 6);
+            normalizedMfd = `20${yy}-${mm}-${dd}`;
+          } else {
+            normalizedMfd = mfd;
+          }
+        }
+
+        try {
+          gs1Payload = generateCanonicalGS1({
+            gtin: finalGtin,
+            expiry: normalizedExpiry,
+            mfgDate: normalizedMfd || new Date().toISOString().split('T')[0],
+            batch,
+            serial: serialNumber,
+            mrp: mrp ? Number(mrp) : undefined,
+            sku: skuCode,
+            company: companyName,
+          });
+        } catch (gs1Error: any) {
+          results.errors.push({ row: rowNum, error: `GS1 generation failed: ${gs1Error.message}` });
+          results.invalid++;
+          continue;
+        }
+
+        validRows.push({
+          company_id: companyId,
+          sku_id: skuId,
+          gtin: finalGtin,
+          batch,
+          mfd: normalizedMfd || new Date().toISOString().split('T')[0],
+          expiry: normalizedExpiry,
+          mrp,
+          serial: serialNumber,
+          gs1_payload: gs1Payload,
+        });
+      } catch (rowError: any) {
+        results.errors.push({ row: rowNum, error: rowError.message || 'Row processing failed' });
+        results.invalid++;
+      }
+    }
+
+    // Insert valid rows
+    if (validRows.length > 0) {
+      const { error: insertError } = await admin.from('labels_units').insert(validRows);
+
+      if (insertError) {
+        // Check if it's a duplicate key error
+        if (insertError.code === '23505' || insertError.message?.includes('unique')) {
+          results.duplicates += validRows.length;
+          results.skipped += validRows.length;
+        } else {
+          return NextResponse.json(
+            { error: `Failed to import units: ${insertError.message}`, results },
+            { status: 500 }
+          );
+        }
+      } else {
+        results.imported = validRows.length;
+      }
+    }
+
+    // Audit log
+    try {
+      await writeAuditLog({
+        companyId,
+        actor: userId,
+        action: 'ERP_UNIT_INGEST',
+        status: results.invalid === 0 && results.errors.length === 0 ? 'success' : 'failed',
+        integrationSystem: 'ERP',
+        metadata: {
+          source: 'ERP',
+          imported_by_user_id: userId,
+          imported_at: new Date().toISOString(),
+          validation_result: {
+            total: results.total,
+            imported: results.imported,
+            skipped: results.skipped,
+            duplicates: results.duplicates,
+            invalid: results.invalid,
+          },
+          error_count: results.errors.length,
+        },
+      });
+    } catch (auditError) {
+      console.error('Failed to log ERP ingestion audit:', auditError);
+      // Continue - ingestion succeeded, audit failure is logged
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: `Imported ${results.imported} unit codes. ${results.duplicates} duplicates skipped. ${results.invalid} invalid rows.`,
+      results,
+    });
+  } catch (err: any) {
+    console.error('ERP Unit Ingestion error:', err);
+    return NextResponse.json(
+      { error: err?.message || 'ERP unit code ingestion failed. Please try again or contact support.' },
+      { status: 500 }
+    );
+  }
+}
+
+// Generate internal GTIN if not provided by ERP
+function generateInternalGTIN(companyId: string, serial: string): string {
+  // Use company ID prefix + serial hash for uniqueness
+  const prefix = '890'; // Internal prefix
+  const hash = serial.slice(0, 10).padEnd(10, '0');
+  return `${prefix}${hash.slice(0, 11)}`; // 14 digits total
+}

@@ -203,11 +203,40 @@ async function processUnitCSV(csvText: string, companyId: string, companyName: s
       })
     });
 
+    // Safe JSON parsing - check response status and content-type
     if (!res.ok) {
-      throw new Error(`Failed to generate codes for SKU: ${sku}`);
+      const contentType = res.headers.get('content-type');
+      let errorMessage = `Failed to generate codes for SKU: ${sku}`;
+      
+      if (contentType?.includes('application/json')) {
+        try {
+          const errorBody = await res.json().catch(() => ({}));
+          errorMessage = errorBody.error || errorMessage;
+        } catch {
+          // Ignore JSON parse error, use default message
+        }
+      } else {
+        const text = await res.text().catch(() => '');
+        if (text) errorMessage = text;
+      }
+      
+      throw new Error(errorMessage);
     }
 
-    const result = await res.json();
+    // Check content-type before parsing JSON
+    const contentType = res.headers.get('content-type');
+    if (!contentType?.includes('application/json')) {
+      throw new Error('Unit code generation failed. Invalid response format. Please try again or contact support.');
+    }
+
+    const result = await res.json().catch(() => {
+      throw new Error('Unit code generation failed. Invalid response. Please try again or contact support.');
+    });
+
+    // Validate response structure
+    if (!result || !Array.isArray(result.items)) {
+      throw new Error('Unit code generation failed. Invalid response format. Please try again or contact support.');
+    }
     result.items.forEach((item: any) => {
       out.push({
         id: `r${out.length + 1}`,
@@ -341,12 +370,40 @@ export default function UnitCodeGenerationPage() {
         })
       });
 
+      // Safe JSON parsing - check response status and content-type
       if (!res.ok) {
-        const body = await res.json();
-        throw new Error(body.error || 'Failed to generate codes');
+        const contentType = res.headers.get('content-type');
+        let errorMessage = 'Failed to generate codes';
+        
+        if (contentType?.includes('application/json')) {
+          try {
+            const errorBody = await res.json().catch(() => ({}));
+            errorMessage = errorBody.error || errorMessage;
+          } catch {
+            // Ignore JSON parse error, use default message
+          }
+        } else {
+          const text = await res.text().catch(() => '');
+          if (text) errorMessage = text;
+        }
+        
+        throw new Error(errorMessage);
       }
 
-      const result = await res.json();
+      // Check content-type before parsing JSON
+      const contentType = res.headers.get('content-type');
+      if (!contentType?.includes('application/json')) {
+        throw new Error('Unit code generation failed. Invalid response format. Please try again or contact support.');
+      }
+
+      const result = await res.json().catch(() => {
+        throw new Error('Unit code generation failed. Invalid response. Please try again or contact support.');
+      });
+
+      // Validate response structure
+      if (!result || !Array.isArray(result.items)) {
+        throw new Error('Unit code generation failed. Invalid response format. Please try again or contact support.');
+      }
       const newRows: UnitBatchRow[] = result.items.map((item: any, idx: number) => ({
         id: `s${batch.length + idx + 1}`,
         fields: {

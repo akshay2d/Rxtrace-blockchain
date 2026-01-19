@@ -57,7 +57,7 @@ function SeatSummaryDisplay({ company }: { company: any }) {
         });
       })
       .finally(() => setLoading(false));
-  }, [company?.id, company?.subscription_plan, company?.extra_user_seats]);
+  }, [company?.id, company?.subscription_plan, company?.plan_type, company?.plan, company?.tier, company?.extra_user_seats]);
 
   if (loading || !seatLimits) {
     return <div className="text-sm text-gray-500">Loading seat information...</div>;
@@ -405,7 +405,7 @@ export default function BillingPage() {
               </div>
               <div className="pt-2 border-t">
                 <Button asChild variant="outline" className="border-gray-300">
-                  <a href="/dashboard/settings">Edit Company Profile</a>
+                  <a href="/dashboard/company-setup">Edit Company Profile</a>
                 </Button>
               </div>
             </div>
@@ -413,7 +413,7 @@ export default function BillingPage() {
             <div className="space-y-3">
               <p className="text-sm text-gray-600">Company profile is not set up yet.</p>
               <Button asChild className="bg-blue-600 hover:bg-blue-700">
-                <a href="/dashboard/settings">Set Up Company Profile</a>
+                <a href="/dashboard/company-setup">Set Up Company Profile</a>
               </Button>
             </div>
           )}

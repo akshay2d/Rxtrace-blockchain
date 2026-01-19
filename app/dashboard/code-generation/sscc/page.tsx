@@ -533,6 +533,7 @@ export default function SSCCCodeGenerationPage() {
                       value={form.numberOfPallets}
                       onChange={(e) => update('numberOfPallets', parseInt(e.target.value) || 1)}
                     />
+                    <p className="text-xs text-gray-600 mt-1">One SSCC is generated per pallet</p>
                   </div>
                 </div>
               </div>
@@ -581,7 +582,8 @@ export default function SSCCCodeGenerationPage() {
                 <div className="text-xs text-gray-700 space-y-1">
                   <p><strong>Required:</strong> SKU Code, Batch Number, Expiry Date, Units per Box, Boxes per Carton, Cartons per Pallet, Number of Pallets</p>
                   <p><strong>Auto-filled:</strong> Company Name, Company ID, Generation Type, Hierarchy Type</p>
-                  <p className="text-amber-700 mt-2"><strong>Note:</strong> This CSV is for SSCC generation only. Unit-level codes require a separate CSV template.</p>
+                  <p className="text-blue-700 mt-2 font-semibold"><strong>Quantity Rule:</strong> One SSCC is generated per pallet. The &quot;Number of Pallets&quot; column determines how many SSCC codes will be created.</p>
+                  <p className="text-amber-700 mt-1"><strong>Note:</strong> This CSV is for SSCC generation only. Unit-level codes require a separate CSV template.</p>
                 </div>
               </div>
 

@@ -142,6 +142,14 @@ export default function ProductsPage() {
 
   // fetchSkus is useCallback'd above
 
+  function openCreateModal() {
+    setModalMode('create');
+    setEditingSku(null);
+    setFormSkuCode('');
+    setFormSkuName('');
+    setShowModal(true);
+  }
+
   function openEditModal(sku: SKU) {
     setModalMode('edit');
     setEditingSku(sku);
@@ -155,43 +163,80 @@ export default function ProductsPage() {
     setEditingSku(null);
     setFormSkuCode('');
     setFormSkuName('');
+    setModalMode('edit'); // Reset to edit mode
   }
 
   async function handleSubmit() {
     setError('');
     setSuccess('');
 
-    if (!editingSku) return;
-    
-    if (!formSkuName.trim()) {
-      setError('SKU Name is required');
-      return;
-    }
+    if (modalMode === 'create') {
+      // CREATE mode
+      if (!formSkuCode.trim()) {
+        setError('SKU Code is required');
+        return;
+      }
+      
+      if (!formSkuName.trim()) {
+        setError('SKU Name is required');
+        return;
+      }
 
-    setSubmitting(true);
+      setSubmitting(true);
 
-    try {
-      const res = await fetch(`/api/skus/${editingSku.id}`,
-        {
+      try {
+        const res = await fetch('/api/skus', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sku_code: formSkuCode.trim(),
+            sku_name: formSkuName.trim(),
+          }),
+        });
+        const out = await safeReadJson(res);
+        if (!res.ok) throw new Error(out?.error || 'Failed to create SKU');
+
+        setSuccess(`✅ SKU "${formSkuCode}" created successfully`);
+
+        closeModal();
+        fetchSkus();
+      } catch (err: any) {
+        setError(err.message || 'Operation failed');
+      } finally {
+        setSubmitting(false);
+      }
+    } else {
+      // EDIT mode
+      if (!editingSku) return;
+      
+      if (!formSkuName.trim()) {
+        setError('SKU Name is required');
+        return;
+      }
+
+      setSubmitting(true);
+
+      try {
+        const res = await fetch(`/api/skus/${editingSku.id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             sku_code: formSkuCode.trim(),
             sku_name: formSkuName.trim(),
           }),
-        }
-      );
-      const out = await safeReadJson(res);
-      if (!res.ok) throw new Error(out?.error || 'Failed to update SKU');
+        });
+        const out = await safeReadJson(res);
+        if (!res.ok) throw new Error(out?.error || 'Failed to update SKU');
 
-      setSuccess(`✅ SKU "${formSkuCode}" updated successfully`);
+        setSuccess(`✅ SKU "${formSkuCode}" updated successfully`);
 
-      closeModal();
-      fetchSkus();
-    } catch (err: any) {
-      setError(err.message || 'Operation failed');
-    } finally {
-      setSubmitting(false);
+        closeModal();
+        fetchSkus();
+      } catch (err: any) {
+        setError(err.message || 'Operation failed');
+      } finally {
+        setSubmitting(false);
+      }
     }
   }
 
@@ -223,6 +268,12 @@ export default function ProductsPage() {
           <p className="text-sm text-gray-600">Manage your product catalog and SKU information</p>
         </div>
         <div className="flex gap-3">
+          <Button
+            onClick={openCreateModal}
+            className="bg-blue-600 hover:bg-blue-700 text-white"
+          >
+            Create SKU
+          </Button>
           <Button
             variant="outline"
             onClick={() => {
@@ -372,7 +423,7 @@ export default function ProductsPage() {
           <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto border border-gray-200">
             <div className="p-6 border-b border-gray-200 flex items-center justify-between">
               <h2 className="text-xl font-semibold text-gray-900">
-                Edit SKU
+                {modalMode === 'create' ? 'Create SKU' : 'Edit SKU'}
               </h2>
               <button
                 onClick={closeModal}
@@ -386,18 +437,23 @@ export default function ProductsPage() {
             <div className="p-6 space-y-5">
               <div>
                 <Label htmlFor="sku-code" className="text-sm font-medium text-gray-700 mb-2 block">
-                  SKU Code
+                  SKU Code {modalMode === 'create' && '*'}
                 </Label>
                 <Input
                   id="sku-code"
                   type="text"
                   value={formSkuCode}
-                  onChange={(e) => setFormSkuCode(e.target.value)}
+                  onChange={(e) => setFormSkuCode(e.target.value.toUpperCase())}
                   placeholder="e.g., PROD-001, SKU-12345"
-                  disabled
-                  className="bg-gray-50"
+                  disabled={modalMode === 'edit'}
+                  required={modalMode === 'create'}
+                  className={modalMode === 'edit' ? 'bg-gray-50' : ''}
                 />
-                <p className="text-xs text-gray-500 mt-1.5">SKU code cannot be changed after creation</p>
+                <p className="text-xs text-gray-500 mt-1.5">
+                  {modalMode === 'edit' 
+                    ? 'SKU code cannot be changed after creation' 
+                    : 'Enter a unique SKU code for this product'}
+                </p>
               </div>
 
               <div>
@@ -425,7 +481,11 @@ export default function ProductsPage() {
                 disabled={submitting}
                 className="bg-blue-600 hover:bg-blue-700"
               >
-                {submitting ? 'Saving...' : 'Update SKU'}
+                {submitting 
+                  ? 'Saving...' 
+                  : modalMode === 'create' 
+                    ? 'Create SKU' 
+                    : 'Update SKU'}
               </Button>
             </div>
           </div>
