@@ -366,6 +366,45 @@ export default function UnitCodeGenerationPage() {
     setForm(s => ({ ...s, [k]: v }));
   }
 
+  /**
+   * Type-safe GTIN resolution helper.
+   * Resolves GTIN from multiple possible sources with priority:
+   * 1. Validated/normalized GTIN (highest priority)
+   * 2. Raw GTIN input (if present)
+   * 3. Generated rows (extract from first row)
+   * Returns null if no valid GTIN can be resolved.
+   * NEVER throws - safe for use in UI messages.
+   */
+  function resolveDisplayGtin(params: {
+    validatedGtin?: string | null;
+    normalizedGtin?: string | null;
+    rawGtinInput?: string | null;
+    generatedRows?: UnitBatchRow[];
+  }): string | null {
+    // Priority 1: Validated/normalized GTIN
+    if (params.validatedGtin && typeof params.validatedGtin === 'string' && params.validatedGtin.trim().length > 0) {
+      return params.validatedGtin.trim();
+    }
+    if (params.normalizedGtin && typeof params.normalizedGtin === 'string' && params.normalizedGtin.trim().length > 0) {
+      return params.normalizedGtin.trim();
+    }
+    
+    // Priority 2: Raw GTIN input
+    if (params.rawGtinInput && typeof params.rawGtinInput === 'string' && params.rawGtinInput.trim().length > 0) {
+      return params.rawGtinInput.trim();
+    }
+    
+    // Priority 3: Extract from generated rows
+    if (params.generatedRows && Array.isArray(params.generatedRows) && params.generatedRows.length > 0) {
+      const firstRow = params.generatedRows[0];
+      if (firstRow?.fields?.gtin && typeof firstRow.fields.gtin === 'string' && firstRow.fields.gtin.trim().length > 0) {
+        return firstRow.fields.gtin.trim();
+      }
+    }
+    
+    return null;
+  }
+
   async function handleGenerateSingle() {
     setError(null);
     setSuccess(null);
@@ -463,7 +502,18 @@ export default function UnitCodeGenerationPage() {
       }));
 
       setBatch(prev => [...prev, ...newRows]);
-      setSuccess(`Generated ${newRows.length} unit code(s) successfully. GTIN used: ${generatedGtin}`);
+      
+      // Resolve GTIN for display using type-safe helper
+      const displayGtin = resolveDisplayGtin({
+        validatedGtin: gtin,
+        generatedRows: newRows
+      });
+      
+      const successMessage = displayGtin
+        ? `Generated ${newRows.length} unit code(s) successfully. GTIN used: ${displayGtin}`
+        : `Generated ${newRows.length} unit code(s) successfully.`;
+      
+      setSuccess(successMessage);
     } catch (e: any) {
       setError(e?.message || 'Failed to generate codes');
     }
