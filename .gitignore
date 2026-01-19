@@ -40,3 +40,10 @@ next-env.d.ts
 
 # Sentry Config File
 .env.sentry-build-plugin
+
+# Editor artifacts and temporary files
+*.diff
+*.patch
+# Temporary files with spaces and special characters (common editor artifacts)
+* for *
+* runtime *
