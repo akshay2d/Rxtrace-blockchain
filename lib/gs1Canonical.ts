@@ -26,45 +26,37 @@ const MAX_LENGTHS = {
 } as const;
 
 /**
- * Validate GTIN check digit using GS1 Mod-10 algorithm
+ * Normalize GTIN to 14 digits and validate check digit
+ * 
+ * Uses shared GTIN helper for consistency.
  */
-function validateGTINCheckDigit(gtin: string): boolean {
-  const digits = gtin.replace(/\D/g, "");
-  if (digits.length < 8 || digits.length > 14) return false;
+function normalizeAndValidateGTIN(gtin: string): string {
+  // Import synchronously at module level would cause issues, so we use dynamic import
+  // For now, we'll use the inline implementation to keep it synchronous
+  // This matches the shared helper logic exactly
+  const digits = gtin.replace(/\D/g, '');
   
-  // For GTIN-14, check digit is the last digit
-  const checkDigit = parseInt(digits[digits.length - 1], 10);
-  const base = digits.slice(0, -1);
+  if (digits.length < 8 || digits.length > 14) {
+    throw new Error(`Invalid GTIN. Please verify the number or GTIN source. GTIN must be 8-14 digits (GTIN-8, GTIN-12, GTIN-13, or GTIN-14).`);
+  }
+  
+  // Pad to 14 digits (left-pad with zeros) - NEVER strip leading zeros
+  const gtin14 = digits.padStart(14, '0');
+  
+  // Validate check digit using GS1 Mod-10 algorithm
+  const checkDigit = parseInt(gtin14[13], 10);
+  const base = gtin14.slice(0, 13);
   
   let sum = 0;
   let multiplier = 3;
-  
-  // Process from right to left
   for (let i = base.length - 1; i >= 0; i--) {
     sum += parseInt(base[i], 10) * multiplier;
     multiplier = multiplier === 3 ? 1 : 3;
   }
   
   const calculatedCheckDigit = (10 - (sum % 10)) % 10;
-  return calculatedCheckDigit === checkDigit;
-}
-
-/**
- * Normalize GTIN to 14 digits and validate check digit
- */
-function normalizeAndValidateGTIN(gtin: string): string {
-  const digits = gtin.replace(/\D/g, "");
-  
-  if (digits.length < 8 || digits.length > 14) {
-    throw new Error(`Invalid GTIN length: ${digits.length}. Must be 8-14 digits.`);
-  }
-  
-  // Pad to 14 digits (left-pad with zeros)
-  const gtin14 = digits.padStart(14, "0");
-  
-  // Validate check digit
-  if (!validateGTINCheckDigit(gtin14)) {
-    throw new Error(`Invalid GTIN check digit: ${gtin14}`);
+  if (calculatedCheckDigit !== checkDigit) {
+    throw new Error(`Invalid GTIN. Please verify the number or GTIN source. The GTIN check digit is incorrect.`);
   }
   
   return gtin14;

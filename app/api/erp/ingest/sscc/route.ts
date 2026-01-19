@@ -43,6 +43,24 @@ export async function POST(req: Request) {
     const { companyId, companyName, userId } = auth;
     const admin = getSupabaseAdmin();
 
+    // Check ERP ingestion mode - SSCC ingestion allowed only if mode = sscc | both
+    const { data: company } = await admin
+      .from('companies')
+      .select('erp_ingestion_mode')
+      .eq('id', companyId)
+      .maybeSingle();
+
+    const ingestionMode = company?.erp_ingestion_mode;
+    if (ingestionMode !== 'sscc' && ingestionMode !== 'both') {
+      return NextResponse.json(
+        {
+          error: 'SSCC-level ERP ingestion is not enabled for your company. Please enable it in ERP Integration settings.',
+          code: 'ingestion_mode_disabled',
+        },
+        { status: 403 }
+      );
+    }
+
     const body = await req.json().catch(() => ({}));
     const rows = Array.isArray(body.rows) ? body.rows : [];
 

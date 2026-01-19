@@ -40,6 +40,7 @@ type UnitFormState = {
   quantity: number;
   codeType: CodeType;
   gtinSource: 'customer' | 'internal';
+  gtin?: string; // GTIN input when source is 'customer'
   printerId: string;
   mfdDate?: string;
   mrp?: string;
@@ -60,11 +61,23 @@ type CSVValidationError = {
 
 // ---------- Helpers ----------
 function generateGTIN(prefix = '890'): string {
+  // Generate GTIN-14 with valid check digit
   const remainingDigits = 13 - prefix.length;
   const random = Math.floor(Math.random() * Math.pow(10, remainingDigits))
     .toString()
     .padStart(remainingDigits, '0');
-  return `${prefix}${random}`;
+  const base = `${prefix}${random}`.padStart(14, '0').slice(0, 13);
+  
+  // Calculate check digit using GS1 Mod-10 algorithm
+  let sum = 0;
+  let multiplier = 3;
+  for (let i = base.length - 1; i >= 0; i--) {
+    sum += parseInt(base[i], 10) * multiplier;
+    multiplier = multiplier === 3 ? 1 : 3;
+  }
+  const checkDigit = (10 - (sum % 10)) % 10;
+  
+  return `${base}${checkDigit}`;
 }
 
 function isoDateToYYMMDD(iso?: string): string | undefined {
@@ -154,8 +167,10 @@ function validateUnitCSV(rows: Record<string, string>[], companyId: string): { v
 async function processUnitCSV(csvText: string, companyId: string, companyName: string, printerId: string): Promise<UnitBatchRow[]> {
   const parsed = Papa.parse<Record<string, string>>(csvText, { header: true, skipEmptyLines: true });
   const out: UnitBatchRow[] = [];
+  const { validateGTIN } = await import('@/lib/gs1/gtin');
 
-  for (const row of parsed.data) {
+  for (let idx = 0; idx < parsed.data.length; idx++) {
+    const row = parsed.data[idx];
     const sku = (row['SKU Code'] || row['sku_code'] || row['SKU'] || '').toString().trim();
     const batch = (row['Batch Number'] || row['batch_number'] || row['BATCH'] || '').toString().trim();
     const expRaw = (row['Expiry Date'] || row['expiry_date'] || row['EXP'] || '').toString().trim();
@@ -166,9 +181,18 @@ async function processUnitCSV(csvText: string, companyId: string, companyName: s
     const codeType: CodeType = ((row['Code Format'] || row['code_format'] || 'QR').toString().toUpperCase() === 'DATAMATRIX') ? 'DATAMATRIX' : 'QR';
     
     // Generate or use customer GTIN
-    const gtin = gtinSource === 'customer' && row['GTIN']?.trim() 
-      ? row['GTIN'].trim() 
-      : generateGTIN();
+    let gtin: string;
+    if (gtinSource === 'customer' && row['GTIN']?.trim()) {
+      // Validate customer GTIN using shared helper
+      const validation = validateGTIN(row['GTIN'].trim());
+      if (!validation.valid) {
+        throw new Error(`Row ${idx + 2}: ${validation.error || 'Invalid GTIN'}`);
+      }
+      gtin = validation.normalized!;
+    } else {
+      // Generate internal GTIN
+      gtin = generateGTIN();
+    }
     
     const mfdISO = mfdRaw.length === 6 ? `20${mfdRaw.slice(0,2)}-${mfdRaw.slice(2,4)}-${mfdRaw.slice(4,6)}` : mfdRaw;
     const expISO = expRaw.length === 6 ? `20${expRaw.slice(0,2)}-${expRaw.slice(2,4)}-${expRaw.slice(4,6)}` : expRaw;
@@ -352,7 +376,25 @@ export default function UnitCodeGenerationPage() {
     }
 
     try {
-      const gtin = form.gtinSource === 'customer' ? generateGTIN() : generateGTIN();
+      // Validate GTIN if source is customer
+      let gtin: string;
+      if (form.gtinSource === 'customer') {
+        if (!form.gtin || form.gtin.trim().length === 0) {
+          setError('GTIN is required when GTIN Source is "From Company"');
+          return;
+        }
+        // Use shared GTIN validation helper
+        const { validateGTIN } = await import('@/lib/gs1/gtin');
+        const validation = validateGTIN(form.gtin);
+        if (!validation.valid) {
+          setError(validation.error || 'Invalid GTIN. Please verify the number or GTIN source.');
+          return;
+        }
+        gtin = validation.normalized!;
+      } else {
+        // From RxTrace Terminal - generate internal GTIN
+        gtin = generateGTIN();
+      }
       
       const res = await fetch('/api/issues', {
         method: 'POST',
@@ -421,7 +463,7 @@ export default function UnitCodeGenerationPage() {
       }));
 
       setBatch(prev => [...prev, ...newRows]);
-      setSuccess(`Generated ${newRows.length} unit code(s) successfully`);
+      setSuccess(`Generated ${newRows.length} unit code(s) successfully. GTIN used: ${generatedGtin}`);
     } catch (e: any) {
       setError(e?.message || 'Failed to generate codes');
     }
@@ -580,14 +622,61 @@ export default function UnitCodeGenerationPage() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="customer">Customer GS1</SelectItem>
-                      <SelectItem value="internal">RxTrace Internal</SelectItem>
+                      <SelectItem value="customer">From Company</SelectItem>
+                      <SelectItem value="internal">From RxTrace Terminal</SelectItem>
                     </SelectContent>
                   </Select>
-                  {form.gtinSource === 'internal' && (
-                    <p className="text-xs text-amber-600 mt-1">
-                      Internal GTINs are valid for India only and may not be export compliant
-                    </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {form.gtinSource === 'customer' 
+                      ? 'Enter your company&apos;s GS1-issued GTIN'
+                      : 'RxTrace will generate an internal GTIN (valid for India only)'}
+                  </p>
+                </div>
+
+                {/* GTIN Field - Always Visible */}
+                <div>
+                  <Label htmlFor="gtin">
+                    GTIN {form.gtinSource === 'customer' ? '(8-14 digits) *' : ''}
+                  </Label>
+                  {form.gtinSource === 'customer' ? (
+                    <>
+                      <Input
+                        id="gtin"
+                        type="text"
+                        value={form.gtin || ''}
+                        onChange={(e) => {
+                          // Only allow numeric input
+                          const value = e.target.value.replace(/\D/g, '');
+                          if (value.length <= 14) {
+                            update('gtin', value);
+                            // Clear error when user types
+                            if (error && error.includes('GTIN')) {
+                              setError(null);
+                            }
+                          }
+                        }}
+                        placeholder="1234567890123"
+                        maxLength={14}
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        Supported formats: GTIN-8 (8 digits), GTIN-12 (12 digits), GTIN-13 (13 digits), GTIN-14 (14 digits)
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <Input
+                        id="gtin"
+                        type="text"
+                        value=""
+                        readOnly
+                        disabled
+                        placeholder="GTIN will be generated by RxTrace Terminal"
+                        className="bg-gray-50 text-gray-500 cursor-not-allowed"
+                      />
+                      <p className="text-xs text-amber-600 mt-1">
+                        ⚠️ Internal GTINs are valid for India only and may not be export compliant
+                      </p>
+                    </>
                   )}
                 </div>
 
