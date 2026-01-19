@@ -55,7 +55,7 @@ export default function CancellationPolicyPage() {
               <ol className="list-decimal list-inside space-y-3 text-gray-700">
                 <li>Log in to your RxTrace dashboard</li>
                 <li>Navigate to the Billing page</li>
-                <li>Click on the "Cancel Subscription" button</li>
+                <li>Click on the &quot;Cancel Subscription&quot; button</li>
                 <li>Confirm your cancellation</li>
                 <li>You will receive a confirmation email</li>
               </ol>

@@ -44,7 +44,7 @@ export default function BillingPolicyPage() {
             <ul className="list-disc list-inside space-y-2 text-gray-700">
               <li>Automatic billing begins after trial period expires</li>
               <li>Charges are based on your selected plan (Starter, Growth, or Enterprise)</li>
-              <li>Billing cycle follows your plan's billing period (monthly, quarterly, or annual)</li>
+              <li>Billing cycle follows your plan&apos;s billing period (monthly, quarterly, or annual)</li>
             </ul>
           </section>
 
