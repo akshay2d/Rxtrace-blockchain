@@ -229,6 +229,28 @@ export default function Page() {
         </p>
       </div>
 
+      {/* Company Setup Alert (if company missing) */}
+      {!companyProfile && !companyLoading && (
+        <div className="bg-blue-50 border-2 border-blue-200 rounded-2xl p-6">
+          <div className="flex items-start justify-between">
+            <div className="flex-1">
+              <h3 className="text-lg font-semibold text-blue-900 mb-2">
+                Complete Company Setup
+              </h3>
+              <p className="text-sm text-blue-800 mb-4">
+                Company profile setup is required to use RxTrace features. Complete your company information to continue.
+              </p>
+              <a
+                href="/dashboard/company-setup"
+                className="inline-block px-6 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors"
+              >
+                Set Up Company Profile →
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* User Profile Section */}
       <div className="bg-white border border-gray-200 rounded-2xl shadow-sm">
         <div className="p-8 space-y-6">

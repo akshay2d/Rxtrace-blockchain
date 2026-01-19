@@ -65,8 +65,70 @@ export default function CompanySetupPage() {
 
     try {
       if (mode === 'create') {
-        // Create mode - redirect to onboarding for full setup
-        router.push('/onboarding/setup');
+        // Create mode - create company with minimal required fields
+        const supabase = supabaseClient();
+        const { data: { user } } = await supabase.auth.getUser();
+
+        if (!user) {
+          throw new Error('User not authenticated');
+        }
+
+        // Create company with minimal fields (company_name is required)
+        const res = await fetch('/api/company/profile/update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            company_name: companyName.trim(),
+            pan: pan.trim() || null,
+            gst: gst.trim() || null,
+            address: address.trim() || null,
+          }),
+        });
+
+        const result = await res.json().catch(() => ({}));
+
+        if (!res.ok) {
+          // If company doesn't exist, try creating it via setup API
+          if (res.status === 404 || result.error?.includes('not found')) {
+            // For minimal setup, we'll create with required fields only
+            // User can complete full profile later
+            const createRes = await fetch('/api/setup/create-company-profile', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                user_id: user.id,
+                company_name: companyName.trim(),
+                contact_person_name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'Owner',
+                firm_type: 'pvt_ltd', // Default, can be changed later
+                address: address.trim() || 'Address to be updated',
+                email: user.email || '',
+                phone: user.user_metadata?.phone || '',
+                pan: pan.trim() || '',
+                gst: gst.trim() || null,
+                business_category: 'pharma', // Default, can be changed later
+                business_type: 'manufacturer', // Default, can be changed later
+              }),
+            });
+
+            const createResult = await createRes.json().catch(() => ({}));
+
+            if (!createRes.ok) {
+              throw new Error(createResult.error || 'Failed to create company profile');
+            }
+
+            setSuccess(true);
+            setTimeout(() => {
+              router.push('/dashboard/billing');
+            }, 1500);
+            return;
+          }
+          throw new Error(result.error || 'Failed to create company profile');
+        }
+
+        setSuccess(true);
+        setTimeout(() => {
+          router.push('/dashboard/billing');
+        }, 1500);
         return;
       }
 
@@ -148,17 +210,87 @@ export default function CompanySetupPage() {
         </CardHeader>
         <CardContent>
           {mode === 'create' ? (
-            <div className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-4">
               <p className="text-sm text-gray-600 mb-4">
-                Company profile setup is required to use RxTrace. This will guide you through the complete company setup process.
+                Complete your company profile to start using RxTrace. You can update additional details later.
               </p>
-              <Button 
-                onClick={() => router.push('/onboarding/setup')}
-                className="w-full bg-blue-600 hover:bg-blue-700"
-              >
-                Go to Company Setup →
-              </Button>
-            </div>
+
+              {/* Company Name */}
+              <div>
+                <Label htmlFor="companyName">Company Name *</Label>
+                <Input
+                  id="companyName"
+                  value={companyName}
+                  onChange={(e) => setCompanyName(e.target.value)}
+                  placeholder="Enter company name"
+                  required
+                  disabled={submitting}
+                  className="mt-1.5"
+                />
+              </div>
+
+              {/* PAN */}
+              <div>
+                <Label htmlFor="pan">PAN Number</Label>
+                <Input
+                  id="pan"
+                  value={pan}
+                  onChange={(e) => setPan(e.target.value.toUpperCase())}
+                  placeholder="ABCDE1234F"
+                  maxLength={10}
+                  disabled={submitting}
+                  className="mt-1.5"
+                />
+              </div>
+
+              {/* GST */}
+              <div>
+                <Label htmlFor="gst">GST Number</Label>
+                <Input
+                  id="gst"
+                  value={gst}
+                  onChange={(e) => setGst(e.target.value.toUpperCase())}
+                  placeholder="29ABCDE1234F1Z5"
+                  maxLength={15}
+                  disabled={submitting}
+                  className="mt-1.5"
+                />
+              </div>
+
+              {/* Address */}
+              <div>
+                <Label htmlFor="address">Address</Label>
+                <textarea
+                  id="address"
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  placeholder="Enter company address"
+                  rows={3}
+                  disabled={submitting}
+                  className="mt-1.5 w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-3 pt-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => router.push('/dashboard')}
+                  disabled={submitting}
+                  className="border-gray-300"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={submitting || !companyName.trim()}
+                  className="bg-blue-600 hover:bg-blue-700"
+                >
+                  {submitting ? 'Creating...' : 'Create Company Profile'}
+                </Button>
+              </div>
+            </form>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
               {/* Read-only Company ID */}

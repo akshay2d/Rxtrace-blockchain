@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Papa from 'papaparse';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -10,6 +10,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { AlertCircle, CheckCircle, Upload, FileText, Info } from 'lucide-react';
 import { saveAs } from 'file-saver';
+import { supabaseClient } from '@/lib/supabase/client';
 
 type IngestionResult = {
   total: number;
@@ -26,6 +27,64 @@ export default function ErpIntegrationPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [result, setResult] = useState<IngestionResult | null>(null);
+  const [ingestionMode, setIngestionMode] = useState<'unit' | 'sscc' | 'both' | null>(null);
+  const [loadingMode, setLoadingMode] = useState(true);
+  const [savingMode, setSavingMode] = useState(false);
+
+  // Load current ingestion mode from company profile
+  useEffect(() => {
+    async function loadIngestionMode() {
+      try {
+        const supabase = supabaseClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+
+        const { data: company } = await supabase
+          .from('companies')
+          .select('erp_ingestion_mode')
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+        if (company?.erp_ingestion_mode) {
+          setIngestionMode(company.erp_ingestion_mode as 'unit' | 'sscc' | 'both');
+        }
+      } catch (err) {
+        console.error('Failed to load ingestion mode:', err);
+      } finally {
+        setLoadingMode(false);
+      }
+    }
+    loadIngestionMode();
+  }, []);
+
+  // Save ingestion mode when changed
+  useEffect(() => {
+    if (loadingMode || ingestionMode === null) return;
+
+    async function saveIngestionMode() {
+      setSavingMode(true);
+      try {
+        const supabase = supabaseClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+
+        const { error } = await supabase
+          .from('companies')
+          .update({ erp_ingestion_mode: ingestionMode })
+          .eq('user_id', user.id);
+
+        if (error) throw error;
+      } catch (err) {
+        console.error('Failed to save ingestion mode:', err);
+      } finally {
+        setSavingMode(false);
+      }
+    }
+
+    // Debounce save
+    const timeoutId = setTimeout(saveIngestionMode, 500);
+    return () => clearTimeout(timeoutId);
+  }, [ingestionMode, loadingMode]);
 
   // Unit CSV Template Download
   function downloadUnitCSVTemplate() {
@@ -201,6 +260,63 @@ export default function ErpIntegrationPage() {
           <AlertDescription className="text-green-800">{success}</AlertDescription>
         </Alert>
       )}
+
+      {/* ERP Ingestion Method Selection */}
+      <Card className="border-gray-200">
+        <CardHeader>
+          <CardTitle className="text-lg font-semibold">ERP Ingestion Method Configuration</CardTitle>
+          <CardDescription>
+            Select which ERP code ingestion methods you want to enable for your company
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-3">
+            <Label className="text-sm font-medium">Enabled Ingestion Methods:</Label>
+            <div className="space-y-2">
+              <label className="flex items-center space-x-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={ingestionMode === 'unit' || ingestionMode === 'both'}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    if (checked) {
+                      setIngestionMode(ingestionMode === 'sscc' ? 'both' : 'unit');
+                    } else {
+                      setIngestionMode(ingestionMode === 'both' ? 'sscc' : null);
+                    }
+                  }}
+                  disabled={loadingMode || savingMode}
+                  className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                />
+                <span className="text-sm text-gray-700">Unit-Level Code Ingestion</span>
+              </label>
+              <label className="flex items-center space-x-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={ingestionMode === 'sscc' || ingestionMode === 'both'}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    if (checked) {
+                      setIngestionMode(ingestionMode === 'unit' ? 'both' : 'sscc');
+                    } else {
+                      setIngestionMode(ingestionMode === 'both' ? 'unit' : null);
+                    }
+                  }}
+                  disabled={loadingMode || savingMode}
+                  className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                />
+                <span className="text-sm text-gray-700">SSCC Code Ingestion</span>
+              </label>
+            </div>
+            <p className="text-xs text-gray-500">
+              You can enable one or both ingestion methods. Changes are saved automatically.
+            </p>
+          </div>
+          {savingMode && (
+            <div className="text-sm text-blue-600">Saving configuration...</div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'unit' | 'sscc')}>

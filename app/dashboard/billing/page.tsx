@@ -167,53 +167,6 @@ export default function BillingPage() {
         </div>
       )}
 
-      {/* Billing Policy Info */}
-      <Card className="bg-gradient-to-r from-blue-50 to-orange-50 border-2 border-blue-200">
-        <CardHeader>
-          <CardTitle className="text-blue-900">💳 Billing Policy</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3 text-sm">
-          <div className="grid md:grid-cols-2 gap-4">
-            <div>
-              <h4 className="font-semibold text-blue-800 mb-1">Free Trial (15 Days)</h4>
-              <p className="text-gray-700">Full access to all plan features. No charges during trial period.</p>
-            </div>
-            <div>
-              <h4 className="font-semibold text-blue-800 mb-1">After Trial Ends</h4>
-              <p className="text-gray-700">Your selected plan amount will be charged automatically via Razorpay.</p>
-            </div>
-            <div>
-              <h4 className="font-semibold text-blue-800 mb-1">Auto-Renewal</h4>
-              <p className="text-gray-700">Automated recurring debit from your saved payment method each billing cycle.</p>
-            </div>
-            <div>
-              <h4 className="font-semibold text-blue-800 mb-1">Payment Method</h4>
-              <p className="text-gray-700">Secured by Razorpay. Card details saved for automatic billing.</p>
-            </div>
-          </div>
-          
-          {/* Cancellation Policy - Prominent */}
-          <div className="mt-4 p-4 bg-red-50 border-2 border-red-300 rounded-lg">
-            <h4 className="font-bold text-red-900 mb-2">🚨 CANCELLATION POLICY (MANDATORY)</h4>
-            <ul className="text-red-800 space-y-1">
-              <li>• <strong>During Trial:</strong> Cancel anytime before trial ends - absolutely zero charges</li>
-              <li>• <strong>After Trial:</strong> Cancel anytime from dashboard before next billing cycle to avoid charges</li>
-              <li>• <strong>How to Cancel:</strong> Go to Billing → Cancel Subscription button</li>
-              <li>• <strong>Refunds:</strong> No refunds for partial months. Cancel before renewal to avoid next charge</li>
-            </ul>
-          </div>
-
-          {/* Plan Pricing */}
-          <div className="mt-4 p-3 bg-white border border-blue-200 rounded-lg">
-            <p className="text-blue-900 font-semibold mb-2">📋 Plan Pricing:</p>
-            <div className="space-y-1 text-gray-700">
-              <p>• <strong>Starter:</strong> ₹18,000/month or ₹2,00,000/year</p>
-              <p>• <strong>Growth:</strong> ₹49,000/month or ₹5,00,000/year</p>
-              <p>• <strong>Enterprise:</strong> ₹2,00,000/month or ₹5,00,000/quarter (₹20,00,000/year)</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
 
       {/* Subscription Summary - Enhanced */}
       {company && (
@@ -361,12 +314,6 @@ export default function BillingPage() {
               </Button>
             </div>
 
-            {/* Cancellation Reminder */}
-            <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
-              <p className="text-xs text-red-700">
-                <strong>Cancel Anytime:</strong> During trial - no charges. After trial - cancel before next billing to avoid charges.
-              </p>
-            </div>
           </CardContent>
         </Card>
       )}

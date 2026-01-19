@@ -62,6 +62,11 @@ export async function middleware(request: NextRequest) {
 
   // If user is authenticated and accessing dashboard, check for company and subscription
   if (session && pathname.startsWith('/dashboard')) {
+    // Allow company-setup page access even when company doesn't exist
+    if (pathname === '/dashboard/company-setup' || pathname.startsWith('/dashboard/company-setup/')) {
+      return supabaseResponse;
+    }
+
     // Always refresh company data to get latest subscription status after payment
     const { data: company, error } = await supabase
       .from('companies')
@@ -76,8 +81,8 @@ export async function middleware(request: NextRequest) {
     }
 
     if (!company) {
-      // No company profile yet - redirect to setup
-      return NextResponse.redirect(new URL('/onboarding/setup', request.url));
+      // No company profile yet - redirect to company setup (not onboarding)
+      return NextResponse.redirect(new URL('/dashboard/company-setup', request.url));
     }
 
     const status = String(company.subscription_status ?? '').toLowerCase();

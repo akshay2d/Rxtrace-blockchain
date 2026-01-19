@@ -333,6 +333,16 @@ export default function HomePage() {
                     <Link href="/terms" className="text-slate-300 hover:text-white">User Policy</Link>
                   </td>
                 </tr>
+                <tr>
+                  <td className="py-1">
+                    <Link href="/billing-policy" className="text-slate-300 hover:text-white">Billing Policy</Link>
+                  </td>
+                </tr>
+                <tr>
+                  <td className="py-1">
+                    <Link href="/cancellation-policy" className="text-slate-300 hover:text-white">Cancellation & Refund Policy</Link>
+                  </td>
+                </tr>
               </tbody>
             </table>
           </div>
