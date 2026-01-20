@@ -13,7 +13,7 @@ import { AlertCircle, CheckCircle } from 'lucide-react';
 
 // Type definitions
 type LegalStructure = 'proprietorship' | 'partnership' | 'llp' | 'pvt_ltd' | 'other';
-type BusinessType = 'manufacturer' | 'distributor' | 'wholesaler' | 'cf';
+type BusinessType = 'manufacturer' | 'distributor' | 'wholesaler' | 'exporter' | 'importer' | 'cf_agent';
 type OperationType = 'manufacturing' | 'packing' | 'import' | 'export' | 'distribution' | 'retail';
 type Industry = 'pharma' | 'medical_devices' | 'fmcg' | 'cosmetics' | 'food' | 'packaging' | 'printing';
 
@@ -64,17 +64,15 @@ export default function CompanySetupPage() {
         if (existingCompany.firm_type) {
           setLegalStructure(existingCompany.firm_type as LegalStructure);
         }
-        // Parse business_type - could be single value or comma-separated
+        // Load business_type (single value matching dropdown)
         if (existingCompany.business_type) {
-          const ops = existingCompany.business_type.includes(',')
-            ? existingCompany.business_type.split(',').map((s: string) => s.trim())
-            : [existingCompany.business_type];
-          // Filter to valid operation types
-          const validOps = ops.filter((op: string): op is OperationType => 
-            ['manufacturing', 'packing', 'import', 'export', 'distribution', 'retail'].includes(op)
-          );
-          setOperationTypes(validOps);
+          const bt = existingCompany.business_type.toLowerCase().trim();
+          if (['manufacturer', 'distributor', 'wholesaler', 'exporter', 'importer', 'cf_agent'].includes(bt)) {
+            setBusinessType(bt as BusinessType);
+          }
         }
+        // Note: operationTypes are not stored in business_type field anymore
+        // They would need to be stored separately if needed in the future
         // business_category maps to industries (single value in DB, but we support multi-select)
         if (existingCompany.business_category) {
           const industryMap: Record<string, Industry> = {
@@ -181,8 +179,8 @@ export default function CompanySetupPage() {
                               industries[0] === 'packaging' ? 'logistics' :
                               'pharma'; // Default
 
-      // Store operation types as comma-separated string
-      const businessTypeStr = operationTypes.join(',');
+      // Normalize business_type to lowercase to match database constraint
+      const normalizedBusinessType = businessType.toLowerCase().trim();
 
       // Update company with all required fields
       const { error: updateError } = await supabase
@@ -191,9 +189,9 @@ export default function CompanySetupPage() {
           company_name: companyName.trim(),
           phone: phone.trim(),
           address: address.trim(),
-          firm_type: legalStructure,
-          business_category: businessCategory,
-          business_type: businessTypeStr,
+          firm_type: legalStructure.toLowerCase().trim(),
+          business_category: businessCategory.toLowerCase().trim(),
+          business_type: normalizedBusinessType,
           profile_completed: true,
         })
         .eq('id', companyId);
@@ -408,7 +406,9 @@ export default function CompanySetupPage() {
                   <SelectItem value="manufacturer">Manufacturer</SelectItem>
                   <SelectItem value="distributor">Distributor</SelectItem>
                   <SelectItem value="wholesaler">Wholesaler</SelectItem>
-                  <SelectItem value="cf">C&F (Carrying & Forwarding Agent)</SelectItem>
+                  <SelectItem value="exporter">Exporter</SelectItem>
+                  <SelectItem value="importer">Importer</SelectItem>
+                  <SelectItem value="cf_agent">C&F Agent</SelectItem>
                 </SelectContent>
               </Select>
             </div>

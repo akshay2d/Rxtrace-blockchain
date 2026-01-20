@@ -47,16 +47,19 @@ export async function POST(req: NextRequest) {
 
     // Validate business fields
     const validCategories = ['pharma', 'food', 'dairy', 'logistics'];
-    const validTypes = ['manufacturer', 'exporter', 'distributor', 'wholesaler'];
+    const validTypes = ['manufacturer', 'distributor', 'wholesaler', 'exporter', 'importer', 'cf_agent'];
     
-    if (!validCategories.includes(business_category)) {
+    // Normalize business_type to lowercase
+    const normalizedBusinessType = business_type?.toLowerCase().trim();
+    
+    if (!validCategories.includes(business_category?.toLowerCase().trim())) {
       return NextResponse.json(
         { error: 'Invalid business category' },
         { status: 400 }
       );
     }
 
-    if (!validTypes.includes(business_type)) {
+    if (!normalizedBusinessType || !validTypes.includes(normalizedBusinessType)) {
       return NextResponse.json(
         { error: 'Invalid business type' },
         { status: 400 }
@@ -86,14 +89,14 @@ export async function POST(req: NextRequest) {
         user_id,
         company_name: company_name.trim(),
         contact_person_name: contact_person_name.trim(),
-        firm_type,
+        firm_type: firm_type.toLowerCase().trim(),
         address: address.trim(),
         email: email.toLowerCase().trim(),
         phone: phone.trim(),
         pan: pan.toUpperCase().trim(),
         gst: gst ? gst.toUpperCase().trim() : null,
-        business_category,
-        business_type,
+        business_category: business_category.toLowerCase().trim(),
+        business_type: normalizedBusinessType,
         subscription_status: null,
         created_at: new Date().toISOString(),
       })
