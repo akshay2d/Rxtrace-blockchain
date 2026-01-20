@@ -428,7 +428,7 @@ export default function Page() {
 
           {companyLoading ? (
             <div className="p-4 text-gray-500">Loading tax profile...</div>
-          ) : companyProfile ? (
+          ) : companyProfile?.profile_completed ? (
             <form onSubmit={handleCompanyProfileSave} className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* PAN Number (Optional) */}
               <div>
@@ -500,7 +500,7 @@ export default function Page() {
           ) : companyProfile ? (
             <PrinterIntegrationForm companyId={companyProfile.id} />
           ) : (
-            <div className="p-4 text-gray-500">Please complete company setup first to access printer settings.</div>
+            <div className="p-4 text-gray-500">Company profile not found. Please complete company setup first.</div>
           )}
         </div>
       </div>

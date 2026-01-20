@@ -43,18 +43,12 @@ export default function CompanySetupPage() {
         return;
       }
 
-      // Check if company exists and if profile is already completed
+      // Check if company exists (always allow editing, even if profile_completed === true)
       const { data: existingCompany } = await supabase
         .from('companies')
         .select('id, company_name, phone, address, firm_type, business_category, business_type, profile_completed')
         .eq('user_id', user.id)
         .maybeSingle();
-
-      if (existingCompany?.profile_completed) {
-        // Profile already completed - redirect to dashboard
-        router.replace('/dashboard');
-        return;
-      }
 
       // Load existing data if available
       if (existingCompany?.id) {
@@ -198,6 +192,17 @@ export default function CompanySetupPage() {
 
       if (updateError) {
         throw new Error(updateError.message || 'Failed to save company setup');
+      }
+
+      // Refetch company data to get fresh state before redirect
+      const { data: refreshedCompany } = await supabase
+        .from('companies')
+        .select('id, company_name, phone, address, firm_type, business_category, business_type, profile_completed')
+        .eq('id', companyId)
+        .single();
+
+      if (!refreshedCompany) {
+        throw new Error('Failed to refetch company data after save');
       }
 
       setSuccess(true);
