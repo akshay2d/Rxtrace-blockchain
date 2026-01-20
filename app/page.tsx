@@ -318,7 +318,9 @@ export default function HomePage() {
         <div className="max-w-7xl mx-auto px-6 grid md:grid-cols-4 gap-8">
           <div>
             <p className="font-semibold text-white">RxTrace</p>
-            <p className="text-sm mt-2">GS1-compliant traceability platform</p>
+            <p className="text-sm mt-2">
+              RxTrace is a traceability and serialization platform enabling secure product tracking using GS1-compliant codes across the supply chain.
+            </p>
           </div>
           <div>
             <table className="text-sm w-full">
@@ -343,6 +345,11 @@ export default function HomePage() {
                     <Link href="/cancellation-policy" className="text-slate-300 hover:text-white">Cancellation & Refund Policy</Link>
                   </td>
                 </tr>
+                <tr>
+                  <td className="py-1">
+                    <Link href="/contact" className="text-slate-300 hover:text-white">Help & Support</Link>
+                  </td>
+                </tr>
               </tbody>
             </table>
           </div>
@@ -354,7 +361,7 @@ export default function HomePage() {
             <LandingApkDownload />
           </div>
         </div>
-        <p className="text-center text-xs text-slate-500 mt-8">© RxTrace. All rights reserved.</p>
+        <p className="text-center text-xs text-slate-500 mt-8">© {new Date().getFullYear()} RxTrace India. All rights reserved.</p>
       </footer>
     </main>
   );

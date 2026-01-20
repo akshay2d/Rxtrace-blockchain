@@ -113,19 +113,17 @@ export async function POST(req: Request) {
     await assertCompanyCanOperate({ supabase: admin, companyId });
     await ensureActiveBillingUsage({ supabase: admin, companyId });
 
-    // Reserve billing quota
-    const { data: reserveRow, error: reserveErr } = await admin.rpc('billing_usage_consume', {
-      p_company_id: companyId,
-      p_kind: 'unit',
-      p_qty: quantity,
-    });
-
-    const reserve = Array.isArray(reserveRow) ? reserveRow[0] : reserveRow;
-    if (reserveErr || !reserve?.ok) {
+    // Apply quota rollover (for yearly plans) and consume quota
+    const quotaModule = await import('@/lib/billing/quota');
+    const { consumeQuotaBalance, refundQuotaBalance } = quotaModule;
+    
+    const quotaResult = await consumeQuotaBalance(companyId, 'unit', quantity);
+    
+    if (!quotaResult.ok) {
       return NextResponse.json(
         {
-          error: 'Unit label quota exceeded. Please purchase extra Unit labels add-on.',
-          code: reserve?.error ?? reserveErr?.message ?? 'quota_exceeded',
+          error: quotaResult.error || 'Unit label quota exceeded. Please purchase extra Unit labels add-on.',
+          code: 'quota_exceeded',
           requires_addon: true,
           addon: 'unit',
         },
@@ -175,8 +173,8 @@ export async function POST(req: Request) {
       }
 
       if (!isUnique) {
-        // Refund billing quota
-        await admin.rpc('billing_usage_refund', { p_company_id: companyId, p_kind: 'unit', p_qty: quantity });
+        // Refund quota
+        await refundQuotaBalance(companyId, 'unit', quantity);
         return NextResponse.json(
           { error: `Failed to generate unique serial after ${maxAttempts} attempts` },
           { status: 500 }
@@ -215,8 +213,8 @@ export async function POST(req: Request) {
     const { error: insertError } = await admin.from('labels_units').insert(rows);
 
     if (insertError) {
-      // Refund billing quota on failure
-      await admin.rpc('billing_usage_refund', { p_company_id: companyId, p_kind: 'unit', p_qty: quantity });
+      // Refund quota on failure
+      await refundQuotaBalance(companyId, 'unit', quantity);
       
       if (insertError.code === '23505' || insertError.message?.includes('unique')) {
         return NextResponse.json(

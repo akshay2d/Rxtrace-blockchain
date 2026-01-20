@@ -350,18 +350,11 @@ export default function BillingPage() {
                   </div>
                 )}
               </div>
-              <div className="pt-2 border-t">
-                <Button asChild variant="outline" className="border-gray-300">
-                  <a href="/dashboard/company-setup">Edit Company Profile</a>
-                </Button>
-              </div>
             </div>
           ) : (
             <div className="space-y-3">
               <p className="text-sm text-gray-600">Company profile is not set up yet.</p>
-              <Button asChild className="bg-blue-600 hover:bg-blue-700">
-                <a href="/dashboard/company-setup">Set Up Company Profile</a>
-              </Button>
+              <p className="text-xs text-gray-500">Please complete company setup in Settings to access billing features.</p>
             </div>
           )}
         </CardContent>

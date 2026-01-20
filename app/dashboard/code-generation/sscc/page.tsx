@@ -38,7 +38,10 @@ type SSCCFormState = {
   cartonsPerPallet: number;
   numberOfPallets: number;
   codeType: CodeType;
-  printerId: string;
+  // Hierarchical level selection (checkboxes)
+  generateBox: boolean;
+  generateCarton: boolean;
+  generatePallet: boolean;
 };
 
 type CSVValidationError = {
@@ -138,7 +141,6 @@ async function processSSCCCSV(
   csvText: string,
   companyId: string,
   codeType: CodeType,
-  printerId: string
 ): Promise<SSCCLabel[]> {
   const parsed = Papa.parse<Record<string, string>>(csvText, { header: true, skipEmptyLines: true });
   const allLabels: SSCCLabel[] = [];
@@ -239,7 +241,9 @@ export default function SSCCCodeGenerationPage() {
     cartonsPerPallet: 20,
     numberOfPallets: 1,
     codeType: 'DATAMATRIX',
-    printerId: ''
+    generateBox: false,
+    generateCarton: false,
+    generatePallet: false
   });
 
   const [ssccLabels, setSsccLabels] = useState<SSCCLabel[]>([]);
@@ -252,6 +256,7 @@ export default function SSCCCodeGenerationPage() {
   const [csvValidation, setCsvValidation] = useState<{ valid: boolean; errors: CSVValidationError[] } | null>(null);
   const [csvProcessing, setCsvProcessing] = useState(false);
   const [skus, setSkus] = useState<Array<{ id: string; sku_code: string; sku_name: string | null }>>([]);
+  const [profileCompleted, setProfileCompleted] = useState<boolean | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -259,12 +264,15 @@ export default function SSCCCodeGenerationPage() {
       if (user) {
         const { data } = await supabaseClient()
           .from('companies')
-          .select('id, company_name')
+          .select('id, company_name, profile_completed')
           .eq('user_id', user.id)
           .single();
         if (data) {
           setCompanyId(data.id);
           setCompanyName(data.company_name || '');
+        }
+        if (data?.profile_completed !== undefined) {
+          setProfileCompleted(data.profile_completed);
         }
 
         // Fetch SKUs
@@ -281,7 +289,34 @@ export default function SSCCCodeGenerationPage() {
   }, []);
 
   function update<K extends keyof SSCCFormState>(k: K, v: SSCCFormState[K]) {
-    setForm(s => ({ ...s, [k]: v }));
+    setForm(s => {
+      const newState = { ...s, [k]: v };
+      
+      // Enforce hierarchy: Box → Carton → Pallet
+      if (k === 'generateBox') {
+        // Unselecting Box unselects Carton and Pallet
+        if (!v) {
+          newState.generateCarton = false;
+          newState.generatePallet = false;
+        }
+      } else if (k === 'generateCarton') {
+        // Selecting Carton auto-selects Box
+        if (v) {
+          newState.generateBox = true;
+        } else {
+          // Unselecting Carton unselects Pallet
+          newState.generatePallet = false;
+        }
+      } else if (k === 'generatePallet') {
+        // Selecting Pallet auto-selects Box and Carton
+        if (v) {
+          newState.generateBox = true;
+          newState.generateCarton = true;
+        }
+      }
+      
+      return newState;
+    });
   }
 
   async function handleGenerateSingle() {
@@ -295,17 +330,42 @@ export default function SSCCCodeGenerationPage() {
       return;
     }
 
+    // Validate hierarchy: at least one level must be selected
+    if (!form.generateBox && !form.generateCarton && !form.generatePallet) {
+      setError('Please select at least one SSCC level (Box, Carton, or Pallet)');
+      setLoading(false);
+      return;
+    }
+
+    // Validate hierarchy rules
+    if (form.generateCarton && !form.generateBox) {
+      setError('SSCC generation must follow hierarchy: Box → Carton → Pallet. Carton requires Box.');
+      setLoading(false);
+      return;
+    }
+    if (form.generatePallet && (!form.generateBox || !form.generateCarton)) {
+      setError('SSCC generation must follow hierarchy: Box → Carton → Pallet. Pallet requires Box and Carton.');
+      setLoading(false);
+      return;
+    }
+
     try {
-      const res = await fetch('/api/pallet/create', {
+      // Use unified SSCC generation endpoint
+      const res = await fetch('/api/sscc/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sku_id: form.skuId,
           company_id: companyId,
-          pallet_count: form.numberOfPallets,
+          batch: form.batch,
+          expiry_date: form.expiryDate,
           units_per_box: form.unitsPerBox,
           boxes_per_carton: form.boxesPerCarton,
-          cartons_per_pallet: form.cartonsPerPallet
+          cartons_per_pallet: form.cartonsPerPallet,
+          number_of_pallets: form.numberOfPallets,
+          generate_box: form.generateBox,
+          generate_carton: form.generateCarton,
+          generate_pallet: form.generatePallet
         })
       });
 
@@ -314,18 +374,30 @@ export default function SSCCCodeGenerationPage() {
         throw new Error(out.error);
       }
 
-      const items = out.pallets || [];
-      const labels: SSCCLabel[] = items.map((item: any) => ({
+      // Handle unified response with all levels
+      const allItems: any[] = [
+        ...(out.boxes || []).map((item: any) => ({ ...item, level: 'BOX' as GenerationLevel })),
+        ...(out.cartons || []).map((item: any) => ({ ...item, level: 'CARTON' as GenerationLevel })),
+        ...(out.pallets || []).map((item: any) => ({ ...item, level: 'PALLET' as GenerationLevel }))
+      ];
+
+      const labels: SSCCLabel[] = allItems.map((item: any) => ({
         id: item.id,
         sscc: item.sscc,
-        sscc_with_ai: item.sscc_with_ai,
+        sscc_with_ai: item.sscc_with_ai || `(00)${item.sscc}`,
         sku_id: item.sku_id,
-        pallet_id: item.id,
-        level: 'PALLET'
+        pallet_id: item.pallet_id || item.id,
+        level: item.level
       }));
 
       setSsccLabels(prev => [...prev, ...labels]);
-      setSuccess(`Generated ${labels.length} SSCC label(s) successfully`);
+      const totalCount = labels.length;
+      const levelBreakdown = [
+        form.generateBox && `${out.boxes?.length || 0} Box`,
+        form.generateCarton && `${out.cartons?.length || 0} Carton`,
+        form.generatePallet && `${out.pallets?.length || 0} Pallet`
+      ].filter(Boolean).join(', ');
+      setSuccess(`Generated ${totalCount} SSCC label(s) successfully (${levelBreakdown})`);
     } catch (e: any) {
       setError(e?.message || 'Failed to generate SSCC codes');
     } finally {
@@ -354,7 +426,7 @@ export default function SSCCCodeGenerationPage() {
 
       // Process CSV
       setCsvProcessing(true);
-      const labels = await processSSCCCSV(text, companyId, form.codeType, form.printerId);
+      const labels = await processSSCCCSV(text, companyId, form.codeType);
       setSsccLabels(prev => [...prev, ...labels]);
       setSuccess(`Processed CSV: Generated ${labels.length} SSCC code(s)`);
     } catch (e: any) {
@@ -393,6 +465,63 @@ export default function SSCCCodeGenerationPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function handlePrint() {
+    if (ssccLabels.length === 0) return;
+    setLoading(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      // Fetch printer preferences
+      let printFormat: 'PDF' | 'EPL' | 'ZPL' = 'PDF';
+      try {
+        const res = await fetch(`/api/companies/${companyId}/printer-settings`);
+        if (res.ok) {
+          const data = await res.json();
+          printFormat = data.print_format || 'PDF';
+        }
+      } catch {
+        // If no preferences, prompt user
+        const formatChoice = prompt('Select print format:\n1. PDF (Opens OS print dialog)\n2. EPL (Download file)\n3. ZPL (Download file)\n\nEnter 1, 2, or 3:');
+        if (formatChoice === '2') printFormat = 'EPL';
+        else if (formatChoice === '3') printFormat = 'ZPL';
+        else printFormat = 'PDF';
+      }
+
+      const labels = ssccToLabelData();
+      const filename = `sscc_labels_${Date.now()}`;
+      if (printFormat === 'PDF') {
+        await exportLabelsUtil(labels, 'PRINT' as any, filename);
+      } else {
+        await exportLabelsUtil(labels, printFormat as any, filename);
+      }
+      setSuccess(`Printed ${ssccLabels.length} labels as ${printFormat}`);
+    } catch (err) {
+      setError(`Failed to print: ${String(err)}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Block code generation if profile is not completed
+  if (profileCompleted === false) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-semibold text-gray-900 mb-1.5">SSCC / Logistics Code Generation</h1>
+          <p className="text-sm text-gray-600">Generate logistics codes using hierarchy: Unit → Box → Carton → Pallet (SSCC)</p>
+        </div>
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            <strong>Company Setup Required:</strong> Please complete your company setup before generating codes. 
+            <a href="/dashboard/company-setup" className="ml-2 underline font-medium">Go to Company Setup →</a>
+          </AlertDescription>
+        </Alert>
+      </div>
+    );
   }
 
   return (
@@ -485,6 +614,52 @@ export default function SSCCCodeGenerationPage() {
                     </SelectContent>
                   </Select>
                 </div>
+              </div>
+
+              {/* SSCC Level Selection (Hierarchical) */}
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <h4 className="text-sm font-semibold text-gray-900 mb-3">SSCC Level Selection *</h4>
+                <p className="text-xs text-gray-600 mb-3">
+                  Higher logistic levels automatically include lower levels. SSCC generation must follow hierarchy: Box → Carton → Pallet.
+                </p>
+                <div className="space-y-2">
+                  <label className="flex items-center space-x-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={form.generateBox}
+                      onChange={(e) => update('generateBox', e.target.checked)}
+                      className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                    />
+                    <span className="text-sm text-gray-700 font-medium">Box</span>
+                  </label>
+                  <label className="flex items-center space-x-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={form.generateCarton}
+                      onChange={(e) => update('generateCarton', e.target.checked)}
+                      disabled={!form.generateBox}
+                      className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                    />
+                    <span className="text-sm text-gray-700 font-medium">
+                      Carton {!form.generateBox && <span className="text-gray-400">(requires Box)</span>}
+                    </span>
+                  </label>
+                  <label className="flex items-center space-x-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={form.generatePallet}
+                      onChange={(e) => update('generatePallet', e.target.checked)}
+                      disabled={!form.generateBox || !form.generateCarton}
+                      className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                    />
+                    <span className="text-sm text-gray-700 font-medium">
+                      Pallet {(!form.generateBox || !form.generateCarton) && <span className="text-gray-400">(requires Box + Carton)</span>}
+                    </span>
+                  </label>
+                </div>
+                {!form.generateBox && !form.generateCarton && !form.generatePallet && (
+                  <p className="text-xs text-red-600 mt-2">Please select at least one SSCC level</p>
+                )}
               </div>
 
               {/* Hierarchy Configuration */}
@@ -757,6 +932,12 @@ export default function SSCCCodeGenerationPage() {
                     className="w-full border-gray-300"
                   >
                     Export ZIP (PNGs)
+                  </Button>
+                  <Button
+                    onClick={() => handlePrint()}
+                    className="w-full bg-green-600 hover:bg-green-700 text-white"
+                  >
+                    Print
                   </Button>
                   <div className="grid grid-cols-2 gap-2">
                     <Button

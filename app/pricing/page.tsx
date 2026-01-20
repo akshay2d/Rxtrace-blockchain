@@ -388,26 +388,6 @@ export default function PricingPage() {
         </div>
       </section>
 
-      {/* Company Setup Alert */}
-      {!companyId && (
-        <div className="max-w-7xl mx-auto px-6 py-4">
-          <div className="bg-gradient-to-r from-orange-50 to-yellow-50 border-2 border-orange-300 rounded-xl p-4">
-            <div className="flex items-center gap-3">
-              <div className="text-2xl">⚠️</div>
-              <div className="flex-1">
-                <p className="font-semibold text-orange-900">Complete Company Setup First</p>
-                <p className="text-sm text-orange-700">You need to set up your company profile before starting a free trial.</p>
-              </div>
-              <a
-                href="/onboarding/setup"
-                className="px-5 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg font-semibold text-sm transition-colors whitespace-nowrap"
-              >
-                Setup Company →
-              </a>
-            </div>
-          </div>
-        </div>
-      )}
 
       {trialMessage && (
         <div className="max-w-7xl mx-auto px-6 pb-2">
@@ -431,7 +411,6 @@ export default function PricingPage() {
             "2,000 Carton labels",
             "500 Pallet labels",
             "1 User ID",
-            "1 ERP integration",
             "Unlimited handsets",
           ]}
           actionLabel={company?.subscription_status ? "Go to Billing" : "Start Free Trial"}
@@ -452,7 +431,6 @@ export default function PricingPage() {
             "20,000 Carton labels",
             "2,000 Pallet labels",
             "5 User IDs",
-            "1 ERP integration",
             "Unlimited handsets",
           ]}
           actionLabel={company?.subscription_status ? "Go to Billing" : "Start Free Trial"}
@@ -472,7 +450,6 @@ export default function PricingPage() {
             "1 Lakh Carton labels",
             "10,000 Pallet labels",
             "10 User IDs",
-            "1 ERP integration",
             "Unlimited handsets",
           ]}
           actionLabel={company?.subscription_status ? "Go to Billing" : "Start Free Trial"}
@@ -764,7 +741,7 @@ export default function PricingPage() {
         </div>
 
         <div className="text-center text-slate-500 text-xs mt-12">
-          © {new Date().getFullYear()} RxTrace. All rights reserved.
+          © {new Date().getFullYear()} RxTrace India. All rights reserved.
         </div>
       </footer>
 

@@ -155,7 +155,7 @@ export default function ContactPage() {
                 <div>
                   <h3 className="font-semibold text-gray-900">Office</h3>
                   <p className="text-sm text-gray-600 mt-1">
-                    RxTrace India Pvt. Ltd.<br />
+                    RxTrace India<br />
                     Mumbai, Maharashtra<br />
                     India
                   </p>
@@ -206,18 +206,39 @@ export default function ContactPage() {
       {/* Footer */}
       <footer className="bg-slate-900 text-white py-12">
         <div className="max-w-7xl mx-auto px-6">
-          <div className="flex flex-col md:flex-row items-center justify-between gap-6">
-            <div className="flex items-center gap-2">
-              <Image src="/logo.png" alt="RxTrace" width={32} height={32} />
-              <span className="font-semibold">RxTrace India</span>
+          <div className="grid md:grid-cols-3 gap-8 mb-8">
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition">
+                  <Image src="/logo.png" alt="RxTrace" width={32} height={32} />
+                  <span className="font-semibold">RxTrace India</span>
+                </Link>
+              </div>
+              <p className="text-sm text-gray-400">
+                RxTrace is a traceability and serialization platform enabling secure product tracking using GS1-compliant codes across the supply chain.
+              </p>
             </div>
-            <nav className="flex gap-6 text-sm text-gray-400">
-              <Link href="/compliance" className="hover:text-white">Compliance</Link>
-              <Link href="/services" className="hover:text-white">Services</Link>
-              <Link href="/pricing" className="hover:text-white">Pricing</Link>
-              <Link href="/contact" className="hover:text-white">Contact</Link>
-            </nav>
-            <p className="text-sm text-gray-500">
+            <div>
+              <h3 className="font-semibold mb-3">Quick Links</h3>
+              <nav className="flex flex-col gap-2 text-sm text-gray-400">
+                <Link href="/compliance" className="hover:text-white">Compliance</Link>
+                <Link href="/services" className="hover:text-white">Services</Link>
+                <Link href="/pricing" className="hover:text-white">Pricing</Link>
+                <Link href="/contact" className="hover:text-white">Help & Support</Link>
+              </nav>
+            </div>
+            <div>
+              <h3 className="font-semibold mb-3">Legal</h3>
+              <nav className="flex flex-col gap-2 text-sm text-gray-400">
+                <Link href="/privacy" className="hover:text-white">Privacy Policy</Link>
+                <Link href="/terms" className="hover:text-white">User Policy</Link>
+                <Link href="/billing-policy" className="hover:text-white">Billing Policy</Link>
+                <Link href="/cancellation-policy" className="hover:text-white">Cancellation & Refund Policy</Link>
+              </nav>
+            </div>
+          </div>
+          <div className="border-t border-gray-800 pt-6">
+            <p className="text-center text-sm text-gray-500">
               © {new Date().getFullYear()} RxTrace India. All rights reserved.
             </p>
           </div>

@@ -47,13 +47,13 @@ export default function Sidebar() {
       {/* Brand */}
       <div className="h-16 flex items-center justify-between px-4 border-b border-blue-800">
         {!collapsed && (
-          <Link href="/dashboard" className="flex items-center gap-3 text-lg font-semibold hover:opacity-80 transition">
+          <Link href="/" target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 text-lg font-semibold hover:opacity-80 transition">
             <Image src="/logo.png" alt="RxTrace" width={32} height={32} />
             <span>RxTrace</span>
           </Link>
         )}
         {collapsed && (
-          <Link href="/dashboard" className="flex items-center justify-center w-full">
+          <Link href="/" target="_blank" rel="noopener noreferrer" className="flex items-center justify-center w-full">
             <Image src="/logo.png" alt="RxTrace" width={32} height={32} />
           </Link>
         )}

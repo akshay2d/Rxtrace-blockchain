@@ -13,7 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { Download, Upload, FileText, AlertCircle, CheckCircle, XCircle } from 'lucide-react';
 import GenerateLabel from '@/lib/generateLabel';
 import { buildGs1ElementString } from '@/lib/gs1Builder';
-import IssuePrinterSelector, { Printer } from '@/components/IssuePrinterSelector';
+// Printer integration removed - now handled separately via Settings → Printer Integration
 import QRCodeComponent from '@/components/custom/QRCodeComponent';
 import DataMatrixComponent from '@/components/custom/DataMatrixComponent';
 import { supabaseClient } from '@/lib/supabase/client';
@@ -41,7 +41,6 @@ type UnitFormState = {
   codeType: CodeType;
   gtinSource: 'customer' | 'internal';
   gtin?: string; // GTIN input when source is 'customer'
-  printerId: string;
   mfdDate?: string;
   mrp?: string;
 };
@@ -164,7 +163,7 @@ function validateUnitCSV(rows: Record<string, string>[], companyId: string): { v
 }
 
 // ---------- CSV Processing ----------
-async function processUnitCSV(csvText: string, companyId: string, companyName: string, printerId: string): Promise<UnitBatchRow[]> {
+async function processUnitCSV(csvText: string, companyId: string, companyName: string): Promise<UnitBatchRow[]> {
   const parsed = Papa.parse<Record<string, string>>(csvText, { header: true, skipEmptyLines: true });
   const out: UnitBatchRow[] = [];
   const { validateGTIN } = await import('@/lib/gs1/gtin');
@@ -220,7 +219,6 @@ async function processUnitCSV(csvText: string, companyId: string, companyName: s
         mfd: mfdISO || null,
         exp: expISO,
         quantity: qty,
-        printer_id: printerId,
         mrp: mrp || undefined,
         sku: sku || undefined,
         company: companyName || undefined
@@ -312,7 +310,6 @@ export default function UnitCodeGenerationPage() {
     quantity: 1,
     codeType: 'QR',
     gtinSource: 'customer',
-    printerId: '',
     mfdDate: '',
     mrp: ''
   });
@@ -320,13 +317,13 @@ export default function UnitCodeGenerationPage() {
   const [batch, setBatch] = useState<UnitBatchRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [printers, setPrinters] = useState<Printer[]>([]);
   const [company, setCompany] = useState<string>('');
   const [companyId, setCompanyId] = useState<string>('');
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [csvValidation, setCsvValidation] = useState<{ valid: boolean; errors: CSVValidationError[] } | null>(null);
   const [csvProcessing, setCsvProcessing] = useState(false);
   const [skus, setSkus] = useState<Array<{ id: string; sku_code: string; sku_name: string | null }>>([]);
+  const [profileCompleted, setProfileCompleted] = useState<boolean | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -334,12 +331,15 @@ export default function UnitCodeGenerationPage() {
       if (user) {
         const { data } = await supabaseClient()
           .from('companies')
-          .select('id, company_name')
+          .select('id, company_name, profile_completed')
           .eq('user_id', user.id)
           .single();
         if (data?.company_name) {
           setCompany(data.company_name);
           setCompanyId(data.id);
+        }
+        if (data?.profile_completed !== undefined) {
+          setProfileCompleted(data.profile_completed);
         }
 
         // Fetch SKUs
@@ -351,16 +351,6 @@ export default function UnitCodeGenerationPage() {
       }
     })();
   }, []);
-
-  async function fetchPrinters(): Promise<Printer[]> {
-    const res = await fetch('/api/printers');
-    if (res.ok) {
-      const data = await res.json();
-      setPrinters(data);
-      return data;
-    }
-    return [];
-  }
 
   function update<K extends keyof UnitFormState>(k: K, v: UnitFormState[K]) {
     setForm(s => ({ ...s, [k]: v }));
@@ -444,7 +434,6 @@ export default function UnitCodeGenerationPage() {
           mfd: form.mfdDate || null,
           exp: form.expiryDate,
           quantity: form.quantity,
-          printer_id: form.printerId,
           mrp: form.mrp || undefined,
           sku: form.sku || undefined,
           company: company || undefined
@@ -540,7 +529,7 @@ export default function UnitCodeGenerationPage() {
 
       // Process CSV
       setCsvProcessing(true);
-      const rows = await processUnitCSV(text, companyId, company, form.printerId);
+      const rows = await processUnitCSV(text, companyId, company);
       setBatch(prev => [...prev, ...rows]);
       setSuccess(`Processed CSV: Generated ${rows.length} unit code(s)`);
     } catch (e: any) {
@@ -568,6 +557,37 @@ export default function UnitCodeGenerationPage() {
       await exportLabelsUtil(labels, format, `unit_labels_${Date.now()}`);
     } catch (e: any) {
       setError(e?.message || `Failed to export ${format}`);
+    }
+  }
+
+  async function handlePrint() {
+    if (!batch.length) return;
+    setError(null);
+    try {
+      // Fetch printer preferences
+      let printFormat: 'PDF' | 'EPL' | 'ZPL' = 'PDF';
+      try {
+        const res = await fetch(`/api/companies/${companyId}/printer-settings`);
+        if (res.ok) {
+          const data = await res.json();
+          printFormat = data.print_format || 'PDF';
+        }
+      } catch {
+        // If no preferences, prompt user
+        const formatChoice = prompt('Select print format:\n1. PDF (Opens OS print dialog)\n2. EPL (Download file)\n3. ZPL (Download file)\n\nEnter 1, 2, or 3:');
+        if (formatChoice === '2') printFormat = 'EPL';
+        else if (formatChoice === '3') printFormat = 'ZPL';
+        else printFormat = 'PDF';
+      }
+
+      const labels = batchToLabelData();
+      if (printFormat === 'PDF') {
+        await exportLabelsUtil(labels, 'PRINT', `unit_labels_${Date.now()}`);
+      } else {
+        await exportLabelsUtil(labels, printFormat, `unit_labels_${Date.now()}`);
+      }
+    } catch (e: any) {
+      setError(e?.message || 'Failed to print');
     }
   }
 
@@ -752,15 +772,6 @@ export default function UnitCodeGenerationPage() {
                 </div>
               </div>
 
-              <div>
-                <Label htmlFor="printer">Printer (Optional)</Label>
-                <IssuePrinterSelector
-                  printers={printers}
-                  selectedPrinter={form.printerId}
-                  onChange={(v) => update('printerId', v || '')}
-                  fetchPrinters={fetchPrinters}
-                />
-              </div>
 
               <Button onClick={handleGenerateSingle} className="w-full bg-blue-600 hover:bg-blue-700">
                 Generate Unit Codes
@@ -945,6 +956,12 @@ export default function UnitCodeGenerationPage() {
                     className="w-full border-gray-300"
                   >
                     Export ZIP (PNGs)
+                  </Button>
+                  <Button
+                    onClick={() => handlePrint()}
+                    className="w-full bg-green-600 hover:bg-green-700 text-white"
+                  >
+                    Print
                   </Button>
                   <div className="grid grid-cols-2 gap-2">
                     <Button

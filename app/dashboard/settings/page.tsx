@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { supabaseClient } from "@/lib/supabase/client";
 
 type UserProfile = {
@@ -18,6 +19,7 @@ type CompanyProfile = {
   address: string | null;
   email: string | null;
   user_id: string;
+  profile_completed?: boolean | null;
 };
 
 export default function Page() {
@@ -38,8 +40,7 @@ export default function Page() {
   const [companySuccess, setCompanySuccess] = useState('');
   
   // ERP Integration state
-  const [erpLoading, setErpLoading] = useState(false);
-  const [erpSaved, setErpSaved] = useState(false);
+  // Removed ERP integration state - now handled in dedicated page
 
   // Fetch user profile on mount
   useEffect(() => {
@@ -104,7 +105,7 @@ export default function Page() {
         // Fetch company profile
         const { data: company } = await supabase
           .from('companies')
-          .select('id, company_name, pan, gst, address, email, user_id')
+          .select('id, company_name, pan, gst, address, email, user_id, profile_completed')
           .eq('user_id', user.id)
           .maybeSingle();
 
@@ -197,25 +198,7 @@ export default function Page() {
     }
   }
 
-  async function handleErpSave(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setErpLoading(true);
-    setErpSaved(false);
-
-    await fetch("/api/integrations/save", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        system: (e.currentTarget.system as HTMLSelectElement).value,
-        apiUrl: (e.currentTarget.apiUrl as HTMLInputElement).value,
-        apiKey: (e.currentTarget.apiKey as HTMLInputElement).value,
-        syncMode: (e.currentTarget.sync as HTMLSelectElement).value,
-      }),
-    });
-
-    setErpLoading(false);
-    setErpSaved(true);
-  }
+  // Removed handleErpSave - ERP integration now handled in dedicated page
 
   return (
     <div className="max-w-5xl mx-auto px-8 py-10 space-y-8">
@@ -229,27 +212,27 @@ export default function Page() {
         </p>
       </div>
 
-      {/* Company Setup Alert (if company missing) */}
-      {!companyProfile && !companyLoading && (
-        <div className="bg-blue-50 border-2 border-blue-200 rounded-2xl p-6">
-          <div className="flex items-start justify-between">
-            <div className="flex-1">
-              <h3 className="text-lg font-semibold text-blue-900 mb-2">
-                Complete Company Setup
-              </h3>
-              <p className="text-sm text-blue-800 mb-4">
-                Company profile setup is required to use RxTrace features. Complete your company information to continue.
-              </p>
-              <a
-                href="/dashboard/company-setup"
-                className="inline-block px-6 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors"
-              >
-                Set Up Company Profile →
-              </a>
-            </div>
+      {/* Company Setup Link - Always visible in Settings */}
+      <div className="bg-blue-50 border-2 border-blue-200 rounded-2xl p-6">
+        <div className="flex items-start justify-between">
+          <div className="flex-1">
+            <h3 className="text-lg font-semibold text-blue-900 mb-2">
+              Company Setup
+            </h3>
+            <p className="text-sm text-blue-800 mb-4">
+              {companyProfile?.profile_completed 
+                ? 'Update your company setup information or view current details.'
+                : 'Company setup is required to use RxTrace features. Complete your company information to continue.'}
+            </p>
+            <a
+              href="/dashboard/company-setup"
+              className="inline-block px-6 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors"
+            >
+              {companyProfile?.profile_completed ? 'Edit Company Setup →' : 'Complete Company Setup →'}
+            </a>
           </div>
         </div>
-      )}
+      </div>
 
       {/* User Profile Section */}
       <div className="bg-white border border-gray-200 rounded-2xl shadow-sm">
@@ -433,74 +416,23 @@ export default function Page() {
         </div>
       </div>
 
-      {/* Company Profile Section */}
+      {/* Tax Profile Section (Optional, Separate) */}
       <div className="bg-white border border-gray-200 rounded-2xl shadow-sm">
         <div className="p-8 space-y-6">
           <div>
-            <h2 className="text-xl font-medium">Company Profile</h2>
+            <h2 className="text-xl font-medium">Tax Profile</h2>
             <p className="text-sm text-gray-500 mt-1">
-              Update your company information. Company ID, Owner Email, and Owner User ID cannot be changed.
+              Tax information is optional and used only for billing and GST reports. Not required for code generation.
             </p>
           </div>
 
           {companyLoading ? (
-            <div className="p-4 text-gray-500">Loading company profile...</div>
+            <div className="p-4 text-gray-500">Loading tax profile...</div>
           ) : companyProfile ? (
             <form onSubmit={handleCompanyProfileSave} className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Company ID (Read-only, hidden) */}
-              <div className="hidden">
-                <label className="label">Company ID</label>
-                <input
-                  type="text"
-                  className="input bg-gray-50 cursor-not-allowed"
-                  value={companyProfile.id}
-                  disabled
-                  readOnly
-                />
-              </div>
-
-              {/* Owner Email (Read-only) */}
+              {/* PAN Number (Optional) */}
               <div>
-                <label className="label">Owner Email</label>
-                <input
-                  type="email"
-                  className="input bg-gray-50 cursor-not-allowed"
-                  value={companyProfile.email || ''}
-                  disabled
-                  readOnly
-                />
-                <p className="text-xs text-gray-500 mt-1">Owner email cannot be changed</p>
-              </div>
-
-              {/* Owner User ID (Read-only) */}
-              <div>
-                <label className="label">Owner User ID</label>
-                <input
-                  type="text"
-                  className="input bg-gray-50 cursor-not-allowed"
-                  value={companyProfile.user_id ? `${companyProfile.user_id.substring(0, 8)}...` : ''}
-                  disabled
-                  readOnly
-                />
-                <p className="text-xs text-gray-500 mt-1">Owner User ID cannot be changed</p>
-              </div>
-
-              {/* Company Name (Editable) */}
-              <div className="md:col-span-2">
-                <label className="label">Company Name</label>
-                <input
-                  type="text"
-                  className="input"
-                  value={companyFormData.company_name}
-                  onChange={(e) => setCompanyFormData({ ...companyFormData, company_name: e.target.value })}
-                  placeholder="Enter company name"
-                  required
-                />
-              </div>
-
-              {/* PAN (Editable) */}
-              <div>
-                <label className="label">PAN Number</label>
+                <label className="label">PAN Number (Optional)</label>
                 <input
                   type="text"
                   className="input"
@@ -509,29 +441,21 @@ export default function Page() {
                   placeholder="Enter PAN number"
                   maxLength={10}
                 />
+                <p className="text-xs text-gray-500 mt-1">Used for billing and tax reports</p>
               </div>
 
-              {/* GST (Editable) */}
+              {/* GST Number (Optional) */}
               <div>
-                <label className="label">GST Number</label>
+                <label className="label">GST Number (Optional)</label>
                 <input
                   type="text"
                   className="input"
                   value={companyFormData.gst}
                   onChange={(e) => setCompanyFormData({ ...companyFormData, gst: e.target.value.toUpperCase() })}
                   placeholder="Enter GST number"
+                  maxLength={15}
                 />
-              </div>
-
-              {/* Address (Editable) */}
-              <div className="md:col-span-2">
-                <label className="label">Address</label>
-                <textarea
-                  className="input min-h-[100px]"
-                  value={companyFormData.address}
-                  onChange={(e) => setCompanyFormData({ ...companyFormData, address: e.target.value })}
-                  placeholder="Enter company address"
-                />
+                <p className="text-xs text-gray-500 mt-1">Used for GST reports and compliance</p>
               </div>
 
               {/* Error/Success Messages */}
@@ -545,147 +469,198 @@ export default function Page() {
               </div>
 
               {/* Footer */}
-              <div className="md:col-span-2 flex items-center justify-between pt-4">
-                <div className="text-sm text-gray-500">
-                  Company ID: {companyProfile.id ? `${companyProfile.id.substring(0, 8)}...` : 'N/A'}
-                </div>
+              <div className="md:col-span-2 flex items-center justify-end pt-4 border-t">
                 <button
+                  type="submit"
                   disabled={companySaving}
                   className="btn-primary px-6 py-2"
                 >
-                  {companySaving ? "Saving..." : "Save Company Profile"}
+                  {companySaving ? "Saving..." : "Save Tax Profile"}
                 </button>
               </div>
             </form>
           ) : (
-            <div className="p-4 text-gray-500">No company profile found. Please complete onboarding first.</div>
+            <div className="p-4 text-gray-500">Please complete company setup first to access tax profile.</div>
+          )}
+        </div>
+      </div>
+
+      {/* Printer Integration Section */}
+      <div className="bg-white border border-gray-200 rounded-2xl shadow-sm">
+        <div className="p-8 space-y-6">
+          <div>
+            <h2 className="text-xl font-medium">Printer Integration</h2>
+            <p className="text-sm text-gray-500 mt-1">
+              Configure printer preferences for label printing. Settings are optional and only used when printing.
+            </p>
+          </div>
+
+          {companyLoading ? (
+            <div className="p-4 text-gray-500">Loading printer settings...</div>
+          ) : companyProfile ? (
+            <PrinterIntegrationForm companyId={companyProfile.id} />
+          ) : (
+            <div className="p-4 text-gray-500">Please complete company setup first to access printer settings.</div>
           )}
         </div>
       </div>
 
       {/* ERP Integration Section */}
       <div className="bg-white border border-gray-200 rounded-2xl shadow-sm">
-        <div className="p-8 space-y-8">
+        <div className="p-8 space-y-6">
           <div>
             <h2 className="text-xl font-medium">
-              ERP / SaaS Integration
+              ERP Integration
             </h2>
             <p className="text-sm text-gray-500 mt-1">
-              Securely connect RxTrace with your ERP or enterprise systems. Credentials are encrypted and never exposed.
+              Configure ERP code ingestion methods and import ERP-generated serialization data into RxTrace.
             </p>
           </div>
 
-          <form onSubmit={handleErpSave} className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className="label">Integration System</label>
-              <select name="system" className="input" required>
-                <option value="">Select system</option>
-                <option value="SAP">SAP</option>
-                <option value="Oracle">Oracle</option>
-                <option value="Tally">Tally</option>
-                <option value="Custom">Custom ERP</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="label">Sync Mode</label>
-              <select name="sync" className="input">
-                <option value="pull">Pull from ERP</option>
-                <option value="push">Push to ERP</option>
-                <option value="bi">Bi-Directional</option>
-              </select>
-            </div>
-
-            <div className="md:col-span-2">
-              <label className="label">API Base URL</label>
-              <input
-                name="apiUrl"
-                className="input"
-                placeholder="https://erp.company.com/api"
-                required
-              />
-            </div>
-
-            <div className="md:col-span-2">
-              <label className="label">API Key / Token</label>
-              <input
-                name="apiKey"
-                type="password"
-                className="input"
-                placeholder="••••••••••••••••"
-                required
-              />
-              <p className="text-xs text-gray-500 mt-2">
-                Stored encrypted. Visible only during creation.
-              </p>
-            </div>
-
-            {/* Rotate API Key */}
-            <div className="md:col-span-2 border-t pt-8 mt-10">
-              <h3 className="text-lg font-medium mb-2">Rotate API Key</h3>
-              <p className="text-sm text-gray-500 mb-4">
-                Replace the existing API key. The old key will be permanently revoked.
-              </p>
-
-              <form
-                onSubmit={async (e) => {
-                  e.preventDefault();
-                  const form = e.currentTarget as HTMLFormElement;
-                  const newKey = (form.newKey as HTMLInputElement).value;
-
-                  if (!confirm("This will revoke the old API key. Continue?")) return;
-
-                  await fetch("/api/integrations/rotate-key", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ apiKey: newKey }),
-                  });
-
-                  alert("API key rotated successfully");
-                  form.reset();
-                }}
-                className="space-y-4 max-w-lg"
-              >
-                <div>
-                  <label className="label">New API Key</label>
-                  <input
-                    name="newKey"
-                    type="password"
-                    className="input"
-                    placeholder="••••••••••••••••"
-                    required
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    This key will be stored securely and never shown again.
-                  </p>
-                </div>
-
-                <button className="btn-primary">
-                  Rotate API Key
-                </button>
-              </form>
-            </div>
-
-            {/* Footer */}
-            <div className="md:col-span-2 flex items-center justify-between pt-4">
-              <div className="text-sm">
-                {erpSaved && (
-                  <span className="text-green-600">
-                    ✔ Integration settings saved
-                  </span>
-                )}
-              </div>
-
-              <button
-                disabled={erpLoading}
-                className="btn-primary px-6 py-2"
-              >
-                {erpLoading ? "Saving..." : "Save Integration"}
-              </button>
-            </div>
-          </form>
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
+            <h3 className="text-sm font-semibold text-gray-900 mb-2">ERP Code Ingestion</h3>
+            <p className="text-sm text-gray-700 mb-4">
+              RxTrace supports importing codes generated by your ERP system. Configure ingestion methods and manage imports from the dedicated ERP Integration page.
+            </p>
+            <Link 
+              href="/dashboard/settings/erp-integration"
+              className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition text-sm font-medium"
+            >
+              Configure ERP Integration →
+            </Link>
+          </div>
         </div>
       </div>
     </div>
+  );
+}
+
+// Printer Integration Form Component
+function PrinterIntegrationForm({ companyId }: { companyId: string }) {
+  const [printFormat, setPrintFormat] = useState<'PDF' | 'EPL' | 'ZPL'>('PDF');
+  const [printerType, setPrinterType] = useState<'thermal' | 'laser' | 'generic'>('thermal');
+  const [printerIdentifier, setPrinterIdentifier] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  useEffect(() => {
+    // Load saved preferences
+    async function loadPreferences() {
+      try {
+        const res = await fetch(`/api/companies/${companyId}/printer-settings`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.print_format) setPrintFormat(data.print_format);
+          if (data.printer_type) setPrinterType(data.printer_type);
+          if (data.printer_identifier) setPrinterIdentifier(data.printer_identifier);
+        }
+      } catch {
+        // Ignore - use defaults
+      }
+    }
+    loadPreferences();
+  }, [companyId]);
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setMessage(null);
+
+    try {
+      const res = await fetch(`/api/companies/${companyId}/printer-settings`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          print_format: printFormat,
+          printer_type: printerType,
+          printer_identifier: printerIdentifier.trim() || null,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to save printer settings');
+
+      setMessage({ type: 'success', text: 'Printer settings saved successfully' });
+      setTimeout(() => setMessage(null), 3000);
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message || 'Failed to save printer settings' });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form onSubmit={handleSave} className="space-y-6">
+      {/* Print Format */}
+      <div>
+        <label className="label">Preferred Print Format *</label>
+        <select
+          value={printFormat}
+          onChange={(e) => setPrintFormat(e.target.value as 'PDF' | 'EPL' | 'ZPL')}
+          className="input"
+          required
+        >
+          <option value="PDF">PDF (Opens OS print dialog)</option>
+          <option value="EPL">EPL (Raw file output)</option>
+          <option value="ZPL">ZPL (Raw file output)</option>
+        </select>
+        <p className="text-xs text-gray-500 mt-1">
+          {printFormat === 'PDF' 
+            ? 'PDF opens in a new tab and triggers the OS print dialog.' 
+            : `${printFormat} files will be downloaded for manual printing.`}
+        </p>
+      </div>
+
+      {/* Printer Type */}
+      <div>
+        <label className="label">Printer Type</label>
+        <select
+          value={printerType}
+          onChange={(e) => setPrinterType(e.target.value as 'thermal' | 'laser' | 'generic')}
+          className="input"
+        >
+          <option value="thermal">Thermal</option>
+          <option value="laser">Laser / Inkjet</option>
+          <option value="generic">Generic</option>
+        </select>
+        <p className="text-xs text-gray-500 mt-1">Used for print logs and future optimization.</p>
+      </div>
+
+      {/* Printer Identifier */}
+      <div>
+        <label className="label">Printer Identifier (Optional)</label>
+        <input
+          type="text"
+          value={printerIdentifier}
+          onChange={(e) => setPrinterIdentifier(e.target.value)}
+          placeholder="e.g., Zebra-GK420T, Warehouse-01"
+          className="input"
+          maxLength={100}
+        />
+        <p className="text-xs text-gray-500 mt-1">
+          User-defined name for your printer. Used only for UI clarity and print logs.
+        </p>
+      </div>
+
+      {message && (
+        <div className={`p-3 rounded-lg text-sm ${
+          message.type === 'success' 
+            ? 'bg-green-50 text-green-800 border border-green-200' 
+            : 'bg-red-50 text-red-800 border border-red-200'
+        }`}>
+          {message.text}
+        </div>
+      )}
+
+      <div className="flex justify-end pt-4 border-t">
+        <button
+          type="submit"
+          disabled={saving}
+          className="btn-primary px-6 py-2"
+        >
+          {saving ? 'Saving...' : 'Save Printer Settings'}
+        </button>
+      </div>
+    </form>
   );
 }

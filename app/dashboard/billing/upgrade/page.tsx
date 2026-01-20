@@ -203,11 +203,14 @@ export default function UpgradePlanPage() {
           </Button>
 
           {result?.short_url ? (
-            <div className="text-sm">
-              <div className="text-gray-600">Razorpay authorization link:</div>
-              <a className="underline" href={result.short_url} target="_blank" rel="noreferrer">
-                {result.short_url}
-              </a>
+            <div className="space-y-3">
+              <p className="text-sm text-gray-600">Click the button below to proceed to secure payment:</p>
+              <Button
+                onClick={() => window.open(result.short_url!, '_blank', 'noopener,noreferrer')}
+                className="w-full bg-blue-600 hover:bg-blue-700"
+              >
+                Proceed to Secure Payment
+              </Button>
             </div>
           ) : null}
         </CardContent>

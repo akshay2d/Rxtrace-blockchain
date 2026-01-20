@@ -30,11 +30,15 @@ export function resolvePaidPeriod(opts: { trialEnd: Date; now: Date }): { start:
 
 export function quotasForPlan(planType: PlanType) {
   const plan = PRICING.plans[planType];
+  // SSCC quota is the sum of box + carton + pallet quotas (consolidated)
+  const sscc_labels_quota = plan.box_labels_quota + plan.carton_labels_quota + plan.pallet_labels_quota;
+  
   return {
     unit_labels_quota: plan.unit_labels_quota,
     box_labels_quota: plan.box_labels_quota,
     carton_labels_quota: plan.carton_labels_quota,
     pallet_labels_quota: plan.pallet_labels_quota,
+    sscc_labels_quota, // Consolidated SSCC quota
     user_seats_quota: plan.max_seats,
   };
 }

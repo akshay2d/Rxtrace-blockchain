@@ -6,10 +6,10 @@ export const billingConfig = {
       pallet: 4.0,
     },
     generation: {
-      unit: 0.1,
-      boxSSCC: 0.2,
-      cartonSSCC: 1.0,
-      palletSSCC: 5.0,
+      unit: 0.1, // ₹0.10 per unit label
+      boxSSCC: 0.3, // ₹0.30 per box label
+      cartonSSCC: 1.0, // ₹1.00 per carton label
+      palletSSCC: 2.0, // ₹2.00 per pallet label
     },
     device: {
       handsetActivationPerMonth: 100.0,

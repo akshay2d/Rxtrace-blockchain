@@ -12,11 +12,13 @@ export type ActiveUsageRow = {
   box_labels_quota: number;
   carton_labels_quota: number;
   pallet_labels_quota: number;
+  sscc_labels_quota?: number; // Consolidated SSCC quota
   user_seats_quota: number;
   unit_labels_used: number;
   box_labels_used: number;
   carton_labels_used: number;
   pallet_labels_used: number;
+  sscc_labels_used?: number; // Consolidated SSCC usage
   user_seats_used: number;
 };
 
@@ -92,6 +94,9 @@ export async function ensureActiveBillingUsage(opts: {
   const quotas = quotasForPlan(planType);
   const planStored = String(company.subscription_plan ?? planType);
 
+  // Calculate consolidated SSCC quota
+  const sscc_labels_quota = quotas.box_labels_quota + quotas.carton_labels_quota + quotas.pallet_labels_quota;
+
   const insertRow = {
     company_id: companyId,
     billing_period_start: periodStart.toISOString(),
@@ -101,11 +106,13 @@ export async function ensureActiveBillingUsage(opts: {
     box_labels_quota: quotas.box_labels_quota,
     carton_labels_quota: quotas.carton_labels_quota,
     pallet_labels_quota: quotas.pallet_labels_quota,
+    sscc_labels_quota, // Consolidated SSCC quota
     user_seats_quota: quotas.user_seats_quota,
     unit_labels_used: 0,
     box_labels_used: 0,
     carton_labels_used: 0,
     pallet_labels_used: 0,
+    sscc_labels_used: 0, // Consolidated SSCC usage
     user_seats_used: quotas.user_seats_quota,
     created_at: now.toISOString(),
     updated_at: now.toISOString(),

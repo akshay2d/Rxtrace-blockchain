@@ -4,24 +4,34 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabaseClient } from '@/lib/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { AlertCircle, CheckCircle } from 'lucide-react';
+
+// Type definitions
+type LegalStructure = 'proprietorship' | 'partnership' | 'llp' | 'pvt_ltd' | 'other';
+type BusinessType = 'manufacturer' | 'distributor' | 'wholesaler' | 'cf';
+type OperationType = 'manufacturing' | 'packing' | 'import' | 'export' | 'distribution' | 'retail';
+type Industry = 'pharma' | 'medical_devices' | 'fmcg' | 'cosmetics' | 'food' | 'packaging' | 'printing';
 
 export default function CompanySetupPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState<string>('');
   const [success, setSuccess] = useState(false);
-  const [mode, setMode] = useState<'create' | 'edit'>('create');
-  const [company, setCompany] = useState<any>(null);
 
-  // Form fields - simplified for edit mode
+  // Form state - ALL required fields
   const [companyName, setCompanyName] = useState('');
-  const [pan, setPan] = useState('');
-  const [gst, setGst] = useState('');
+  const [phone, setPhone] = useState('');
   const [address, setAddress] = useState('');
+  const [legalStructure, setLegalStructure] = useState<LegalStructure | ''>('');
+  const [businessType, setBusinessType] = useState<BusinessType | ''>('');
+  const [operationTypes, setOperationTypes] = useState<OperationType[]>([]);
+  const [industries, setIndustries] = useState<Industry[]>([]);
 
   useEffect(() => {
     (async () => {
@@ -33,24 +43,51 @@ export default function CompanySetupPage() {
         return;
       }
 
-      // Check if company exists
+      // Check if company exists and if profile is already completed
       const { data: existingCompany } = await supabase
         .from('companies')
-        .select('id, company_name, pan, gst, address, email, user_id')
+        .select('id, company_name, phone, address, firm_type, business_category, business_type, profile_completed')
         .eq('user_id', user.id)
         .maybeSingle();
 
+      if (existingCompany?.profile_completed) {
+        // Profile already completed - redirect to dashboard
+        router.replace('/dashboard');
+        return;
+      }
+
+      // Load existing data if available
       if (existingCompany?.id) {
-        // Edit mode - load existing data
-        setMode('edit');
-        setCompany(existingCompany);
         setCompanyName(existingCompany.company_name || '');
-        setPan(existingCompany.pan || '');
-        setGst(existingCompany.gst || '');
+        setPhone(existingCompany.phone || '');
         setAddress(existingCompany.address || '');
-      } else {
-        // Create mode
-        setMode('create');
+        if (existingCompany.firm_type) {
+          setLegalStructure(existingCompany.firm_type as LegalStructure);
+        }
+        // Parse business_type - could be single value or comma-separated
+        if (existingCompany.business_type) {
+          const ops = existingCompany.business_type.includes(',')
+            ? existingCompany.business_type.split(',').map((s: string) => s.trim())
+            : [existingCompany.business_type];
+          // Filter to valid operation types
+          const validOps = ops.filter((op: string): op is OperationType => 
+            ['manufacturing', 'packing', 'import', 'export', 'distribution', 'retail'].includes(op)
+          );
+          setOperationTypes(validOps);
+        }
+        // business_category maps to industries (single value in DB, but we support multi-select)
+        if (existingCompany.business_category) {
+          const industryMap: Record<string, Industry> = {
+            'pharma': 'pharma',
+            'food': 'food',
+            'dairy': 'food',
+            'logistics': 'packaging',
+          };
+          const mapped = industryMap[existingCompany.business_category];
+          if (mapped) {
+            setIndustries([mapped]);
+          }
+        }
       }
 
       setLoading(false);
@@ -63,101 +100,162 @@ export default function CompanySetupPage() {
     setError('');
     setSuccess(false);
 
+    // Validation - ALL fields are required
+    if (!companyName.trim()) {
+      setError('Company Name is required');
+      setSubmitting(false);
+      return;
+    }
+    if (!phone.trim()) {
+      setError('Phone Number is required');
+      setSubmitting(false);
+      return;
+    }
+    if (!address.trim()) {
+      setError('Address is required');
+      setSubmitting(false);
+      return;
+    }
+    if (!legalStructure) {
+      setError('Type of Company is required');
+      setSubmitting(false);
+      return;
+    }
+    if (!businessType) {
+      setError('Type of Business is required');
+      setSubmitting(false);
+      return;
+    }
+    if (operationTypes.length === 0) {
+      setError('At least one Type of Operation must be selected');
+      setSubmitting(false);
+      return;
+    }
+    if (industries.length === 0) {
+      setError('At least one Industry must be selected');
+      setSubmitting(false);
+      return;
+    }
+
     try {
-      if (mode === 'create') {
-        // Create mode - create company with minimal required fields
-        const supabase = supabaseClient();
-        const { data: { user } } = await supabase.auth.getUser();
+      const supabase = supabaseClient();
+      const { data: { user } } = await supabase.auth.getUser();
 
-        if (!user) {
-          throw new Error('User not authenticated');
-        }
-
-        // Create company with minimal fields (company_name is required)
-        const res = await fetch('/api/company/profile/update', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            company_name: companyName.trim(),
-            pan: pan.trim() || null,
-            gst: gst.trim() || null,
-            address: address.trim() || null,
-          }),
-        });
-
-        const result = await res.json().catch(() => ({}));
-
-        if (!res.ok) {
-          // If company doesn't exist, try creating it via setup API
-          if (res.status === 404 || result.error?.includes('not found')) {
-            // For minimal setup, we'll create with required fields only
-            // User can complete full profile later
-            const createRes = await fetch('/api/setup/create-company-profile', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                user_id: user.id,
-                company_name: companyName.trim(),
-                contact_person_name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'Owner',
-                firm_type: 'pvt_ltd', // Default, can be changed later
-                address: address.trim() || 'Address to be updated',
-                email: user.email || '',
-                phone: user.user_metadata?.phone || '',
-                pan: pan.trim() || '',
-                gst: gst.trim() || null,
-                business_category: 'pharma', // Default, can be changed later
-                business_type: 'manufacturer', // Default, can be changed later
-              }),
-            });
-
-            const createResult = await createRes.json().catch(() => ({}));
-
-            if (!createRes.ok) {
-              throw new Error(createResult.error || 'Failed to create company profile');
-            }
-
-            setSuccess(true);
-            setTimeout(() => {
-              router.push('/dashboard/billing');
-            }, 1500);
-            return;
-          }
-          throw new Error(result.error || 'Failed to create company profile');
-        }
-
-        setSuccess(true);
-        setTimeout(() => {
-          router.push('/dashboard/billing');
-        }, 1500);
-        return;
+      if (!user) {
+        throw new Error('User not authenticated');
       }
 
-      // Edit mode - update existing company
-      const res = await fetch('/api/company/profile/update', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      // Get or create company
+      let companyId: string;
+      const { data: existingCompany } = await supabase
+        .from('companies')
+        .select('id')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (existingCompany?.id) {
+        companyId = existingCompany.id;
+      } else {
+        // Create company if it doesn't exist
+        const { data: newCompany, error: createError } = await supabase
+          .from('companies')
+          .insert({
+            user_id: user.id,
+            company_name: companyName.trim(),
+            phone: phone.trim(),
+            address: address.trim(),
+            email: user.email || '',
+          })
+          .select('id')
+          .single();
+
+        if (createError || !newCompany) {
+          throw new Error(createError?.message || 'Failed to create company');
+        }
+        companyId = newCompany.id;
+      }
+
+      // Map industries to business_category (use first industry as primary)
+      const businessCategory = industries[0] === 'pharma' ? 'pharma' :
+                              industries[0] === 'food' ? 'food' :
+                              industries[0] === 'packaging' ? 'logistics' :
+                              'pharma'; // Default
+
+      // Store operation types as comma-separated string
+      const businessTypeStr = operationTypes.join(',');
+
+      // Update company with all required fields
+      const { error: updateError } = await supabase
+        .from('companies')
+        .update({
           company_name: companyName.trim(),
-          pan: pan.trim() || null,
-          gst: gst.trim() || null,
-          address: address.trim() || null,
-        }),
-      });
+          phone: phone.trim(),
+          address: address.trim(),
+          firm_type: legalStructure,
+          business_category: businessCategory,
+          business_type: businessTypeStr,
+          profile_completed: true,
+        })
+        .eq('id', companyId);
 
-      const result = await res.json().catch(() => ({}));
-
-      if (!res.ok) {
-        throw new Error(result.error || 'Failed to update company profile');
+      if (updateError) {
+        throw new Error(updateError.message || 'Failed to save company setup');
       }
 
       setSuccess(true);
       setTimeout(() => {
-        router.push('/dashboard/billing');
+        router.push('/dashboard');
       }, 1500);
     } catch (err: any) {
-      setError(err.message || 'Failed to save company profile');
+      setError(err.message || 'Failed to save company setup');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const toggleOperationType = (op: OperationType) => {
+    setOperationTypes(prev => 
+      prev.includes(op) 
+        ? prev.filter(t => t !== op)
+        : [...prev, op]
+    );
+    // Clear error when user makes selection
+    if (error && error.includes('Operation')) {
+      setError('');
+    }
+  };
+
+  const toggleIndustry = (industry: Industry) => {
+    setIndustries(prev => 
+      prev.includes(industry)
+        ? prev.filter(i => i !== industry)
+        : [...prev, industry]
+    );
+    // Clear error when user makes selection
+    if (error && error.includes('Industry')) {
+      setError('');
+    }
+  };
+
+  // Clear errors when fields become valid
+  const handleCompanyNameChange = (value: string) => {
+    setCompanyName(value);
+    if (error && error.includes('Company Name')) {
+      setError('');
+    }
+  };
+
+  const handlePhoneChange = (value: string) => {
+    setPhone(value);
+    if (error && error.includes('Phone')) {
+      setError('');
+    }
+  };
+
+  const handleAddressChange = (value: string) => {
+    setAddress(value);
+    if (error && error.includes('Address')) {
+      setError('');
     }
   };
 
@@ -174,218 +272,219 @@ export default function CompanySetupPage() {
       {/* Header */}
       <div>
         <h1 className="text-3xl font-semibold text-gray-900 mb-1.5">
-          {mode === 'create' ? 'Set Up Company Profile' : 'Edit Company Profile'}
+          Company Setup
         </h1>
         <p className="text-sm text-gray-600">
-          {mode === 'create' 
-            ? 'Complete your company profile to continue' 
-            : 'Update your company information'}
+          Complete your company setup to continue
         </p>
       </div>
 
       {/* Alerts */}
       {error && (
-        <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-800 text-sm">
-          {error}
-        </div>
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       )}
 
       {success && (
-        <div className="p-4 bg-green-50 border border-green-200 rounded-lg text-green-800 text-sm">
-          Company profile updated successfully. Redirecting...
-        </div>
+        <Alert className="bg-green-50 border-green-200">
+          <CheckCircle className="h-4 w-4 text-green-600" />
+          <AlertDescription className="text-green-800">
+            Company setup completed successfully. Redirecting...
+          </AlertDescription>
+        </Alert>
       )}
 
       {/* Form */}
       <Card className="border-gray-200">
         <CardHeader>
           <CardTitle className="text-lg font-semibold text-gray-900">
-            {mode === 'create' ? 'Company Information' : 'Company Details'}
+            Company Information
           </CardTitle>
           <CardDescription>
-            {mode === 'create' 
-              ? 'Complete your company profile to start using RxTrace' 
-              : 'Update your company profile information'}
+            All fields are required to complete setup
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {mode === 'create' ? (
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <p className="text-sm text-gray-600 mb-4">
-                Complete your company profile to start using RxTrace. You can update additional details later.
-              </p>
+          <form onSubmit={handleSubmit} className="space-y-6">
+            {/* 1. Company Name */}
+            <div>
+              <Label htmlFor="companyName" className="text-sm font-medium">
+                Company Name *
+              </Label>
+              <Input
+                id="companyName"
+                value={companyName}
+                onChange={(e) => handleCompanyNameChange(e.target.value)}
+                placeholder="Enter company name"
+                required
+                disabled={submitting}
+                className="mt-1.5"
+              />
+            </div>
 
-              {/* Company Name */}
-              <div>
-                <Label htmlFor="companyName">Company Name *</Label>
-                <Input
-                  id="companyName"
-                  value={companyName}
-                  onChange={(e) => setCompanyName(e.target.value)}
-                  placeholder="Enter company name"
-                  required
-                  disabled={submitting}
-                  className="mt-1.5"
-                />
+            {/* 2. Phone Number */}
+            <div>
+              <Label htmlFor="phone" className="text-sm font-medium">
+                Phone Number *
+              </Label>
+              <Input
+                id="phone"
+                type="tel"
+                value={phone}
+                onChange={(e) => handlePhoneChange(e.target.value)}
+                placeholder="Enter phone number"
+                required
+                disabled={submitting}
+                className="mt-1.5"
+              />
+            </div>
+
+            {/* 3. Address */}
+            <div>
+              <Label htmlFor="address" className="text-sm font-medium">
+                Address *
+              </Label>
+              <textarea
+                id="address"
+                value={address}
+                onChange={(e) => handleAddressChange(e.target.value)}
+                placeholder="Enter company address"
+                required
+                rows={3}
+                disabled={submitting}
+                className="mt-1.5 w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+
+            {/* 4. Type of Company (Legal Structure) */}
+            <div>
+              <Label htmlFor="legalStructure" className="text-sm font-medium">
+                Type of Company (Legal Structure) *
+              </Label>
+              <Select 
+                value={legalStructure} 
+                onValueChange={(v) => {
+                  setLegalStructure(v as LegalStructure);
+                  if (error && error.includes('Company')) {
+                    setError('');
+                  }
+                }}
+                disabled={submitting}
+              >
+                <SelectTrigger id="legalStructure" className="mt-1.5">
+                  <SelectValue placeholder="Select legal structure" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="proprietorship">Proprietorship</SelectItem>
+                  <SelectItem value="partnership">Partnership</SelectItem>
+                  <SelectItem value="llp">LLP</SelectItem>
+                  <SelectItem value="pvt_ltd">Pvt Ltd</SelectItem>
+                  <SelectItem value="other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* 5. Type of Business */}
+            <div>
+              <Label htmlFor="businessType" className="text-sm font-medium">
+                Type of Business *
+              </Label>
+              <Select 
+                value={businessType} 
+                onValueChange={(v) => {
+                  setBusinessType(v as BusinessType);
+                  if (error && error.includes('Business')) {
+                    setError('');
+                  }
+                }}
+                disabled={submitting}
+              >
+                <SelectTrigger id="businessType" className="mt-1.5">
+                  <SelectValue placeholder="Select business type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="manufacturer">Manufacturer</SelectItem>
+                  <SelectItem value="distributor">Distributor</SelectItem>
+                  <SelectItem value="wholesaler">Wholesaler</SelectItem>
+                  <SelectItem value="cf">C&F (Carrying & Forwarding Agent)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* 6. Type of Operation (Multi-select) */}
+            <div>
+              <Label className="text-sm font-medium">
+                Type of Operation (Select all that apply) *
+              </Label>
+              <div className="mt-2 space-y-2">
+                {(['manufacturing', 'packing', 'import', 'export', 'distribution', 'retail'] as OperationType[]).map((op: OperationType) => (
+                  <label key={op} className="flex items-center space-x-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={operationTypes.includes(op)}
+                      onChange={() => toggleOperationType(op)}
+                      disabled={submitting}
+                      className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                    />
+                    <span className="text-sm text-gray-700 capitalize">
+                      {op}
+                    </span>
+                  </label>
+                ))}
               </div>
+            </div>
 
-              {/* PAN */}
-              <div>
-                <Label htmlFor="pan">PAN Number</Label>
-                <Input
-                  id="pan"
-                  value={pan}
-                  onChange={(e) => setPan(e.target.value.toUpperCase())}
-                  placeholder="ABCDE1234F"
-                  maxLength={10}
-                  disabled={submitting}
-                  className="mt-1.5"
-                />
+            {/* 7. Industries (Multi-select) */}
+            <div>
+              <Label className="text-sm font-medium">
+                Industries (Select all that apply) *
+              </Label>
+              <div className="mt-2 space-y-2">
+                {([
+                  { value: 'pharma' as Industry, label: 'Pharma' },
+                  { value: 'medical_devices' as Industry, label: 'Medical Devices' },
+                  { value: 'fmcg' as Industry, label: 'FMCG' },
+                  { value: 'cosmetics' as Industry, label: 'Cosmetics' },
+                  { value: 'food' as Industry, label: 'Food' },
+                  { value: 'packaging' as Industry, label: 'Packaging' },
+                  { value: 'printing' as Industry, label: 'Printing' },
+                ]).map(({ value, label }) => (
+                  <label key={value} className="flex items-center space-x-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={industries.includes(value)}
+                      onChange={() => toggleIndustry(value)}
+                      disabled={submitting}
+                      className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                    />
+                    <span className="text-sm text-gray-700">{label}</span>
+                  </label>
+                ))}
               </div>
+            </div>
 
-              {/* GST */}
-              <div>
-                <Label htmlFor="gst">GST Number</Label>
-                <Input
-                  id="gst"
-                  value={gst}
-                  onChange={(e) => setGst(e.target.value.toUpperCase())}
-                  placeholder="29ABCDE1234F1Z5"
-                  maxLength={15}
-                  disabled={submitting}
-                  className="mt-1.5"
-                />
-              </div>
-
-              {/* Address */}
-              <div>
-                <Label htmlFor="address">Address</Label>
-                <textarea
-                  id="address"
-                  value={address}
-                  onChange={(e) => setAddress(e.target.value)}
-                  placeholder="Enter company address"
-                  rows={3}
-                  disabled={submitting}
-                  className="mt-1.5 w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
-
-              {/* Actions */}
-              <div className="flex gap-3 pt-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => router.push('/dashboard')}
-                  disabled={submitting}
-                  className="border-gray-300"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  disabled={submitting || !companyName.trim()}
-                  className="bg-blue-600 hover:bg-blue-700"
-                >
-                  {submitting ? 'Creating...' : 'Create Company Profile'}
-                </Button>
-              </div>
-            </form>
-          ) : (
-            <form onSubmit={handleSubmit} className="space-y-4">
-              {/* Read-only Company ID */}
-              {company?.id && (
-                <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                  <Label className="text-xs text-gray-500">Company ID (Read-only)</Label>
-                  <p className="text-sm font-mono text-gray-700 mt-1">{company.id}</p>
-                </div>
-              )}
-
-              {/* Read-only Owner Email */}
-              {company?.email && (
-                <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                  <Label className="text-xs text-gray-500">Owner Email (Read-only)</Label>
-                  <p className="text-sm text-gray-700 mt-1">{company.email}</p>
-                </div>
-              )}
-
-              {/* Company Name */}
-              <div>
-                <Label htmlFor="companyName">Company Name *</Label>
-                <Input
-                  id="companyName"
-                  value={companyName}
-                  onChange={(e) => setCompanyName(e.target.value)}
-                  placeholder="Enter company name"
-                  required
-                  disabled={submitting}
-                  className="mt-1.5"
-                />
-              </div>
-
-              {/* PAN */}
-              <div>
-                <Label htmlFor="pan">PAN Number</Label>
-                <Input
-                  id="pan"
-                  value={pan}
-                  onChange={(e) => setPan(e.target.value.toUpperCase())}
-                  placeholder="ABCDE1234F"
-                  maxLength={10}
-                  disabled={submitting}
-                  className="mt-1.5"
-                />
-              </div>
-
-              {/* GST */}
-              <div>
-                <Label htmlFor="gst">GST Number</Label>
-                <Input
-                  id="gst"
-                  value={gst}
-                  onChange={(e) => setGst(e.target.value.toUpperCase())}
-                  placeholder="29ABCDE1234F1Z5"
-                  maxLength={15}
-                  disabled={submitting}
-                  className="mt-1.5"
-                />
-              </div>
-
-              {/* Address */}
-              <div>
-                <Label htmlFor="address">Address</Label>
-                <textarea
-                  id="address"
-                  value={address}
-                  onChange={(e) => setAddress(e.target.value)}
-                  placeholder="Enter company address"
-                  rows={3}
-                  disabled={submitting}
-                  className="mt-1.5 w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
-
-              {/* Actions */}
-              <div className="flex gap-3 pt-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => router.push('/dashboard/billing')}
-                  disabled={submitting}
-                  className="border-gray-300"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  disabled={submitting || !companyName.trim()}
-                  className="bg-blue-600 hover:bg-blue-700"
-                >
-                  {submitting ? 'Saving...' : 'Save Changes'}
-                </Button>
-              </div>
-            </form>
-          )}
+            {/* Actions */}
+            <div className="flex gap-3 pt-4 border-t">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => router.push('/dashboard')}
+                disabled={submitting}
+                className="border-gray-300"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={submitting || !companyName.trim() || !phone.trim() || !address.trim() || !legalStructure || !businessType || operationTypes.length === 0 || industries.length === 0}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                {submitting ? 'Saving...' : 'Complete Setup'}
+              </Button>
+            </div>
+          </form>
         </CardContent>
       </Card>
     </div>

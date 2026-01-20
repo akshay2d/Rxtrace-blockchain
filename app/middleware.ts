@@ -62,7 +62,7 @@ export async function middleware(request: NextRequest) {
 
   // If user is authenticated and accessing dashboard, check for company and subscription
   if (session && pathname.startsWith('/dashboard')) {
-    // Allow company-setup page access even when company doesn't exist
+    // Allow company-setup page access even when company doesn't exist or is incomplete
     if (pathname === '/dashboard/company-setup' || pathname.startsWith('/dashboard/company-setup/')) {
       return supabaseResponse;
     }
@@ -70,7 +70,7 @@ export async function middleware(request: NextRequest) {
     // Always refresh company data to get latest subscription status after payment
     const { data: company, error } = await supabase
       .from('companies')
-      .select('id, subscription_status')
+      .select('id, subscription_status, profile_completed')
       .eq('user_id', session.user.id)
       .maybeSingle();
 
@@ -82,6 +82,17 @@ export async function middleware(request: NextRequest) {
 
     if (!company) {
       // No company profile yet - redirect to company setup (not onboarding)
+      return NextResponse.redirect(new URL('/dashboard/company-setup', request.url));
+    }
+
+    // If company exists but profile is not completed, redirect to company setup
+    // EXCEPT for ERP integration page (which should be accessible after company exists)
+    if (company.profile_completed === false) {
+      // Allow ERP integration page access even if profile not completed
+      if (pathname.startsWith('/dashboard/settings/erp-integration')) {
+        return supabaseResponse;
+      }
+      // Redirect other dashboard pages to company setup
       return NextResponse.redirect(new URL('/dashboard/company-setup', request.url));
     }
 
