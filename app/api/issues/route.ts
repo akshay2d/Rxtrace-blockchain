@@ -113,32 +113,14 @@ export async function POST(req: Request) {
     await assertCompanyCanOperate({ supabase: admin, companyId });
     await ensureActiveBillingUsage({ supabase: admin, companyId });
 
-    // Apply quota rollover (for yearly plans) and consume quota
-    const quotaModule = await import('@/lib/billing/quota');
-    const { consumeQuotaBalance, refundQuotaBalance } = quotaModule;
-    
-    const quotaResult = await consumeQuotaBalance(companyId, 'unit', quantity);
-    
-    if (!quotaResult.ok) {
-      return NextResponse.json(
-        {
-          error: quotaResult.error || 'Unit label quota exceeded. Please purchase extra Unit labels add-on.',
-          code: 'quota_exceeded',
-          requires_addon: true,
-          addon: 'unit',
-        },
-        { status: 403 }
-      );
-    }
-
-    // Generate units
+    // Generate unit serials and GS1 payloads (before quota check)
     const items: Array<{ serial: string; gs1: string }> = [];
-    const rows: Array<{
+    const unitRows: Array<{
       company_id: string;
       sku_id: string | null;
       gtin: string;
       batch: string;
-      mfd: string | null;
+      mfd: string;
       expiry: string;
       mrp: string | null;
       serial: string;
@@ -146,13 +128,15 @@ export async function POST(req: Request) {
     }> = [];
 
     const maxAttempts = 10;
+    const mfdDate = mfd || new Date().toISOString().split('T')[0]; // Use today if not provided
 
+    // Generate all serials and payloads first
     for (let i = 0; i < quantity; i++) {
       let serial: string = '';
       let attempts = 0;
       let isUnique = false;
 
-      // Generate unique serial
+      // Generate unique serial (check against existing labels)
       while (!isUnique && attempts < maxAttempts) {
         serial = generateSerial(companyId);
         const { data: existing } = await admin
@@ -173,8 +157,6 @@ export async function POST(req: Request) {
       }
 
       if (!isUnique) {
-        // Refund quota
-        await refundQuotaBalance(companyId, 'unit', quantity);
         return NextResponse.json(
           { error: `Failed to generate unique serial after ${maxAttempts} attempts` },
           { status: 500 }
@@ -182,7 +164,6 @@ export async function POST(req: Request) {
       }
 
       // Generate GS1 payload
-      const mfdDate = mfd || new Date().toISOString().split('T')[0]; // Use today if not provided
       const gs1Payload = generateCanonicalGS1({
         gtin,
         expiry: exp,
@@ -196,7 +177,7 @@ export async function POST(req: Request) {
 
       items.push({ serial, gs1: gs1Payload });
 
-      rows.push({
+      unitRows.push({
         company_id: companyId,
         sku_id: skuId,
         gtin,
@@ -209,14 +190,33 @@ export async function POST(req: Request) {
       });
     }
 
-    // Insert all units
-    const { error: insertError } = await admin.from('labels_units').insert(rows);
+    // Atomically consume quota AND insert labels in a single transaction
+    // If quota is insufficient OR label insertion fails, entire transaction rolls back
+    const { data: rpcResult, error: rpcError } = await admin.rpc(
+      'consume_quota_and_insert_unit_labels',
+      {
+        p_company_id: companyId,
+        p_qty: quantity,
+        p_unit_rows: unitRows,
+        p_now: new Date().toISOString(),
+      }
+    );
 
-    if (insertError) {
-      // Refund quota on failure
-      await refundQuotaBalance(companyId, 'unit', quantity);
-      
-      if (insertError.code === '23505' || insertError.message?.includes('unique')) {
+    if (rpcError) {
+      // RPC error indicates quota failure or insert failure (transaction rolled back)
+      if (rpcError.message?.includes('quota') || rpcError.message?.includes('Insufficient')) {
+        return NextResponse.json(
+          {
+            error: 'Unit label quota exceeded. Please purchase extra Unit labels add-on.',
+            code: 'quota_exceeded',
+            requires_addon: true,
+            addon: 'unit',
+          },
+          { status: 403 }
+        );
+      }
+
+      if (rpcError.code === '23505' || rpcError.message?.includes('unique') || rpcError.message?.includes('duplicate')) {
         return NextResponse.json(
           { error: 'Duplicate serial detected. Please try again.' },
           { status: 409 }
@@ -224,11 +224,33 @@ export async function POST(req: Request) {
       }
 
       return NextResponse.json(
-        { error: insertError.message || 'Failed to generate units' },
+        { error: rpcError.message || 'Failed to generate unit labels' },
         { status: 500 }
       );
     }
 
+    const result = Array.isArray(rpcResult) ? rpcResult[0] : rpcResult;
+    if (!result || !result.ok) {
+      // RPC returned failure (quota insufficient or other error)
+      if (result?.error?.includes('quota') || result?.error?.includes('Insufficient')) {
+        return NextResponse.json(
+          {
+            error: 'Unit label quota exceeded. Please purchase extra Unit labels add-on.',
+            code: 'quota_exceeded',
+            requires_addon: true,
+            addon: 'unit',
+          },
+          { status: 403 }
+        );
+      }
+
+      return NextResponse.json(
+        { error: result?.error || 'Failed to generate unit labels' },
+        { status: 500 }
+      );
+    }
+
+    // Success: quota was consumed and labels were inserted atomically
     // Return format expected by frontend
     return NextResponse.json({
       items,

@@ -599,6 +599,31 @@ export default function UnitCodeGenerationPage() {
         <p className="text-sm text-gray-600">Generate GS1-compliant unit-level codes for saleable packs</p>
       </div>
 
+      {/* Action Relationship Info */}
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+        <h3 className="text-sm font-semibold text-blue-900 mb-2">How it works:</h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm text-blue-800">
+          <div className="flex items-start gap-2">
+            <span className="bg-blue-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs flex-shrink-0">1</span>
+            <div>
+              <strong>Generate</strong> — Creates codes in the system. Does not print or export.
+            </div>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="bg-blue-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs flex-shrink-0">2</span>
+            <div>
+              <strong>Export</strong> — Downloads codes as files. Does not create new codes.
+            </div>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="bg-blue-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs flex-shrink-0">3</span>
+            <div>
+              <strong>Print</strong> — Sends to your printer. RxTrace does not control the printer.
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Alerts */}
       {error && (
         <Alert variant="destructive">
@@ -615,13 +640,21 @@ export default function UnitCodeGenerationPage() {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Form Section */}
+        {/* Form Section - GENERATE CODES */}
         <div className="lg:col-span-2 space-y-6">
+          {/* Section Header: Generate Codes */}
+          <div className="border-b border-gray-200 pb-4">
+            <h2 className="text-xl font-semibold text-gray-900">Generate Codes</h2>
+            <p className="text-sm text-gray-500 mt-1">
+              This creates GS1 codes in the system. It does not print or export codes.
+            </p>
+          </div>
+
           {/* Single Generation Form */}
           <Card className="border-gray-200">
             <CardHeader>
               <CardTitle className="text-lg font-semibold">Single Unit Generation</CardTitle>
-              <CardDescription>Generate unit codes one at a time</CardDescription>
+              <CardDescription>Generate unit codes one at a time. Codes are saved immediately.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -776,6 +809,9 @@ export default function UnitCodeGenerationPage() {
               <Button onClick={handleGenerateSingle} className="w-full bg-blue-600 hover:bg-blue-700">
                 Generate Unit Codes
               </Button>
+              <p className="text-xs text-gray-500 text-center mt-2">
+                Generates codes only. Use Export or Print for output.
+              </p>
             </CardContent>
           </Card>
 
@@ -900,23 +936,24 @@ export default function UnitCodeGenerationPage() {
           </Card>
         </div>
 
-        {/* Preview & Batch Section */}
+        {/* Right Side - Generated Codes, Export & Print */}
         <div className="lg:col-span-1 space-y-6">
-          {/* Batch Queue */}
+          {/* Generated Codes Preview */}
           <Card className="border-gray-200">
             <CardHeader>
               <CardTitle className="text-lg font-semibold">Generated Unit Codes</CardTitle>
               <CardDescription>{batch.length} unit code(s) generated</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-3 max-h-96 overflow-y-auto mb-4">
+              <div className="space-y-3 max-h-64 overflow-y-auto mb-4">
                 {batch.length === 0 ? (
                   <div className="text-center py-8 text-gray-400">
                     <FileText className="w-10 h-10 mx-auto mb-2" />
                     <p className="text-sm">No unit codes generated yet</p>
+                    <p className="text-xs mt-1">Generate codes using the form</p>
                   </div>
                 ) : (
-                  batch.map((b) => (
+                  batch.slice(0, 5).map((b) => (
                     <div key={b.id} className="p-3 border border-gray-200 rounded-lg bg-gray-50">
                       <div className="text-xs font-mono text-gray-600 mb-2 break-all line-clamp-2">{b.payload}</div>
                       <div className="flex justify-center py-2 bg-white rounded overflow-hidden">
@@ -932,22 +969,44 @@ export default function UnitCodeGenerationPage() {
                     </div>
                   ))
                 )}
+                {batch.length > 5 && (
+                  <div className="text-center text-sm text-gray-500 py-2">
+                    + {batch.length - 5} more codes
+                  </div>
+                )}
               </div>
+            </CardContent>
+          </Card>
 
-              {batch.length > 0 && (
-                <div className="space-y-2 pt-4 border-t">
+          {/* EXPORT CODES - Separate Panel */}
+          <Card className="border-gray-200">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg font-semibold">Export Codes</CardTitle>
+              <CardDescription>
+                Download generated codes as files. Exporting does not print or regenerate codes.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {batch.length === 0 ? (
+                <div className="text-center py-4 text-gray-400 text-sm">
+                  Generate codes first
+                </div>
+              ) : (
+                <div className="space-y-2">
                   <Button
                     onClick={() => exportUnitCodesCSV(batch)}
                     variant="outline"
                     className="w-full border-gray-300"
                   >
                     <Download className="w-4 h-4 mr-2" />
-                    Export Unit Codes CSV
+                    Export CSV
                   </Button>
                   <Button
                     onClick={() => handleExport('PDF')}
-                    className="w-full bg-blue-600 hover:bg-blue-700"
+                    variant="outline"
+                    className="w-full border-gray-300"
                   >
+                    <Download className="w-4 h-4 mr-2" />
                     Export PDF
                   </Button>
                   <Button
@@ -955,13 +1014,8 @@ export default function UnitCodeGenerationPage() {
                     variant="outline"
                     className="w-full border-gray-300"
                   >
+                    <Download className="w-4 h-4 mr-2" />
                     Export ZIP (PNGs)
-                  </Button>
-                  <Button
-                    onClick={() => handlePrint()}
-                    className="w-full bg-green-600 hover:bg-green-700 text-white"
-                  >
-                    Print
                   </Button>
                   <div className="grid grid-cols-2 gap-2">
                     <Button
@@ -981,6 +1035,42 @@ export default function UnitCodeGenerationPage() {
                       EPL
                     </Button>
                   </div>
+                  <p className="text-xs text-gray-500 text-center pt-2">
+                    Export downloads files. Does not print.
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* PRINT CODES - Separate Panel */}
+          <Card className="border-gray-200">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg font-semibold">Print Codes</CardTitle>
+              <CardDescription>
+                Printing uses your computer or network printer. RxTrace does not control the physical printer.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {batch.length === 0 ? (
+                <div className="text-center py-4 text-gray-400 text-sm">
+                  Generate codes first
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <Button
+                    onClick={() => handlePrint()}
+                    className="w-full bg-green-600 hover:bg-green-700 text-white"
+                  >
+                    Print Codes
+                  </Button>
+                  <div className="text-xs text-gray-500 space-y-1">
+                    <p><strong>PDF:</strong> Opens browser print dialog</p>
+                    <p><strong>EPL/ZPL:</strong> Downloads printer file</p>
+                  </div>
+                  <p className="text-xs text-gray-400 text-center border-t pt-2">
+                    Configure print format in Settings → Printers
+                  </p>
                 </div>
               )}
             </CardContent>

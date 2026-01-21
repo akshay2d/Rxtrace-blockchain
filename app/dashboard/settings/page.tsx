@@ -3,6 +3,8 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { supabaseClient } from "@/lib/supabase/client";
+import TaxSettingsPanel from "@/components/settings/TaxSettingsPanel";
+import PrinterSettingsPanel from "@/components/settings/PrinterSettingsPanel";
 
 type UserProfile = {
   id: string;
@@ -416,94 +418,28 @@ export default function Page() {
         </div>
       </div>
 
-      {/* Tax Profile Section (Optional, Separate) */}
-      <div className="bg-white border border-gray-200 rounded-2xl shadow-sm">
-        <div className="p-8 space-y-6">
-          <div>
-            <h2 className="text-xl font-medium">Tax Profile</h2>
-            <p className="text-sm text-gray-500 mt-1">
-              Tax information is optional and used only for billing and GST reports. Not required for code generation.
-            </p>
-          </div>
-
-          {companyLoading ? (
-            <div className="p-4 text-gray-500">Loading tax profile...</div>
-          ) : companyProfile?.profile_completed ? (
-            <form onSubmit={handleCompanyProfileSave} className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* PAN Number (Optional) */}
-              <div>
-                <label className="label">PAN Number (Optional)</label>
-                <input
-                  type="text"
-                  className="input"
-                  value={companyFormData.pan}
-                  onChange={(e) => setCompanyFormData({ ...companyFormData, pan: e.target.value.toUpperCase() })}
-                  placeholder="Enter PAN number"
-                  maxLength={10}
-                />
-                <p className="text-xs text-gray-500 mt-1">Used for billing and tax reports</p>
-              </div>
-
-              {/* GST Number (Optional) */}
-              <div>
-                <label className="label">GST Number (Optional)</label>
-                <input
-                  type="text"
-                  className="input"
-                  value={companyFormData.gst}
-                  onChange={(e) => setCompanyFormData({ ...companyFormData, gst: e.target.value.toUpperCase() })}
-                  placeholder="Enter GST number"
-                  maxLength={15}
-                />
-                <p className="text-xs text-gray-500 mt-1">Used for GST reports and compliance</p>
-              </div>
-
-              {/* Error/Success Messages */}
-              <div className="md:col-span-2">
-                {companyError && (
-                  <div className="text-sm text-red-600 mb-2">{companyError}</div>
-                )}
-                {companySuccess && (
-                  <div className="text-sm text-green-600 mb-2">{companySuccess}</div>
-                )}
-              </div>
-
-              {/* Footer */}
-              <div className="md:col-span-2 flex items-center justify-end pt-4 border-t">
-                <button
-                  type="submit"
-                  disabled={companySaving}
-                  className="btn-primary px-6 py-2"
-                >
-                  {companySaving ? "Saving..." : "Save Tax Profile"}
-                </button>
-              </div>
-            </form>
-          ) : (
-            <div className="p-4 text-gray-500">Please complete company setup first to access tax profile.</div>
-          )}
+      {/* Tax Settings Panel (Billing Details - Optional) */}
+      {companyLoading ? (
+        <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-8">
+          <div className="text-gray-500">Loading billing details...</div>
         </div>
-      </div>
+      ) : (
+        <TaxSettingsPanel
+          companyId={companyProfile?.id || ''}
+          profileCompleted={companyProfile?.profile_completed || false}
+          initialPan={companyFormData.pan}
+          initialGst={companyFormData.gst}
+        />
+      )}
 
-      {/* Printer Integration Section */}
-      <div className="bg-white border border-gray-200 rounded-2xl shadow-sm">
-        <div className="p-8 space-y-6">
-          <div>
-            <h2 className="text-xl font-medium">Printer Integration</h2>
-            <p className="text-sm text-gray-500 mt-1">
-              Configure printer preferences for label printing. Settings are optional and only used when printing.
-            </p>
-          </div>
-
-          {companyLoading ? (
-            <div className="p-4 text-gray-500">Loading printer settings...</div>
-          ) : companyProfile ? (
-            <PrinterIntegrationForm companyId={companyProfile.id} />
-          ) : (
-            <div className="p-4 text-gray-500">Company profile not found. Please complete company setup first.</div>
-          )}
+      {/* Printer Settings Panel (Optional) */}
+      {companyLoading ? (
+        <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-8">
+          <div className="text-gray-500">Loading printer settings...</div>
         </div>
-      </div>
+      ) : (
+        <PrinterSettingsPanel companyId={companyProfile?.id || null} />
+      )}
 
       {/* ERP Integration Section */}
       <div className="bg-white border border-gray-200 rounded-2xl shadow-sm">
@@ -535,132 +471,3 @@ export default function Page() {
   );
 }
 
-// Printer Integration Form Component
-function PrinterIntegrationForm({ companyId }: { companyId: string }) {
-  const [printFormat, setPrintFormat] = useState<'PDF' | 'EPL' | 'ZPL'>('PDF');
-  const [printerType, setPrinterType] = useState<'thermal' | 'laser' | 'generic'>('thermal');
-  const [printerIdentifier, setPrinterIdentifier] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-
-  useEffect(() => {
-    // Load saved preferences
-    async function loadPreferences() {
-      try {
-        const res = await fetch(`/api/companies/${companyId}/printer-settings`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.print_format) setPrintFormat(data.print_format);
-          if (data.printer_type) setPrinterType(data.printer_type);
-          if (data.printer_identifier) setPrinterIdentifier(data.printer_identifier);
-        }
-      } catch {
-        // Ignore - use defaults
-      }
-    }
-    loadPreferences();
-  }, [companyId]);
-
-  async function handleSave(e: React.FormEvent) {
-    e.preventDefault();
-    setSaving(true);
-    setMessage(null);
-
-    try {
-      const res = await fetch(`/api/companies/${companyId}/printer-settings`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          print_format: printFormat,
-          printer_type: printerType,
-          printer_identifier: printerIdentifier.trim() || null,
-        }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to save printer settings');
-
-      setMessage({ type: 'success', text: 'Printer settings saved successfully' });
-      setTimeout(() => setMessage(null), 3000);
-    } catch (err: any) {
-      setMessage({ type: 'error', text: err.message || 'Failed to save printer settings' });
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <form onSubmit={handleSave} className="space-y-6">
-      {/* Print Format */}
-      <div>
-        <label className="label">Preferred Print Format *</label>
-        <select
-          value={printFormat}
-          onChange={(e) => setPrintFormat(e.target.value as 'PDF' | 'EPL' | 'ZPL')}
-          className="input"
-          required
-        >
-          <option value="PDF">PDF (Opens OS print dialog)</option>
-          <option value="EPL">EPL (Raw file output)</option>
-          <option value="ZPL">ZPL (Raw file output)</option>
-        </select>
-        <p className="text-xs text-gray-500 mt-1">
-          {printFormat === 'PDF' 
-            ? 'PDF opens in a new tab and triggers the OS print dialog.' 
-            : `${printFormat} files will be downloaded for manual printing.`}
-        </p>
-      </div>
-
-      {/* Printer Type */}
-      <div>
-        <label className="label">Printer Type</label>
-        <select
-          value={printerType}
-          onChange={(e) => setPrinterType(e.target.value as 'thermal' | 'laser' | 'generic')}
-          className="input"
-        >
-          <option value="thermal">Thermal</option>
-          <option value="laser">Laser / Inkjet</option>
-          <option value="generic">Generic</option>
-        </select>
-        <p className="text-xs text-gray-500 mt-1">Used for print logs and future optimization.</p>
-      </div>
-
-      {/* Printer Identifier */}
-      <div>
-        <label className="label">Printer Identifier (Optional)</label>
-        <input
-          type="text"
-          value={printerIdentifier}
-          onChange={(e) => setPrinterIdentifier(e.target.value)}
-          placeholder="e.g., Zebra-GK420T, Warehouse-01"
-          className="input"
-          maxLength={100}
-        />
-        <p className="text-xs text-gray-500 mt-1">
-          User-defined name for your printer. Used only for UI clarity and print logs.
-        </p>
-      </div>
-
-      {message && (
-        <div className={`p-3 rounded-lg text-sm ${
-          message.type === 'success' 
-            ? 'bg-green-50 text-green-800 border border-green-200' 
-            : 'bg-red-50 text-red-800 border border-red-200'
-        }`}>
-          {message.text}
-        </div>
-      )}
-
-      <div className="flex justify-end pt-4 border-t">
-        <button
-          type="submit"
-          disabled={saving}
-          className="btn-primary px-6 py-2"
-        >
-          {saving ? 'Saving...' : 'Save Printer Settings'}
-        </button>
-      </div>
-    </form>
-  );
-}
