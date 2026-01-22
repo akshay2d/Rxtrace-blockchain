@@ -1,5 +1,6 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import Papa from "papaparse";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
@@ -41,6 +42,7 @@ function toErrorMessage(value: unknown): string {
 }
 
 export default function PackagingRulesPage() {
+  const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [companyId, setCompanyId] = useState("");
   const [existingRules, setExistingRules] = useState<Array<{sku_id: string, version: number}>>([]);
