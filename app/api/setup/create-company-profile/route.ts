@@ -20,10 +20,10 @@ export async function POST(req: NextRequest) {
       business_type,
     } = await req.json();
 
-    // Validate required fields
-    if (!user_id || !company_name || !contact_person_name || !firm_type || !address || !email || !phone || !pan || !business_category || !business_type) {
+    // Validate required fields (PAN is optional, not mandatory)
+    if (!user_id || !company_name || !contact_person_name || !firm_type || !address || !email || !phone || !business_category || !business_type) {
       return NextResponse.json(
-        { error: 'Missing required fields. PAN card is mandatory.' },
+        { error: 'Missing required fields' },
         { status: 400 }
       );
     }

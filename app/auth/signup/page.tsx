@@ -32,7 +32,7 @@ export default function SignUp() {
         password,
         options: {
           data: { full_name: fullName },
-          emailRedirectTo: `${getAppUrl()}/dashboard/setup-company`,
+          emailRedirectTo: `${getAppUrl()}/dashboard/company-setup`,
         },
       });
 

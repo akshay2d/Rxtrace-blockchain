@@ -40,7 +40,6 @@ export async function middleware(request: NextRequest) {
       pathname.startsWith('/auth/callback') ||
       pathname.startsWith('/auth/signin') ||
       pathname.startsWith('/auth/signup') ||
-      pathname === '/onboarding/setup' ||
       pathname === '/' ||
       pathname.startsWith('/compliance') ||
       pathname.startsWith('/contact')) {

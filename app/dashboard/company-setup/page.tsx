@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AlertCircle, CheckCircle } from 'lucide-react';
+import { createOrUpdateCompanyProfile } from './actions';
 
 // Type definitions
 type LegalStructure = 'proprietorship' | 'partnership' | 'llp' | 'pvt_ltd' | 'other';
@@ -129,91 +130,32 @@ export default function CompanySetupPage() {
       return;
     }
 
-    try {
-      const supabase = supabaseClient();
-      const { data: { user } } = await supabase.auth.getUser();
+    // Map industries to business_category (use first industry as primary)
+    const businessCategory = industries[0] === 'pharma' ? 'pharma' :
+                            industries[0] === 'food' ? 'food' :
+                            industries[0] === 'packaging' ? 'logistics' :
+                            'pharma'; // Default
 
-      if (!user) {
-        throw new Error('User not authenticated');
-      }
+    // Call server action (backend-first execution path)
+    const result = await createOrUpdateCompanyProfile({
+      company_name: companyName.trim(),
+      phone: phone.trim(),
+      address: address.trim(),
+      firm_type: legalStructure,
+      business_type: businessType,
+      business_category: businessCategory,
+    });
 
-      // Get or create company
-      let companyId: string;
-      const { data: existingCompany } = await supabase
-        .from('companies')
-        .select('id')
-        .eq('user_id', user.id)
-        .maybeSingle();
-
-      if (existingCompany?.id) {
-        companyId = existingCompany.id;
-      } else {
-        // Create company if it doesn't exist
-        const { data: newCompany, error: createError } = await supabase
-          .from('companies')
-          .insert({
-            user_id: user.id,
-            company_name: companyName.trim(),
-            phone: phone.trim(),
-            address: address.trim(),
-            email: user.email || '',
-          })
-          .select('id')
-          .single();
-
-        if (createError || !newCompany) {
-          throw new Error(createError?.message || 'Failed to create company');
-        }
-        companyId = newCompany.id;
-      }
-
-      // Map industries to business_category (use first industry as primary)
-      const businessCategory = industries[0] === 'pharma' ? 'pharma' :
-                              industries[0] === 'food' ? 'food' :
-                              industries[0] === 'packaging' ? 'logistics' :
-                              'pharma'; // Default
-
-      // Normalize business_type to lowercase to match database constraint
-      const normalizedBusinessType = businessType.toLowerCase().trim();
-
-      // Update company with all required fields
-      const { error: updateError } = await supabase
-        .from('companies')
-        .update({
-          company_name: companyName.trim(),
-          phone: phone.trim(),
-          address: address.trim(),
-          firm_type: legalStructure.toLowerCase().trim(),
-          business_category: businessCategory.toLowerCase().trim(),
-          business_type: normalizedBusinessType,
-          profile_completed: true,
-        })
-        .eq('id', companyId);
-
-      if (updateError) {
-        throw new Error(updateError.message || 'Failed to save company setup');
-      }
-
-      // Refetch company data to get fresh state before redirect
-      const { data: refreshedCompany } = await supabase
-        .from('companies')
-        .select('id, company_name, phone, address, firm_type, business_category, business_type, profile_completed')
-        .eq('id', companyId)
-        .single();
-
-      if (!refreshedCompany) {
-        throw new Error('Failed to refetch company data after save');
-      }
-
-      setSuccess(true);
-      setTimeout(() => {
-        router.push('/dashboard');
-      }, 1500);
-    } catch (err: any) {
-      setError(err.message || 'Failed to save company setup');
-    } finally {
+    if (!result.success) {
+      setError(result.error + (result.details ? `: ${result.details}` : ''));
       setSubmitting(false);
+      return;
     }
+
+    setSuccess(true);
+    setTimeout(() => {
+      router.push('/dashboard');
+    }, 1500);
   };
 
   const toggleOperationType = (op: OperationType) => {

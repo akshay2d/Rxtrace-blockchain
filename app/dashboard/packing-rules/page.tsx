@@ -108,30 +108,10 @@ export default function PackagingRulesPage() {
           }
         }
         
-        // If still no company, create a minimal one
+        // If still no company, redirect to company setup (backend-first guard)
         if (!company) {
-          const { data: newCompany, error } = await supabaseClient()
-            .from("companies")
-            .insert({
-              user_id: user.id,
-              company_name: user.email?.split("@")[0] || "My Company",
-              email: user.email,
-              contact_person: user.user_metadata?.full_name || "User",
-              phone: "N/A",
-              address: "N/A",
-              industry: "Pharmaceutical",
-              business_type: "Manufacturer",
-            })
-            .select("id")
-            .single();
-
-          if (!error && newCompany) {
-            company = newCompany;
-            setSuccess("✅ Company profile auto-created! You can update it later.");
-          } else {
-            setError("⚠️ Could not create company profile. Please contact support.");
-            return;
-          }
+          router.push('/dashboard/company-setup');
+          return;
         }
       }
 

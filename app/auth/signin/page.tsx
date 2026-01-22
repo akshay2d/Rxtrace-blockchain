@@ -67,9 +67,9 @@ export default function SignIn() {
           return;
         }
         
-        // Redirect to onboarding/setup if no company
+        // Redirect to company setup if no company (backend-first guard)
         if (!companyData) {
-          router.push('/onboarding/setup');
+          router.push('/dashboard/company-setup');
           return;
         }
         

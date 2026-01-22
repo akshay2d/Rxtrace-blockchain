@@ -55,7 +55,7 @@ export async function GET(request: Request) {
 
   // Check if there's a next parameter for redirect
   const nextUrl = requestUrl.searchParams.get('next');
-  const redirectTo = nextUrl || '/onboarding/setup';
+  const redirectTo = nextUrl || '/dashboard/company-setup';
   
   // URL to redirect to after sign in process completes
   return NextResponse.redirect(new URL(redirectTo, request.url));

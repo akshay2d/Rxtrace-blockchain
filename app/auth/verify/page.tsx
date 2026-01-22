@@ -141,7 +141,7 @@ function VerifyOTPContent() {
       }
 
       // 3. Redirect directly to company setup
-      router.replace('/onboarding/setup');
+      router.replace('/dashboard/company-setup');
     } catch (error) {
       console.error('Verification error:', error);
       setError('An unexpected error occurred. Please try again.');

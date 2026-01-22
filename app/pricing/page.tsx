@@ -134,7 +134,7 @@ export default function PricingPage() {
 
     // Check if user needs to set up company first
     if (!companyId) {
-      router.push('/onboarding/setup');
+      router.push('/dashboard/company-setup');
       return;
     }
 
