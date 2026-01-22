@@ -59,8 +59,7 @@ async function runTests() {
       batch: 'BATCH123',
       serial: 'SERIAL123',
       mrp: 30.50,
-      sku: 'SKU123',
-      company: 'TestCo'
+      sku: 'SKU123'
     };
 
     const generated = generateCanonicalGS1(params);
@@ -92,8 +91,7 @@ async function runTests() {
       batch: 'BATCH456',
       serial: 'SERIAL456',
       mrp: 99.99,
-      sku: 'PRODUCT-XYZ',
-      company: 'PharmaCorp'
+      sku: 'PRODUCT-XYZ'
     };
 
     const generated = generateCanonicalGS1(params);
@@ -108,7 +106,6 @@ async function runTests() {
     if (parsed.batchNo !== params.batch) throw new Error('Batch mismatch');
     if (parsed.serialNo !== params.serial) throw new Error('Serial mismatch');
     if (parsed.skuName !== params.sku) throw new Error('SKU mismatch');
-    if (parsed.companyName !== params.company) throw new Error('Company mismatch');
   });
 
   // Test 3: Payload normalization and comparison
@@ -243,8 +240,7 @@ async function runTests() {
       batch: 'BATCH',
       serial: 'SERIAL',
       mrp: 50.00,
-      sku: 'SKU',
-      company: 'COMPANY'
+      sku: 'SKU'
     };
 
     const generated = generateCanonicalGS1(params);
