@@ -127,24 +127,11 @@ export async function POST(req: Request) {
     }
 
     /* ------------------------------------------------
-       2️⃣ Resolve company_id (from GS1 payload AI 93 or from scanned entity)
+       2️⃣ Resolve company_id (from scanned entity)
     ------------------------------------------------ */
     let resolvedCompanyId = company_id;
-    
-    // Try to resolve company_id from GS1 payload (AI 93 - company name)
-    if (!resolvedCompanyId && data.companyName) {
-      const { data: companyByName } = await supabase
-        .from("companies")
-        .select("id")
-        .eq("company_name", data.companyName)
-        .maybeSingle();
-      
-      if (companyByName?.id) {
-        resolvedCompanyId = companyByName.id;
-      }
-    }
 
-    // If still no company_id, try to resolve from scanned entity
+    // If no company_id, try to resolve from scanned entity
     if (!resolvedCompanyId && data.serialNo) {
       const { data: unit } = await supabase
         .from("labels_units")

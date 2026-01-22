@@ -31,9 +31,6 @@ export interface GS1Data {
 
   /** AI (92) - Internal: SKU / Product name (company-specific) */
   skuName?: string;
-
-  /** AI (93) - Internal: Company name (company-specific) */
-  companyName?: string;
   
   /** Original scanned barcode data before parsing */
   raw: string;
@@ -46,8 +43,8 @@ export interface GS1Data {
  * Parse GS1-compliant barcode data and extract Application Identifier (AI) fields
  * 
  * Supports two input formats:
- * 1. Barcode format (without parentheses): `01GTIN17YYMMDD10BATCH<GS>11YYMMDD91MRP<GS>92SKU<GS>93COMPANY<GS>`
- * 2. Human-readable format (with parentheses): `(01)GTIN(17)YYMMDD(10)BATCH(11)YYMMDD(91)MRP(92)SKU(93)COMPANY`
+ * 1. Barcode format (without parentheses): `01GTIN17YYMMDD10BATCH<GS>11YYMMDD91MRP<GS>92SKU<GS>21SERIAL<GS>`
+ * 2. Human-readable format (with parentheses): `(01)GTIN(17)YYMMDD(10)BATCH(11)YYMMDD(91)MRP(92)SKU(21)SERIAL`
  * 
  * Handles GS1 standards:
  * - Fixed-length fields (GTIN, dates)
@@ -81,20 +78,20 @@ export function parseGS1(data: string): GS1Data {
     cleanData.includes('(17)') ||
     cleanData.includes('(91)') ||
     cleanData.includes('(92)') ||
-    cleanData.includes('(93)');
+    false;
 
   if (hasParentheses) {
-    // Format with parentheses: (01)12345(17)250101(10)BATCH(11)241201(91)MRP(92)SKU(93)COMP
+    // Format with parentheses: (01)12345(17)250101(10)BATCH(11)241201(91)MRP(92)SKU
     return parseGS1WithParentheses(cleanData);
   } else {
-    // Format without parentheses: 01123456789012341725010110BATCH<GS>1124120191MRP<GS>92SKU<GS>93COMP<GS>
+    // Format without parentheses: 01123456789012341725010110BATCH<GS>1124120191MRP<GS>92SKU<GS>
     return parseGS1WithoutParentheses(cleanData);
   }
 }
 
 /**
  * Parse GS1 data in human-readable format (with parentheses)
- * Format: (01)GTIN(17)YYMMDD(10)BATCH(11)YYMMDD(91)MRP(92)SKU(93)COMPANY
+ * Format: (01)GTIN(17)YYMMDD(10)BATCH(11)YYMMDD(91)MRP(92)SKU
  * 
  * @param data - GS1 string with parentheses around Application Identifiers
  * @returns Parsed GS1 data object
@@ -164,20 +161,13 @@ function parseGS1WithParentheses(data: string): GS1Data {
     console.log('Extracted SKU (AI 92):', result.skuName);
   }
 
-  // (93) Company Name - variable length (internal use)
-  const companyMatch = data.match(/\(93\)([^\(]+)/);
-  if (companyMatch) {
-    result.companyName = companyMatch[1].trim();
-    console.log('Extracted Company (AI 93):', result.companyName);
-  }
-
   return result;
 }
 
 /**
  * Parse GS1 data in barcode format (without parentheses)
  * Format: 
- *   01GTIN17YYMMDD11YYMMDD10BATCH<GS>91MRP<GS>92SKU<GS>93COMPANY<GS>21SERIAL<GS>
+ *   01GTIN17YYMMDD11YYMMDD10BATCH<GS>21SERIAL<GS>91MRP<GS>92SKU<GS>
  * 
  * Uses sequential parsing with 2-digit Application Identifiers:
  * - Fixed-length AIs: Read exact number of characters
@@ -306,25 +296,6 @@ function parseGS1WithoutParentheses(data: string): GS1Data {
         break;
       }
 
-      case '93': { // Company name - variable length (internal use)
-        const compEnd = data.indexOf(GS, position);
-        if (compEnd !== -1) {
-          result.companyName = data.substring(position, compEnd);
-          position = compEnd + 1;
-        } else {
-          const nextAI = findNextAI(data, position);
-          if (nextAI !== -1) {
-            result.companyName = data.substring(position, nextAI);
-            position = nextAI;
-          } else {
-            result.companyName = data.substring(position);
-            position = data.length;
-          }
-        }
-        console.log('Extracted Company (AI 93):', result.companyName);
-        break;
-      }
-
       default:
         // Unknown AI, stop parsing to avoid garbage
         console.warn('Unknown AI:', ai, '- stopping parse');
@@ -341,7 +312,7 @@ function parseGS1WithoutParentheses(data: string): GS1Data {
  * 
  * Application Identifiers are:
  * - Always 2 digits in this implementation
- * - Commonly: 01, 10, 11, 17, 21, 30, 37, 91, 92, 93, etc.
+ * - Commonly: 01, 10, 11, 17, 21, 30, 37, 91, 92, etc.
  * 
  * @param data - GS1 data string
  * @param startPos - Position to start searching from
@@ -349,7 +320,7 @@ function parseGS1WithoutParentheses(data: string): GS1Data {
  * @internal
  */
 function findNextAI(data: string, startPos: number): number {
-  const knownAIs = ['01', '10', '11', '17', '21', '30', '37', '91', '92', '93'];
+  const knownAIs = ['01', '10', '11', '17', '21', '30', '37', '91', '92'];
 
   for (let i = startPos; i < data.length - 1; i++) {
     const twoChars = data.substring(i, i + 2);
@@ -400,7 +371,6 @@ export function formatGS1ForDisplay(data: GS1Data): string {
 
   const parts: string[] = [];
   
-  if (data.companyName) parts.push(`Company: ${data.companyName}`);
   if (data.skuName)     parts.push(`SKU: ${data.skuName}`);
   if (data.mrp)         parts.push(`MRP: ${data.mrp}`);
   if (data.batchNo)     parts.push(`Batch: ${data.batchNo}`);

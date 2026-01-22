@@ -11,7 +11,7 @@ import { generateCanonicalGS1 } from './gs1Canonical';
 export function generateUnitGS1(data: {
   gtin: string; exp: string; mfd: string;
   batch: string; serial: string;
-  mrp: string; sku: string; company: string;
+  mrp: string; sku: string;
 }) {
   // Convert YYMMDD strings to Date objects
   const expiryDate = yymmddToDate(data.exp);
@@ -25,7 +25,6 @@ export function generateUnitGS1(data: {
     serial: data.serial,
     mrp: data.mrp,
     sku: data.sku,
-    company: data.company,
   });
 }
 

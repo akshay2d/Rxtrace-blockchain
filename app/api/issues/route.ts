@@ -172,7 +172,6 @@ export async function POST(req: Request) {
         serial,
         mrp: mrp ? Number(mrp) : undefined,
         sku: finalSkuCode || undefined,
-        company: company || undefined,
       });
 
       items.push({ serial, gs1: gs1Payload });

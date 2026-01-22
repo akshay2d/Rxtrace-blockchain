@@ -123,7 +123,7 @@ function generateEpl({
   const humanReadable = Object.entries(aiValues).map(([ai, val]) => `(${ai})${val}`).join("");
   const barcodeData = convertToFNC1(humanReadable);
 
-  // EPL commands (for 4" x 2" label, 203dpi)
+  // EPL commands - ONLY barcode, no text
   const epl = [
     "N", // Clear buffer
     "q812", // Set label width (dots)
@@ -132,16 +132,10 @@ function generateEpl({
     "D8", // Set density
     "ZT", // Print top of form backup
     "",
-    // Company name
-    `A20,20,0,3,1,1,N,"${companyName}"`,
-    // Title and level
-    `A20,60,0,2,1,1,N,"${title} (${level.toUpperCase()})"`,
-    // Barcode (use Code 128 with GS1)
-    `B20,120,0,1,2,4,80,N,"${barcodeData}"`,
-    // Human-readable payload
-    `A20,220,0,1,1,1,N,"${humanReadable}"`,
-    // Timestamp
-    `A20,360,0,1,1,1,N,"Generated: ${new Date().toISOString()}"`,
+    // QR/DataMatrix code only (centered)
+    `q812`,
+    `Q400,16`,
+    `B${Math.floor((812 - 400) / 2)},${Math.floor((400 - 400) / 2)},0,1,2,4,400,N,"${barcodeData}"`,
     "",
     "P1", // Print 1 label
     ""
@@ -178,30 +172,15 @@ async function generatePdf({
         height: 200
       });
 
-      const doc = new PDFDocument({ size: [288, 216], margin: 20 }); // 4" x 3" at 72dpi
+      const doc = new PDFDocument({ size: [288, 216], margin: 0 }); // 4" x 3" at 72dpi
       const chunks: Uint8Array[] = [];
 
       doc.on("data", (chunk: Uint8Array) => chunks.push(chunk));
       doc.on("end", () => resolve(Buffer.concat(chunks)));
       doc.on("error", reject);
 
-      // Company name
-      doc.fontSize(14).font("Helvetica-Bold").text(companyName, { align: "left" });
-      doc.moveDown(0.3);
-
-      // Title and level
-      doc.fontSize(10).font("Helvetica").text(`${title} (${level.toUpperCase()})`, { align: "left" });
-      doc.moveDown(0.5);
-
-      // Barcode image
-      doc.image(barcodeImage, 20, 80, { width: 120, height: 120 });
-
-      // Human-readable payload
-      const humanReadable = Object.entries(aiValues).map(([ai, val]) => `(${ai})${val}`).join("");
-      doc.fontSize(8).font("Courier").text(humanReadable, 150, 80, { width: 120 });
-
-      // Timestamp
-      doc.fontSize(6).text(`Generated: ${new Date().toISOString()}`, 20, 190);
+      // Barcode image only (centered)
+      doc.image(barcodeImage, (288 - 200) / 2, (216 - 200) / 2, { width: 200, height: 200 });
 
       doc.end();
     } catch (err) {

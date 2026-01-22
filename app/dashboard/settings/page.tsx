@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabaseClient } from "@/lib/supabase/client";
 import TaxSettingsPanel from "@/components/settings/TaxSettingsPanel";
@@ -25,6 +26,8 @@ type CompanyProfile = {
 };
 
 export default function Page() {
+  const router = useRouter();
+  
   // User Profile state
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [userLoading, setUserLoading] = useState(true);
@@ -92,42 +95,65 @@ export default function Page() {
     fetchUserProfile();
   }, []);
 
-  // Fetch company profile on mount
+  // Fetch company profile on mount and when page becomes visible
   useEffect(() => {
+    let mounted = true;
+
     async function fetchCompanyProfile() {
       try {
         const supabase = supabaseClient();
         const { data: { user } } = await supabase.auth.getUser();
         
         if (!user) {
-          setCompanyLoading(false);
+          if (mounted) setCompanyLoading(false);
           return;
         }
 
-        // Fetch company profile
-        const { data: company } = await supabase
+        // Fetch company profile with fresh data (no cache)
+        const { data: company, error } = await supabase
           .from('companies')
           .select('id, company_name, pan, gst, address, email, user_id, profile_completed')
           .eq('user_id', user.id)
           .maybeSingle();
 
-        if (company) {
-          setCompanyProfile(company);
-          setCompanyFormData({
-            company_name: company.company_name || '',
-            pan: company.pan || '',
-            gst: company.gst || '',
-            address: company.address || '',
-          });
+        if (error) {
+          console.error('Failed to fetch company profile:', error);
+          if (mounted) setCompanyLoading(false);
+          return;
+        }
+
+        if (mounted) {
+          if (company) {
+            setCompanyProfile(company);
+            setCompanyFormData({
+              company_name: company.company_name || '',
+              pan: company.pan || '',
+              gst: company.gst || '',
+              address: company.address || '',
+            });
+          }
+          setCompanyLoading(false);
         }
       } catch (err: any) {
         console.error('Failed to fetch company profile:', err);
-      } finally {
-        setCompanyLoading(false);
+        if (mounted) setCompanyLoading(false);
       }
     }
 
     fetchCompanyProfile();
+
+    // Refetch when page becomes visible (user navigates back to tab)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchCompanyProfile();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      mounted = false;
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, []);
 
   async function handleUserProfileSave(e: React.FormEvent<HTMLFormElement>) {
@@ -426,7 +452,7 @@ export default function Page() {
       ) : (
         <TaxSettingsPanel
           companyId={companyProfile?.id || ''}
-          profileCompleted={companyProfile?.profile_completed || false}
+          profileCompleted={companyProfile?.profile_completed === true}
           initialPan={companyFormData.pan}
           initialGst={companyFormData.gst}
         />

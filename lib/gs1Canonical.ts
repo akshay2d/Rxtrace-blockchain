@@ -6,12 +6,12 @@
  * 
  * GS1 Requirements:
  * - Mandatory AIs: (01) GTIN, (17) Expiry, (11) Mfg Date, (10) Batch, (21) Serial
- * - Internal AIs: (91) MRP, (92) SKU, (93) Company
+ * - Internal AIs: (91) MRP, (92) SKU
  * - Machine format (no parentheses) with FNC1 separators
  * - Fixed-length AIs: 01 (14), 17 (6), 11 (6)
- * - Variable-length AIs: 10, 21, 91, 92, 93 (terminated with FNC1)
+ * - Variable-length AIs: 10, 21, 91, 92 (terminated with FNC1)
  * 
- * Format: 01GTIN17YYMMDD11YYMMDD10BATCH<FNC1>21SERIAL<FNC1>91MRP<FNC1>92SKU<FNC1>93COMPANY
+ * Format: 01GTIN17YYMMDD11YYMMDD10BATCH<FNC1>21SERIAL<FNC1>91MRP<FNC1>92SKU
  */
 
 const FNC1 = String.fromCharCode(29); // ASCII Group Separator (GS)
@@ -22,7 +22,6 @@ const MAX_LENGTHS = {
   serial: 20,   // AI 21 - Serial number
   mrp: 20,      // AI 91 - MRP (internal)
   sku: 20,      // AI 92 - SKU (internal)
-  company: 20,  // AI 93 - Company (internal)
 } as const;
 
 /**
@@ -170,17 +169,14 @@ export interface GS1GenerationParams {
   
   /** AI (92) - SKU code (optional, max 20 chars) */
   sku?: string;
-  
-  /** AI (93) - Company name (optional, max 20 chars) */
-  company?: string;
 }
 
 /**
  * Generate canonical GS1 machine-format payload
  * 
- * Format: 01GTIN17YYMMDD11YYMMDD10BATCH<FNC1>21SERIAL<FNC1>91MRP<FNC1>92SKU<FNC1>93COMPANY
+ * Format: 01GTIN17YYMMDD11YYMMDD10BATCH<FNC1>21SERIAL<FNC1>91MRP<FNC1>92SKU
  * 
- * Order: Fixed-length AIs first (01, 17, 11), then variable-length AIs (10, 21, 91, 92, 93)
+ * Order: Fixed-length AIs first (01, 17, 11), then variable-length AIs (10, 21, 91, 92)
  * 
  * @param params - GS1 generation parameters
  * @returns GS1 machine-format string (no parentheses, with FNC1 separators)
@@ -234,11 +230,6 @@ export function generateCanonicalGS1(params: GS1GenerationParams): string {
   if (params.sku) {
     const sku = validateVariableLengthAI(params.sku, "sku", "92");
     payload += `92${sku}${FNC1}`;
-  }
-  
-  if (params.company) {
-    const company = validateVariableLengthAI(params.company, "company", "93");
-    payload += `93${company}${FNC1}`;
   }
   
   // Remove trailing FNC1 (last AI doesn't need it)

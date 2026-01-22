@@ -96,7 +96,7 @@ export default function PrinterSettingsPanel({ companyId }: PrinterSettingsPanel
           <div className="p-4 text-gray-500">Loading printer settings...</div>
         ) : !companyId ? (
           <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm">
-            Company profile not found. Printer settings will be available after company setup.
+            Company profile not found. Please complete company setup first.
           </div>
         ) : (
           <form onSubmit={handleSave} className="space-y-6">

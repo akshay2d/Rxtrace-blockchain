@@ -140,8 +140,7 @@ export async function POST(req: Request) {
         batch,
         serial: serial!,
         mrp: Number(mrp),
-        sku: sku_code,
-        company: company_name || ""
+        sku: sku_code
       });
 
       rows.push({

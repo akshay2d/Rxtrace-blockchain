@@ -106,7 +106,7 @@ export async function generateEplWithImage(
   // Convert PNG to GRF
   const grf = await pngToGrf(pngBuffer);
   
-  // Build EPL commands
+  // Build EPL commands - ONLY barcode image, no text
   const epl = [
     "N", // Clear buffer
     `q${labelWidth}`, // Set label width
@@ -115,20 +115,12 @@ export async function generateEplWithImage(
     "D8", // Set density
     "ZT", // Print top of form backup
     "",
-    // Company name
-    companyName ? `A20,20,0,3,1,1,N,"${companyName}"` : "",
-    // Title
-    title ? `A20,60,0,2,1,1,N,"${title}"` : "",
-    // GRF barcode image
-    eplPrintGrf(grf, x, y),
-    // Human-readable text
-    payload ? `A20,${y + 160},0,1,1,1,N,"${payload}"` : "",
-    // Timestamp
-    `A20,${labelHeight - 40},0,1,1,1,N,"${new Date().toISOString()}"`,
+    // GRF barcode image only (centered)
+    eplPrintGrf(grf, Math.floor((labelWidth - 400) / 2), Math.floor((labelHeight - 400) / 2)),
     "",
     "P1", // Print 1 label
     ""
-  ].filter(Boolean).join("\r\n");
+  ].join("\r\n");
 
   return epl;
 }

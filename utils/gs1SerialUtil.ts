@@ -98,7 +98,6 @@ export function buildGs1MachinePayload(params: {
   serial?: string;
   mrp?: string;
   sku?: string;
-  company?: string;
 }) {
   // Validate mandatory fields
   if (!params.gtin) {
@@ -125,7 +124,6 @@ export function buildGs1MachinePayload(params: {
     serial: serial,
     mrp: params.mrp,
     sku: params.sku,
-    company: params.company,
   });
 }
 

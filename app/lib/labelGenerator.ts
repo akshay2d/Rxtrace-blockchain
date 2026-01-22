@@ -92,19 +92,13 @@ export function generateZpl({
   
   // Use ZPL QR code (Zebra): ^BQN,2,10 -> model 2, magnification 10 (tune as needed)
   // ^FNC1 enables GS1 mode in ZPL
+  // Label contains ONLY QR/DataMatrix code - no human-readable text
   const zpl = [
     "^XA",
     `^PW${labelWidth}`,
     `^LH0,0`,
-    // header
-    `^FO20,20^A0N,36,36^FD${companyName}^FS`,
-    `^FO20,64^A0N,28,28^FD${title} (${level.toUpperCase()})^FS`,
-    // QR with GS1 data (FNC1 encoded)
-    `^FO20,120^BQN,2,5^FDQA,${barcodeData}^FS`,
-    // human readable payload with parentheses
-    `^FO350,120^A0N,24,24^FD${humanReadable}^FS`,
-    // footer small timestamp
-    `^FO20,${labelHeight - 40}^A0N,18,18^FDGenerated:${new Date().toISOString()}^FS`,
+    // QR/DataMatrix code only (centered)
+    `^FO${Math.floor((labelWidth - 400) / 2)},${Math.floor((labelHeight - 400) / 2)}^BQN,2,10^FDQA,${barcodeData}^FS`,
     "^XZ",
   ].join("\n");
   return zpl;
@@ -164,36 +158,8 @@ export async function generatePng({
     },
   });
 
-  // Resize QR to desired size
-  const qrResized = await sharp(pngBuffer).resize(qrSize, qrSize).toBuffer();
-
-  // Composite: place QR left, text right
-  const composed = await canvas
-    .composite([
-      { input: qrResized, left: 20, top: 80 },
-      // company name as image text via SVG
-      {
-        input: Buffer.from(`
-          <svg width="${width - (qrSize + 60)}" height="${height}">
-            <style>
-              .h { font-size:28px; font-weight:700; fill:#000; font-family: Arial, sans-serif; }
-              .t { font-size:18px; fill:#222; font-family: Arial, sans-serif; }
-              .p { font-size:14px; fill:#333; font-family: monospace; }
-            </style>
-            <text x="0" y="40" class="h">${escapeXml(companyName)}</text>
-            <text x="0" y="80" class="t">${escapeXml(title)} (${escapeXml(level)})</text>
-            <text x="0" y="120" class="p">${escapeXml(humanReadable)}</text>
-            <text x="0" y="${height - 20}" class="p">Generated: ${new Date().toISOString()}</text>
-          </svg>
-        `),
-        left: qrSize + 40,
-        top: 40,
-      },
-    ])
-    .png()
-    .toBuffer();
-
-  return composed;
+  // Return ONLY QR/DataMatrix code - no text
+  return pngBuffer;
 }
 
 function escapeXml(str: string) {

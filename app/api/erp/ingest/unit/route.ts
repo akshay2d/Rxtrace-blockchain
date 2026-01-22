@@ -230,8 +230,7 @@ export async function POST(req: Request) {
             batch,
             serial: serialNumber,
             mrp: mrp ? Number(mrp) : undefined,
-            sku: skuCode,
-            company: companyName,
+            sku: skuCode
           });
         } catch (gs1Error: any) {
           results.errors.push({ row: rowNum, error: `GS1 generation failed: ${gs1Error.message}` });

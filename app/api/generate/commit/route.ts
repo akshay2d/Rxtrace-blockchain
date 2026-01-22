@@ -33,8 +33,7 @@ export async function POST(req: Request) {
       batch,
       serial,
       mrp: mrp,
-      sku: sku.code,
-      company: company.code
+      sku: sku.code
     });
 
     // Insert with all required fields (Priority 1 fix: align with database schema)

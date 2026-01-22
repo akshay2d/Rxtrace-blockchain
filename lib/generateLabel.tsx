@@ -134,8 +134,7 @@ export default function GenerateLabel({
         ['EXP(YYMMDD)', fields.expiryYYMMDD ?? ''],
         ['Batch', fields.batch ?? ''],
         ['MRP', fields.mrp ?? ''],
-        ['SKU', fields.sku ?? ''],
-        ['Company', fields.company ?? '']
+        ['SKU', fields.sku ?? '']
       ]
     : [['Payload', payload]];
 
