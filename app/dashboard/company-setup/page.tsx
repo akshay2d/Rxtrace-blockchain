@@ -154,7 +154,7 @@ export default function CompanySetupPage() {
 
     setSuccess(true);
     setTimeout(() => {
-      router.push('/dashboard');
+      router.push('/dashboard/settings');
     }, 1500);
   };
 

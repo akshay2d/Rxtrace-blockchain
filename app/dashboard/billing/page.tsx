@@ -337,10 +337,10 @@ export default function BillingPage() {
                     <p className="font-medium text-gray-900 mt-1">{company.pan}</p>
                   </div>
                 )}
-                {company.gst && (
+                {company.gst_number && (
                   <div>
                     <span className="text-gray-600">GST:</span>
-                    <p className="font-medium text-gray-900 mt-1">{company.gst}</p>
+                    <p className="font-medium text-gray-900 mt-1">{company.gst_number}</p>
                   </div>
                 )}
                 {company.address && (

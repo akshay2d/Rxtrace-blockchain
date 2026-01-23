@@ -70,6 +70,10 @@ async function resolveSkuId(opts: {
  * - generate_pallet: boolean
  */
 export async function POST(req: Request) {
+  let quotaConsumed = false;
+  let consumedQuantity = 0;
+  let consumedCompanyId = '';
+  
   try {
     // Resolve authenticated user and company
     const supabaseAuth = await supabaseServer();
@@ -209,7 +213,8 @@ export async function POST(req: Request) {
       totalSSCCCount += number_of_pallets;
     }
 
-    // Apply quota rollover (for yearly plans) and consume quota
+    // Consume SSCC quota BEFORE generating labels
+    // If quota is insufficient, abort generation
     const quotaModule = await import('@/lib/billing/quota');
     const { consumeQuotaBalance, refundQuotaBalance } = quotaModule;
     
@@ -218,7 +223,7 @@ export async function POST(req: Request) {
     if (!quotaResult.ok) {
       return NextResponse.json(
         {
-          error: quotaResult.error || `You've reached your available SSCC quota. Please upgrade your plan or purchase add-on SSCC codes.`,
+          error: quotaResult.error || 'SSCC quota exceeded. Please upgrade your plan or purchase add-on SSCC codes.',
           code: 'quota_exceeded',
           requires_addon: true,
           addon: 'sscc',
@@ -227,14 +232,14 @@ export async function POST(req: Request) {
       );
     }
 
-    // Allocate SSCC serials
+    // Allocate SSCC serials (after quota check passes)
     const { data: alloc, error: allocErr } = await supabase.rpc('allocate_sscc_serials', {
       p_sequence_key: prefix,
       p_count: totalSSCCCount,
     });
 
     if (allocErr) {
-      // Refund quota
+      // Refund quota if serial allocation fails
       await refundQuotaBalance(company_id, 'sscc', totalSSCCCount);
       return NextResponse.json(
         { error: allocErr.message ?? 'Failed to allocate SSCC serials' },
@@ -245,10 +250,8 @@ export async function POST(req: Request) {
     const firstSerial = alloc as any;
     const nowIso = new Date().toISOString();
 
-    // Generate SSCCs for each level
-    const boxes: any[] = [];
-    const cartons: any[] = [];
-    const pallets: any[] = [];
+    // Prepare all SSCC rows for atomic insertion
+    const ssccRows: any[] = [];
     let serialOffset = 0;
 
     // Generate Boxes (if selected)
@@ -265,7 +268,7 @@ export async function POST(req: Request) {
         });
 
         if (ssccErr || !ssccGen) {
-          // Refund quota and return error
+          // Refund quota if SSCC generation fails
           await refundQuotaBalance(company_id, 'sscc', totalSSCCCount);
           return NextResponse.json(
             { error: ssccErr?.message ?? 'Failed to generate SSCC for box' },
@@ -273,13 +276,13 @@ export async function POST(req: Request) {
           );
         }
 
-        boxes.push({
-          company_id,
+        ssccRows.push({
+          company_id: company_id,
           sku_id: skuUuid,
           sscc: ssccGen as any,
           sscc_with_ai: `(00)${ssccGen}`,
-          sscc_level: 'box', // Added by migration
-          parent_sscc: null, // Added by migration - will be linked to carton later if cartons are generated
+          sscc_level: 'box',
+          parent_sscc: null,
           meta: {
             created_at: nowIso,
             batch,
@@ -288,6 +291,7 @@ export async function POST(req: Request) {
             box_number: i + 1,
             packing_rule_id: rule.id,
           },
+          created_at: nowIso,
         });
         serialOffset++;
       }
@@ -306,6 +310,7 @@ export async function POST(req: Request) {
         });
 
         if (ssccErr || !ssccGen) {
+          // Refund quota if SSCC generation fails
           await refundQuotaBalance(company_id, 'sscc', totalSSCCCount);
           return NextResponse.json(
             { error: ssccErr?.message ?? 'Failed to generate SSCC for carton' },
@@ -313,13 +318,13 @@ export async function POST(req: Request) {
           );
         }
 
-        cartons.push({
-          company_id,
+        ssccRows.push({
+          company_id: company_id,
           sku_id: skuUuid,
           sscc: ssccGen as any,
           sscc_with_ai: `(00)${ssccGen}`,
-          sscc_level: 'carton', // Added by migration
-          parent_sscc: null, // Added by migration - will be linked to pallet later if pallets are generated
+          sscc_level: 'carton',
+          parent_sscc: null,
           meta: {
             created_at: nowIso,
             batch,
@@ -328,6 +333,7 @@ export async function POST(req: Request) {
             carton_number: i + 1,
             packing_rule_id: rule.id,
           },
+          created_at: nowIso,
         });
         serialOffset++;
       }
@@ -344,20 +350,19 @@ export async function POST(req: Request) {
         });
 
         if (ssccErr || !ssccGen) {
-          await refundQuotaBalance(company_id, 'sscc', totalSSCCCount);
           return NextResponse.json(
             { error: ssccErr?.message ?? 'Failed to generate SSCC for pallet' },
             { status: 400 }
           );
         }
 
-        pallets.push({
-          company_id,
+        ssccRows.push({
+          company_id: company_id,
           sku_id: skuUuid,
           sscc: ssccGen as any,
           sscc_with_ai: `(00)${ssccGen}`,
-          sscc_level: 'pallet', // Added by migration
-          parent_sscc: null, // Added by migration
+          sscc_level: 'pallet',
+          parent_sscc: null,
           meta: {
             created_at: nowIso,
             batch,
@@ -366,27 +371,35 @@ export async function POST(req: Request) {
             pallet_number: i + 1,
             packing_rule_id: rule.id,
           },
+          created_at: nowIso,
         });
         serialOffset++;
       }
     }
 
     // Insert all SSCCs into appropriate tables
-    const insertedBoxes = boxes.length > 0
-      ? await supabase.from('boxes').insert(boxes).select('id, sscc, sscc_with_ai, sku_id')
+    // Quota already consumed above, so proceed with insertion
+    const insertedBoxes = ssccRows.filter(r => r.sscc_level === 'box').length > 0
+      ? await supabase.from('boxes').insert(
+          ssccRows.filter(r => r.sscc_level === 'box')
+        ).select('id, sscc, sscc_with_ai, sku_id')
       : { data: [], error: null };
 
-    const insertedCartons = cartons.length > 0
-      ? await supabase.from('cartons').insert(cartons).select('id, sscc, sscc_with_ai, sku_id')
+    const insertedCartons = ssccRows.filter(r => r.sscc_level === 'carton').length > 0
+      ? await supabase.from('cartons').insert(
+          ssccRows.filter(r => r.sscc_level === 'carton')
+        ).select('id, sscc, sscc_with_ai, sku_id')
       : { data: [], error: null };
 
-    const insertedPallets = pallets.length > 0
-      ? await supabase.from('pallets').insert(pallets).select('id, sscc, sscc_with_ai, sku_id')
+    const insertedPallets = ssccRows.filter(r => r.sscc_level === 'pallet').length > 0
+      ? await supabase.from('pallets').insert(
+          ssccRows.filter(r => r.sscc_level === 'pallet')
+        ).select('id, sscc, sscc_with_ai, sku_id')
       : { data: [], error: null };
 
     // Check for insertion errors
     if (insertedBoxes.error || insertedCartons.error || insertedPallets.error) {
-      // Refund quota
+      // Refund quota if insertion failed
       await refundQuotaBalance(company_id, 'sscc', totalSSCCCount);
 
       const errorMsg = insertedBoxes.error?.message || insertedCartons.error?.message || insertedPallets.error?.message;
@@ -406,6 +419,18 @@ export async function POST(req: Request) {
       total_sscc_generated: totalSSCCCount,
     });
   } catch (err: any) {
+    // If quota was consumed but an error occurred, try to refund
+    if (quotaConsumed && consumedQuantity > 0 && consumedCompanyId) {
+      try {
+        const quotaModule = await import('@/lib/billing/quota');
+        const { refundQuotaBalance } = quotaModule;
+        await refundQuotaBalance(consumedCompanyId, 'sscc', consumedQuantity);
+      } catch (refundErr) {
+        // Ignore refund errors in error handler
+        console.error('Failed to refund quota in error handler:', refundErr);
+      }
+    }
+    
     return NextResponse.json(
       { error: err?.message ?? String(err) },
       { status: 500 }

@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
       email,
       phone,
       pan,
-      gst,
+      gst_number,
       business_category,
       business_type,
     } = await req.json();
@@ -94,7 +94,7 @@ export async function POST(req: NextRequest) {
         email: email.toLowerCase().trim(),
         phone: phone.trim(),
         pan: pan.toUpperCase().trim(),
-        gst: gst ? gst.toUpperCase().trim() : null,
+        gst_number: gst_number ? gst_number.toUpperCase().trim() : null,
         business_category: business_category.toLowerCase().trim(),
         business_type: normalizedBusinessType,
         subscription_status: null,

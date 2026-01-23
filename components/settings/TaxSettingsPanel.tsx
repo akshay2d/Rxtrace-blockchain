@@ -6,7 +6,7 @@ type TaxSettingsPanelProps = {
   companyId: string;
   profileCompleted: boolean;
   initialPan?: string;
-  initialGst?: string;
+  initialGstNumber?: string;
 };
 
 /**
@@ -14,22 +14,23 @@ type TaxSettingsPanelProps = {
  * 
  * GST and PAN are used ONLY for billing and invoices.
  * They are NOT required for code generation or printing.
+ * This panel always renders in Settings and never blocks other features.
  */
 export default function TaxSettingsPanel({
   companyId,
   profileCompleted,
   initialPan = '',
-  initialGst = '',
+  initialGstNumber = '',
 }: TaxSettingsPanelProps) {
   const [pan, setPan] = useState(initialPan);
-  const [gst, setGst] = useState(initialGst);
+  const [gstNumber, setGstNumber] = useState(initialGstNumber);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
     setPan(initialPan);
-    setGst(initialGst);
-  }, [initialPan, initialGst]);
+    setGstNumber(initialGstNumber);
+  }, [initialPan, initialGstNumber]);
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
@@ -42,7 +43,7 @@ export default function TaxSettingsPanel({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           pan: pan.trim().toUpperCase() || null,
-          gst: gst.trim().toUpperCase() || null,
+          gst_number: gstNumber.trim().toUpperCase() || null,
         }),
       });
 
@@ -56,24 +57,6 @@ export default function TaxSettingsPanel({
     } finally {
       setSaving(false);
     }
-  }
-
-  if (!profileCompleted) {
-    return (
-      <div className="bg-white border border-gray-200 rounded-2xl shadow-sm">
-        <div className="p-8 space-y-4">
-          <div>
-            <h2 className="text-xl font-medium">Billing Details (Optional)</h2>
-            <p className="text-sm text-gray-500 mt-1">
-              GST and PAN are used only for billing and invoices. They are not required for code generation or printing.
-            </p>
-          </div>
-          <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm">
-            Please complete company setup first to access billing details.
-          </div>
-        </div>
-      </div>
-    );
   }
 
   return (
@@ -119,8 +102,8 @@ export default function TaxSettingsPanel({
             <input
               type="text"
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              value={gst}
-              onChange={(e) => setGst(e.target.value.toUpperCase())}
+              value={gstNumber}
+              onChange={(e) => setGstNumber(e.target.value.toUpperCase())}
               placeholder="22ABCDE1234F1Z5"
               maxLength={15}
             />

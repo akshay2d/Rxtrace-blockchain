@@ -68,7 +68,7 @@ function TrialInvoicePdf({ order, company }: { order: any; company: any }) {
             {company.email ? <Text>Email: {company.email}</Text> : null}
             {company.address ? <Text>Address: {company.address}</Text> : null}
             {company.pan ? <Text>PAN: {company.pan}</Text> : null}
-            {company.gst ? <Text>GST: {company.gst}</Text> : null}
+            {company.gst_number ? <Text>GST: {company.gst_number}</Text> : null}
           </View>
         </View>
 

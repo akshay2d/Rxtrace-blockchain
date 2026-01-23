@@ -465,6 +465,9 @@ export async function POST(req: NextRequest) {
     }
 
     // Initialize billing quotas for the trial period
+    // SSCC quota = pallet_labels_quota (primary SSCC level)
+    const ssccQuota = quotas.pallet_labels_quota;
+    
     const { error: billingError } = await supabase
       .from('billing_usage')
       .insert({
@@ -478,6 +481,7 @@ export async function POST(req: NextRequest) {
         box_labels_quota: quotas.box_labels_quota,
         carton_labels_quota: quotas.carton_labels_quota,
         pallet_labels_quota: quotas.pallet_labels_quota,
+        sscc_labels_quota: ssccQuota, // SSCC quota = pallet quota
         user_seats_quota: quotas.user_seats_quota,
         
         // Usage (initialized to 0)
@@ -485,6 +489,7 @@ export async function POST(req: NextRequest) {
         box_labels_used: 0,
         carton_labels_used: 0,
         pallet_labels_used: 0,
+        sscc_labels_used: 0,
         user_seats_used: quotas.user_seats_quota,
         
         created_at: new Date().toISOString(),
@@ -493,6 +498,23 @@ export async function POST(req: NextRequest) {
     if (billingError) {
       console.error('Failed to create billing usage:', billingError);
       // Continue - trial activated, billing can be fixed later
+    }
+
+    // Initialize quota_balances from billing_usage quotas
+    // SSCC quota = pallet_labels_quota (primary SSCC level)
+    try {
+      const { error: quotaError } = await supabase.rpc('ensure_quota_balances', {
+        p_company_id: company.id,
+        p_plan_type: planKey,
+      });
+
+      if (quotaError) {
+        console.error('Failed to initialize quota_balances:', quotaError);
+        // Continue - quota can be initialized later
+      }
+    } catch (quotaErr) {
+      console.error('Exception initializing quota_balances:', quotaErr);
+      // Continue - quota can be initialized later
     }
 
     // Log activation event in audit table

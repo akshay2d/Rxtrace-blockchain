@@ -18,7 +18,7 @@ type CompanyProfile = {
   id: string;
   company_name: string | null;
   pan: string | null;
-  gst: string | null;
+  gst_number: string | null;
   address: string | null;
   email: string | null;
   user_id: string;
@@ -40,7 +40,7 @@ export default function Page() {
   const [companyProfile, setCompanyProfile] = useState<CompanyProfile | null>(null);
   const [companyLoading, setCompanyLoading] = useState(true);
   const [companySaving, setCompanySaving] = useState(false);
-  const [companyFormData, setCompanyFormData] = useState({ company_name: '', pan: '', gst: '', address: '' });
+  const [companyFormData, setCompanyFormData] = useState({ company_name: '', pan: '', gst: '', address: '' }); // Note: gst in form state maps to gst_number in DB
   const [companyError, setCompanyError] = useState('');
   const [companySuccess, setCompanySuccess] = useState('');
   
@@ -112,7 +112,7 @@ export default function Page() {
         // Fetch company profile with fresh data (no cache)
         const { data: company, error } = await supabase
           .from('companies')
-          .select('id, company_name, pan, gst, address, email, user_id, profile_completed')
+          .select('id, company_name, pan, gst_number, address, email, user_id, profile_completed')
           .eq('user_id', user.id)
           .maybeSingle();
 
@@ -128,7 +128,7 @@ export default function Page() {
             setCompanyFormData({
               company_name: company.company_name || '',
               pan: company.pan || '',
-              gst: company.gst || '',
+              gst: company.gst_number || '',
               address: company.address || '',
             });
           }
@@ -203,7 +203,7 @@ export default function Page() {
         body: JSON.stringify({
           company_name: companyFormData.company_name,
           pan: companyFormData.pan,
-          gst: companyFormData.gst,
+          gst_number: companyFormData.gst, // Map form state 'gst' to API 'gst_number'
           address: companyFormData.address,
         }),
       });
@@ -454,7 +454,7 @@ export default function Page() {
           companyId={companyProfile?.id || ''}
           profileCompleted={companyProfile?.profile_completed === true}
           initialPan={companyFormData.pan}
-          initialGst={companyFormData.gst}
+          initialGstNumber={companyFormData.gst}
         />
       )}
 

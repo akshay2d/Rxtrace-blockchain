@@ -13,17 +13,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    const { company_name, pan, gst, address } = await req.json();
+    const { company_name, pan, gst_number, address } = await req.json();
 
     // Validate: company_id, user_id, and email cannot be changed
-    // Only company_name, pan, gst, and address are editable
+    // Only company_name, pan, gst_number, and address are editable
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     // Get user's company
     const { data: company, error: companyError } = await supabase
       .from('companies')
-      .select('id, user_id, email, company_name, pan, gst, address')
+      .select('id, user_id, email, company_name, pan, gst_number, address')
       .eq('user_id', user.id)
       .maybeSingle();
 
@@ -48,8 +48,8 @@ export async function POST(req: NextRequest) {
       updateData.pan = pan ? pan.toUpperCase().trim() : null;
     }
 
-    if (gst !== undefined) {
-      updateData.gst = gst ? gst.toUpperCase().trim() : null;
+    if (gst_number !== undefined) {
+      updateData.gst_number = gst_number ? gst_number.toUpperCase().trim() : null;
     }
 
     if (address !== undefined) {
@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
       .update(updateData)
       .eq('id', company.id)
       .eq('user_id', user.id) // Ensure user owns this company
-      .select('id, company_name, pan, gst, address, email, user_id')
+      .select('id, company_name, pan, gst_number, address, email, user_id')
       .single();
 
     if (updateError) {
@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
         id: updatedCompany.id,
         company_name: updatedCompany.company_name,
         pan: updatedCompany.pan,
-        gst: updatedCompany.gst,
+        gst_number: updatedCompany.gst_number,
         address: updatedCompany.address,
         email: updatedCompany.email, // Read-only, returned for display
         user_id: updatedCompany.user_id, // Read-only, returned for display
