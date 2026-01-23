@@ -227,7 +227,18 @@ export async function POST(req: Request) {
       }
     );
 
+    // Debug logging (remove in production)
+    console.log('[SSCC Quota Debug]', {
+      company_id,
+      totalSSCCCount,
+      quotaData,
+      quotaError,
+      quotaDataType: typeof quotaData,
+      isArray: Array.isArray(quotaData),
+    });
+
     if (quotaError) {
+      console.error('[SSCC Quota Error]', quotaError);
       return NextResponse.json(
         {
           error: quotaError.message || 'Failed to check SSCC quota',
@@ -240,13 +251,29 @@ export async function POST(req: Request) {
     // Handle RPC result - data is an array, get first element
     const quotaResult = Array.isArray(quotaData) ? quotaData[0] : quotaData;
 
+    // Debug logging
+    console.log('[SSCC Quota Result]', {
+      quotaResult,
+      ok: quotaResult?.ok,
+      error: quotaResult?.error,
+      sscc_balance: quotaResult?.sscc_balance,
+    });
+
     if (!quotaResult || !quotaResult.ok) {
+      const remaining = quotaResult?.sscc_balance ?? 0;
       return NextResponse.json(
         {
-          error: quotaResult?.error || 'SSCC quota exceeded. Please upgrade your plan or purchase add-on SSCC codes.',
+          error: quotaResult?.error || `Insufficient SSCC quota balance. Requested: ${totalSSCCCount}, Remaining: ${remaining}. Please upgrade your plan or purchase add-on SSCC codes.`,
           code: 'quota_exceeded',
           requires_addon: true,
           addon: 'sscc',
+          requested: totalSSCCCount,
+          remaining: remaining,
+          debug: {
+            quotaResult,
+            quotaData,
+            totalSSCCCount,
+          },
         },
         { status: 403 }
       );
@@ -306,6 +333,7 @@ export async function POST(req: Request) {
           sku_id: skuUuid,
           sscc: ssccGen as any,
           sscc_with_ai: `(00)${ssccGen}`,
+          code: ssccGen as any, // Set code to SSCC value (required by NOT NULL constraint)
           sscc_level: 'box',
           parent_sscc: null,
           meta: {
@@ -348,6 +376,7 @@ export async function POST(req: Request) {
           sku_id: skuUuid,
           sscc: ssccGen as any,
           sscc_with_ai: `(00)${ssccGen}`,
+          code: ssccGen as any, // Set code to SSCC value (required by NOT NULL constraint)
           sscc_level: 'carton',
           parent_sscc: null,
           meta: {
@@ -386,6 +415,7 @@ export async function POST(req: Request) {
           sku_id: skuUuid,
           sscc: ssccGen as any,
           sscc_with_ai: `(00)${ssccGen}`,
+          code: ssccGen as any, // Set code to SSCC value (if code column exists)
           sscc_level: 'pallet',
           parent_sscc: null,
           meta: {
