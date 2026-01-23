@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
 import { assertCompanyCanOperate, ensureActiveBillingUsage } from '@/lib/billing/usage';
 import { supabaseServer } from '@/lib/supabase/server';
+import { refundQuotaBalance } from '@/lib/billing/quota';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -215,15 +216,34 @@ export async function POST(req: Request) {
 
     // Consume SSCC quota BEFORE generating labels
     // If quota is insufficient, abort generation
-    const quotaModule = await import('@/lib/billing/quota');
-    const { consumeQuotaBalance, refundQuotaBalance } = quotaModule;
-    
-    const quotaResult = await consumeQuotaBalance(company_id, 'sscc', totalSSCCCount);
-    
-    if (!quotaResult.ok) {
+    // Call RPC directly with p_kind: 'sscc'
+    const { data: quotaData, error: quotaError } = await supabase.rpc(
+      'consume_quota_balance',
+      {
+        p_company_id: company_id,
+        p_kind: 'sscc',
+        p_qty: totalSSCCCount,
+        p_now: new Date().toISOString(),
+      }
+    );
+
+    if (quotaError) {
       return NextResponse.json(
         {
-          error: quotaResult.error || 'SSCC quota exceeded. Please upgrade your plan or purchase add-on SSCC codes.',
+          error: quotaError.message || 'Failed to check SSCC quota',
+          code: 'quota_error',
+        },
+        { status: 500 }
+      );
+    }
+
+    // Handle RPC result - data is an array, get first element
+    const quotaResult = Array.isArray(quotaData) ? quotaData[0] : quotaData;
+
+    if (!quotaResult || !quotaResult.ok) {
+      return NextResponse.json(
+        {
+          error: quotaResult?.error || 'SSCC quota exceeded. Please upgrade your plan or purchase add-on SSCC codes.',
           code: 'quota_exceeded',
           requires_addon: true,
           addon: 'sscc',
@@ -231,6 +251,11 @@ export async function POST(req: Request) {
         { status: 403 }
       );
     }
+
+    // Mark quota as consumed for error handling
+    quotaConsumed = true;
+    consumedQuantity = totalSSCCCount;
+    consumedCompanyId = company_id;
 
     // Allocate SSCC serials (after quota check passes)
     const { data: alloc, error: allocErr } = await supabase.rpc('allocate_sscc_serials', {
@@ -422,8 +447,6 @@ export async function POST(req: Request) {
     // If quota was consumed but an error occurred, try to refund
     if (quotaConsumed && consumedQuantity > 0 && consumedCompanyId) {
       try {
-        const quotaModule = await import('@/lib/billing/quota');
-        const { refundQuotaBalance } = quotaModule;
         await refundQuotaBalance(consumedCompanyId, 'sscc', consumedQuantity);
       } catch (refundErr) {
         // Ignore refund errors in error handler
