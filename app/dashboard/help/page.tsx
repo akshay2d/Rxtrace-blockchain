@@ -14,6 +14,36 @@ import TawkToChat from '@/components/TawkToChat';
 
 // FAQ Data
 const faqData = {
+  activation: [
+    {
+      question: 'How do I activate SSCC scanning on my handset?',
+      answer: 'To activate SSCC (Serial Shipping Container Code) scanning on your mobile scanner app:\n\n1. Open the RxTrace Scanner app on your device\n2. Tap the "Activate" button (🔑) in the top-right corner\n3. Enter your Company ID (UUID format)\n4. Tap "Activate" to register your device\n5. Once activated, you\'ll see "SSCC ready" status\n\nNote: Unit label scanning works without activation (free).',
+    },
+    {
+      question: 'Where do I find my Company ID?',
+      answer: 'Your Company ID is available in the web dashboard:\n\n1. Log in to your RxTrace dashboard at rxtrace.in\n2. Navigate to "Handsets" section (Dashboard → Handsets)\n3. Click "Copy Company ID" button\n4. Paste it into the activation field in the scanner app\n\nFormat: UUID (e.g., 944eb06e-f544-43bc-a8b4-f181fda68d21)',
+    },
+    {
+      question: 'What\'s the difference between Unit and SSCC scanning?',
+      answer: '• Unit Labels: Product-level codes containing GTIN (AI 01), serial number (AI 21), batch (AI 10), expiry date (AI 17), etc. Always free, no activation needed. Works offline and syncs when online.\n\n• SSCC Codes: Container-level codes for boxes, cartons, and pallets. Uses AI (00) with 18-digit format. Requires activation with Company ID. Charged per scan based on container type (box/carton/pallet).\n\nThe scanner app automatically detects which type you\'re scanning.',
+    },
+    {
+      question: 'Can I deactivate my handset?',
+      answer: 'Yes. To deactivate your handset:\n\n1. Open the Activation modal in the scanner app\n2. Tap "Deactivate" button\n3. This will:\n   • Remove JWT authentication\n   • Disable SSCC scanning\n   • Keep unit label scanning active (free)\n\nYou can reactivate anytime with your Company ID.',
+    },
+    {
+      question: 'What if activation fails?',
+      answer: 'If activation fails, check the following:\n\n• Verify your Company ID is correct (UUID format)\n• Ensure you have internet connection\n• Confirm your company account is active in the dashboard\n• Try again after a few moments\n• Check that the Company ID hasn\'t changed\n\nIf issues persist, contact support@rxtrace.in or submit a support request from this page.',
+    },
+    {
+      question: 'How does handset registration work?',
+      answer: 'When you activate with Company ID:\n\n1. The app generates a unique device fingerprint\n2. Sends registration request to /api/handset/register-lite\n3. Server creates handset record linked to your company\n4. Returns JWT token for authenticated SSCC scanning\n5. Token is stored securely on your device\n\nThis is a one-time process per device. The device fingerprint ensures each handset is uniquely identified.',
+    },
+    {
+      question: 'Do I need to activate for unit label scanning?',
+      answer: 'No. Unit label scanning is completely free and requires no activation:\n\n• Works immediately after app installation\n• No login or registration needed\n• No Company ID required\n• Works offline (scans saved locally)\n• Syncs verification when online\n\nActivation is only required for SSCC (container-level) scanning.',
+    },
+  ],
   technical: [
     {
       question: 'How do I generate GS1-compliant labels?',
@@ -29,11 +59,19 @@ const faqData = {
     },
     {
       question: 'Can I scan products without handset activation?',
-      answer: 'Yes. The scanner app works immediately after installation. No login, activation, or device registration is required. Scanning is available to all users.',
+      answer: 'Yes. Unit label scanning works immediately after installation. No login, activation, or device registration is required. Unit scanning is available to all users. SSCC scanning requires activation with Company ID.',
     },
     {
       question: 'How are duplicate scans handled?',
       answer: 'Duplicate scans are automatically detected and logged with status "DUPLICATE". They appear in scan logs and dashboard analytics but do not block the scan operation.',
+    },
+    {
+      question: 'How does unit label scanning work?',
+      answer: 'Unit labels contain:\n\n• GTIN (AI 01) - Product identifier\n• Serial Number (AI 21) - Unique item ID\n• Batch/Lot (AI 10) - Production batch\n• Expiry Date (AI 17) - Product expiry\n• Manufacturing Date (AI 11) - Production date\n• MRP (AI 91) - Maximum Retail Price\n• SKU (AI 92) - Stock Keeping Unit\n\nScanning is free and works offline (syncs when online).',
+    },
+    {
+      question: 'How does SSCC code calculation work?',
+      answer: 'SSCC (Serial Shipping Container Code) structure:\n\n• Format: (00) + 18 digits\n• Extension digit (1st): Container type indicator (0-2: box, 3-5: carton, 6-9: pallet)\n• Company prefix (7-9 digits): Your company identifier\n• Serial reference (8-10 digits): Unique container ID\n• Check digit (last): Validation digit\n\nThe scanner app automatically determines container type (box/carton/pallet) from the extension digit.',
     },
   ],
   billing: [
@@ -181,13 +219,29 @@ export default function HelpSupportPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <Tabs defaultValue="technical" className="w-full">
-                <TabsList className="grid w-full grid-cols-4 mb-6">
+              <Tabs defaultValue="activation" className="w-full">
+                <TabsList className="grid w-full grid-cols-5 mb-6">
+                  <TabsTrigger value="activation">Activation</TabsTrigger>
                   <TabsTrigger value="technical">Technical</TabsTrigger>
                   <TabsTrigger value="billing">Billing</TabsTrigger>
                   <TabsTrigger value="audit">Audit</TabsTrigger>
                   <TabsTrigger value="compliance">Compliance</TabsTrigger>
                 </TabsList>
+
+                <TabsContent value="activation">
+                  <Accordion type="single" collapsible className="w-full">
+                    {faqData.activation.map((item, index) => (
+                      <AccordionItem key={index} value={`activation-${index}`}>
+                        <AccordionTrigger className="text-left font-medium text-gray-900">
+                          {item.question}
+                        </AccordionTrigger>
+                        <AccordionContent className="text-gray-600 whitespace-pre-line">
+                          {item.answer}
+                        </AccordionContent>
+                      </AccordionItem>
+                    ))}
+                  </Accordion>
+                </TabsContent>
 
                 <TabsContent value="technical">
                   <Accordion type="single" collapsible className="w-full">
