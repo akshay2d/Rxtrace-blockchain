@@ -5,7 +5,7 @@ import { supabaseClient } from '@/lib/supabase/client';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Smartphone, Clock, Power, RefreshCw, Shield } from 'lucide-react';
+import { Smartphone, Clock, Power, RefreshCw, Shield, Copy, Check, UserPlus, UserMinus } from 'lucide-react';
 
 type Handset = {
   id: string;
@@ -24,6 +24,7 @@ export default function HandsetPage() {
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [handsets, setHandsets] = useState<Handset[]>([]);
   const [activeCount, setActiveCount] = useState(0);
+  const [copied, setCopied] = useState(false);
 
   /** Load company ID */
   async function loadCompany() {
@@ -74,9 +75,9 @@ export default function HandsetPage() {
 
       if (res.ok) {
         const json = await res.json();
-        const companyHandsets = (json.handsets || []).filter((h: Handset) => h.active);
+        const companyHandsets = json.handsets || [];
         setHandsets(companyHandsets);
-        setActiveCount(companyHandsets.length);
+        setActiveCount(companyHandsets.filter((h: Handset) => h.active).length);
       } else {
         const errorText = await res.text();
         setError(errorText || 'Failed to load handsets');
@@ -91,13 +92,20 @@ export default function HandsetPage() {
 
   /** Deactivate handset */
   async function deactivateHandset(handsetId: string) {
-    if (!confirm(`Deactivate handset ${handsetId}? This will disable SSCC scanning for this device.`)) return;
+    if (!confirm('Deactivate this handset? It will no longer be able to scan SSCC codes.')) return;
 
     setActionLoading(true);
+    setError(null);
     try {
+      const { data: sessionData } = await supabaseClient().auth.getSession();
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (sessionData?.session?.access_token) {
+        headers['Authorization'] = `Bearer ${sessionData.session.access_token}`;
+      }
+
       const res = await fetch('/api/handset/deactivate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ handset_id: handsetId }),
       });
 
@@ -109,9 +117,58 @@ export default function HandsetPage() {
       alert('Handset deactivated successfully');
       await loadHandsets();
     } catch (e: any) {
+      setError(e.message || 'Failed to deactivate handset');
       alert(e.message || 'Failed to deactivate handset');
     } finally {
       setActionLoading(false);
+    }
+  }
+
+  /** Reactivate handset */
+  async function activateHandset(handsetId: string) {
+    if (!confirm('Reactivate this handset? It will be able to scan SSCC codes again.')) return;
+
+    setActionLoading(true);
+    setError(null);
+    try {
+      const { data: sessionData } = await supabaseClient().auth.getSession();
+      if (!sessionData?.session?.access_token) {
+        throw new Error('Not authenticated');
+      }
+
+      const res = await fetch('/api/handset/reactivate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+        },
+        body: JSON.stringify({ handset_id: handsetId }),
+      });
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(errorText || 'Failed to activate handset');
+      }
+
+      alert('Handset activated successfully');
+      await loadHandsets();
+    } catch (e: any) {
+      setError(e.message || 'Failed to activate handset');
+      alert(e.message || 'Failed to activate handset');
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  /** Copy company ID to clipboard (Issue) */
+  async function copyCompanyId() {
+    if (!companyId) return;
+    try {
+      await navigator.clipboard.writeText(companyId);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setError('Failed to copy');
     }
   }
 
@@ -144,6 +201,32 @@ export default function HandsetPage() {
         </div>
       )}
 
+      {/* Issue: Company ID for activation */}
+      <Card className="p-6 border-emerald-200 bg-emerald-50/50">
+        <h2 className="text-lg font-medium mb-2 flex items-center gap-2">
+          <UserPlus className="h-5 w-5 text-emerald-600" />
+          Issue — Company ID for activation
+        </h2>
+        <p className="text-sm text-gray-600 mb-3">
+          Share this company ID with users so they can activate handsets in the mobile app. No token needed.
+        </p>
+        <div className="flex items-center gap-3 flex-wrap">
+          <code className="flex-1 min-w-[200px] rounded bg-white border border-emerald-200 px-4 py-2.5 text-sm font-mono font-medium text-emerald-900">
+            {companyId || '—'}
+          </code>
+          <Button
+            variant="default"
+            size="sm"
+            onClick={copyCompanyId}
+            disabled={!companyId}
+            className="bg-emerald-600 hover:bg-emerald-700 gap-2"
+          >
+            {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+            {copied ? 'Copied' : 'Copy Company ID'}
+          </Button>
+        </div>
+      </Card>
+
       {/* SSCC Scanner Activation Info */}
       <Card className="p-6">
         <div className="flex items-start gap-4">
@@ -158,7 +241,7 @@ export default function HandsetPage() {
               <p className="text-xs text-blue-800 font-medium mb-1">How to activate:</p>
               <ul className="text-xs text-blue-700 space-y-1 list-disc list-inside">
                 <li>Open the mobile scanner app</li>
-                <li>Enter your company ID: <code className="bg-blue-100 px-1 rounded">{companyId || '...'}</code></li>
+                <li>Enter your company ID (use Copy above)</li>
                 <li>App receives JWT token automatically</li>
                 <li>Ready to scan SSCC codes (boxes, cartons, pallets)</li>
               </ul>
@@ -192,12 +275,12 @@ export default function HandsetPage() {
         </div>
       </Card>
 
-      {/* Handset List */}
+      {/* Handset List — Activate / Deactivate */}
       <Card className="p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-medium text-lg flex items-center gap-2">
             <Smartphone className="h-5 w-5 text-blue-600" />
-            Registered Handsets
+            Registered Handsets — Activate / Deactivate
           </h2>
         </div>
 
@@ -206,7 +289,7 @@ export default function HandsetPage() {
         ) : handsets.length === 0 ? (
           <div className="text-center py-8 text-gray-500">
             <Smartphone className="h-12 w-12 mx-auto mb-3 text-gray-400" />
-            <p className="text-sm font-medium mb-1">No active handsets</p>
+            <p className="text-sm font-medium mb-1">No handsets</p>
             <p className="text-xs text-gray-500">
               Handsets will appear here after activation from the mobile app
             </p>
@@ -271,16 +354,28 @@ export default function HandsetPage() {
                     </div>
                   </div>
 
-                  <div className="ml-4">
-                    {handset.active && (
+                  <div className="ml-4 flex items-center gap-2">
+                    {handset.active ? (
                       <Button
                         variant="outline"
                         size="sm"
                         onClick={() => deactivateHandset(handset.id)}
                         disabled={actionLoading}
-                        className="text-red-600 border-red-300 hover:bg-red-50"
+                        className="text-red-600 border-red-300 hover:bg-red-50 gap-1.5"
                       >
+                        <UserMinus className="h-4 w-4" />
                         Deactivate
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="default"
+                        size="sm"
+                        onClick={() => activateHandset(handset.id)}
+                        disabled={actionLoading}
+                        className="bg-emerald-600 hover:bg-emerald-700 gap-1.5"
+                      >
+                        <UserPlus className="h-4 w-4" />
+                        Activate
                       </Button>
                     )}
                   </div>
