@@ -48,6 +48,17 @@ export async function POST(req: Request) {
     if (!scanType || !scannedValue)
       return NextResponse.json({ success: false, error: "scanType & scannedValue required" });
 
+    // SSCC scanning specific check (blocks SSCC scans but allows unit scans)
+    // This check happens after we know the scanType
+    const ssccScanningEnabled =
+      heads?.scanner_sscc_scanning_enabled === undefined ? true : !!heads.scanner_sscc_scanning_enabled;
+    if (!ssccScanningEnabled && scanType !== 'unit') {
+      return NextResponse.json({ 
+        success: false, 
+        error: 'SSCC scanning is disabled. Only unit label scanning is allowed.' 
+      }, { status: 403 });
+    }
+
     // 🔒 Permission enforcement
     if (role === "UNIT_ONLY" && scanType !== "unit") {
       return NextResponse.json({

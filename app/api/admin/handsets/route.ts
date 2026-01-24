@@ -48,16 +48,53 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: handsetsError.message }, { status: 500 });
     }
 
-    // Transform to match frontend expectations
-    const handsets = (handsetsList || []).map(h => ({
-      id: h.id,
-      handset_id: h.device_fingerprint,
-      active: h.status === "ACTIVE",
-      high_scan_enabled: !!h.high_scan_enabled,
-      activated_at: h.activated_at || null,
-      deactivated_at: null,
-      last_seen: h.activated_at || null
-    }));
+    // Get last scan time for each handset from scan_logs
+    const handsetIds = (handsetsList || []).map(h => h.id);
+    const lastScans: Record<string, string> = {};
+    
+    if (handsetIds.length > 0) {
+      // Query scan_logs for most recent scan per handset
+      const { data: scanLogs } = await supabase
+        .from('scan_logs')
+        .select('handset_id, scanned_at')
+        .in('handset_id', handsetIds)
+        .order('scanned_at', { ascending: false });
+
+      // Group by handset_id and get most recent
+      if (scanLogs) {
+        scanLogs.forEach(log => {
+          if (log.handset_id && !lastScans[log.handset_id]) {
+            lastScans[log.handset_id] = log.scanned_at;
+          }
+        });
+      }
+    }
+
+    // Transform to match frontend expectations with registration method detection
+    const handsets = (handsetsList || []).map(h => {
+      // Detect registration method:
+      // - register-lite: high_scan_enabled is true by default (new system)
+      // - token: activated via token (legacy system)
+      // Since register-lite always sets high_scan_enabled: true, we can use that as indicator
+      // But to be safe, we'll check activation date: if after 2026-01-23, likely register-lite
+      const registerLiteStartDate = new Date('2026-01-23');
+      const activatedDate = h.activated_at ? new Date(h.activated_at) : null;
+      const isLikelyRegisterLite = activatedDate && activatedDate >= registerLiteStartDate && h.high_scan_enabled;
+      
+      const registration_method = isLikelyRegisterLite ? 'register-lite' : 'token';
+
+      return {
+        id: h.id,
+        handset_id: h.device_fingerprint,
+        active: h.status === "ACTIVE",
+        high_scan_enabled: !!h.high_scan_enabled,
+        activated_at: h.activated_at || null,
+        deactivated_at: null,
+        last_seen: h.activated_at || null,
+        last_scan_at: lastScans[h.id] || null,
+        registration_method: registration_method
+      };
+    });
 
     const { data: activeTokens, error: tokenError } = await supabase
       .from('handset_tokens')

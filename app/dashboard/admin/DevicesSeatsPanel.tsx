@@ -113,38 +113,43 @@ export default function HandsetManagementPanel({ companyId }: { companyId: strin
         </div>
       )}
 
-      {/* Token Generation Section */}
+      {/* SSCC Scanner Activation Info */}
       <Card>
         <CardHeader>
-          <CardTitle>Handset Activation Tokens</CardTitle>
+          <CardTitle>SSCC Scanner Activation</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex gap-2">
-            <Button onClick={generateToken} disabled={loading}>
-              Generate New Token
-            </Button>
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <p className="text-sm text-blue-900 mb-3">
+              Handsets now activate directly from the mobile app using company ID. 
+              No token generation required.
+            </p>
+            <div className="text-xs text-blue-800 space-y-1">
+              <p className="font-medium mb-2">How it works:</p>
+              <ul className="list-disc list-inside space-y-1">
+                <li>User opens mobile scanner app</li>
+                <li>Enters company ID to activate</li>
+                <li>App receives JWT token automatically</li>
+                <li>Ready to scan SSCC codes (boxes, cartons, pallets)</li>
+              </ul>
+            </div>
           </div>
-          
-          {generatedToken && (
-            <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
-              <p className="text-sm font-medium text-green-900 mb-2">New Token Generated:</p>
-              <code className="text-lg font-mono text-green-700 bg-white px-3 py-2 rounded block">{generatedToken}</code>
-              <p className="text-xs text-green-600 mt-2">Share this token with the user to activate their handset.</p>
+
+          {/* Legacy Tokens (if any exist) */}
+          {tokens.length > 0 && (
+            <div className="space-y-2 border-t pt-4">
+              <h4 className="font-medium text-sm text-amber-700">Legacy Tokens (Old System)</h4>
+              <p className="text-xs text-amber-600 mb-2">These tokens are from the old activation system. New handsets use company ID activation.</p>
+              {tokens.slice(0, 5).map((t) => (
+                <div key={t.id} className="flex items-center justify-between p-2 border border-amber-200 bg-amber-50 rounded">
+                  <code className="text-sm font-mono text-amber-800">{t.token}</code>
+                  <Badge variant={t.used ? "secondary" : "default"}>
+                    {t.used ? "Used" : "Available"}
+                  </Badge>
+                </div>
+              ))}
             </div>
           )}
-
-          <div className="space-y-2">
-            <h4 className="font-medium text-sm">Recent Tokens</h4>
-            {tokens.length === 0 && <p className="text-sm text-muted-foreground">No tokens generated yet</p>}
-            {tokens.slice(0, 10).map((t) => (
-              <div key={t.id} className="flex items-center justify-between p-2 border rounded">
-                <code className="text-sm font-mono">{t.token}</code>
-                <Badge variant={t.used ? "secondary" : "default"}>
-                  {t.used ? "Used" : "Available"}
-                </Badge>
-              </div>
-            ))}
-          </div>
         </CardContent>
       </Card>
 

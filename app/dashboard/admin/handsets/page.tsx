@@ -17,6 +17,8 @@ type Overview = {
 type ScannerSettings = {
   activation_enabled: boolean;
   scanning_enabled: boolean;
+  sscc_scanning_enabled: boolean;
+  registration_enabled: boolean;
 };
 
 type Handset = {
@@ -27,6 +29,8 @@ type Handset = {
   activated_at: string | null;
   deactivated_at: string | null;
   last_seen?: string | null;
+  last_scan_at?: string | null;
+  registration_method?: 'register-lite' | 'token';
 };
 
 export default function HandsetsAdminPage() {
@@ -41,9 +45,13 @@ export default function HandsetsAdminPage() {
   const [settings, setSettings] = useState<ScannerSettings>({
     activation_enabled: true,
     scanning_enabled: true,
+    sscc_scanning_enabled: true,
+    registration_enabled: true,
   });
   const [handsets, setHandsets] = useState<Handset[]>([]);
   const [handsetsLoading, setHandsetsLoading] = useState(false);
+  const [statistics, setStatistics] = useState<any>(null);
+  const [statisticsLoading, setStatisticsLoading] = useState(false);
 
   /** Load admin handset overview */
   async function load() {
@@ -88,6 +96,8 @@ export default function HandsetsAdminPage() {
       setSettings({
         activation_enabled: !!settingsJson.activation_enabled,
         scanning_enabled: !!settingsJson.scanning_enabled,
+        sscc_scanning_enabled: settingsJson.sscc_scanning_enabled === undefined ? true : !!settingsJson.sscc_scanning_enabled,
+        registration_enabled: settingsJson.registration_enabled === undefined ? true : !!settingsJson.registration_enabled,
       });
     } catch (e: any) {
       setError(e.message || 'Failed to load');
@@ -315,12 +325,39 @@ export default function HandsetsAdminPage() {
     }
   }
 
+  /** Load handset statistics */
+  async function loadStatistics() {
+    setStatisticsLoading(true);
+    try {
+      const { data: sessionData } = await supabaseClient().auth.getSession();
+      if (!sessionData?.session?.access_token) return;
+
+      const res = await fetch('/api/admin/handsets/statistics', {
+        cache: 'no-store',
+        headers: {
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+        },
+      });
+
+      if (res.ok) {
+        const json = await res.json();
+        setStatistics(json.statistics || null);
+      }
+    } catch (e: any) {
+      console.error('Failed to load statistics:', e);
+    } finally {
+      setStatisticsLoading(false);
+    }
+  }
+
   useEffect(() => {
     load();
     loadHandsets();
+    loadStatistics();
     // Auto-refresh every 30 seconds
     const interval = setInterval(() => {
       loadHandsets();
+      loadStatistics();
     }, 30000);
     return () => clearInterval(interval);
   }, []);
@@ -342,50 +379,24 @@ export default function HandsetsAdminPage() {
         </div>
       )}
 
-      {/* Master switch */}
+      {/* SSCC Scanner Activation Info */}
       <Card className="p-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-medium">Activation Code</h2>
-            <p className="text-sm text-gray-500">Generate and share one code for multiple handsets</p>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {settings.activation_enabled ? (
-              <>
-                <Button
-                  onClick={generateToken}
-                  disabled={actionLoading}
-                  className="gap-2 bg-emerald-600 hover:bg-emerald-700"
-                >
-                  <Power className="h-4 w-4" />
-                  Generate code
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={rotateTokenNow}
-                  disabled={actionLoading}
-                >
-                  Rotate code
-                </Button>
-                <Button
-                  variant="destructive"
-                  onClick={() => setActivationEnabled(false)}
-                  disabled={actionLoading}
-                >
-                  Disable activation
-                </Button>
-              </>
-            ) : (
-              <Button
-                onClick={() => setActivationEnabled(true)}
-                disabled={actionLoading}
-                className="gap-2 bg-emerald-600 hover:bg-emerald-700"
-              >
-                <Power className="h-4 w-4" />
-                Enable activation
-              </Button>
-            )}
+        <div className="flex items-start gap-4">
+          <div className="flex-1">
+            <h2 className="text-lg font-medium mb-2">SSCC Scanner Activation</h2>
+            <p className="text-sm text-gray-600 mb-3">
+              Handsets now activate directly from the mobile app using company ID. 
+              No token generation required. Users simply enter their company ID in the mobile app to activate SSCC scanning.
+            </p>
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+              <p className="text-xs text-blue-800 font-medium mb-1">How it works:</p>
+              <ul className="text-xs text-blue-700 space-y-1 list-disc list-inside">
+                <li>User opens mobile scanner app</li>
+                <li>Enters company ID to activate</li>
+                <li>App receives JWT token automatically</li>
+                <li>Ready to scan SSCC codes (boxes, cartons, pallets)</li>
+              </ul>
+            </div>
           </div>
         </div>
       </Card>
@@ -420,42 +431,232 @@ export default function HandsetsAdminPage() {
         </div>
       </Card>
 
-      {/* Token */}
+      {/* SSCC Scanning Settings */}
       <Card className="p-6">
-        <h2 className="font-medium mb-2">Activation Token</h2>
-        {!settings.activation_enabled ? (
-          <p className="text-sm text-gray-500">Activation is disabled</p>
-        ) : data.token ? (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between gap-4">
-              <code className="rounded bg-emerald-50 border border-emerald-200 px-6 py-4 text-2xl font-mono font-bold text-emerald-700 tracking-wider">
-                {data.token}
-              </code>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => navigator.clipboard.writeText(data.token!)}
-                className="gap-2"
-              >
-                <Copy className="h-4 w-4" /> Copy
-              </Button>
-            </div>
-            <p className="text-xs text-gray-500">Share this token with users to activate their handsets</p>
+        <div className="space-y-4">
+          <div>
+            <h2 className="text-lg font-medium mb-1">SSCC Scanning Settings</h2>
+            <p className="text-sm text-gray-500">Control SSCC code scanning and handset registration</p>
           </div>
-        ) : (
-          <p className="text-sm text-gray-500">No active token</p>
-        )}
+
+          <div className="space-y-4 border-t pt-4">
+            {/* SSCC Scanning Toggle */}
+            <div className="flex items-center justify-between">
+              <div className="flex-1">
+                <label className="text-sm font-medium">Enable SSCC Scanning</label>
+                <p className="text-xs text-gray-500 mt-1">
+                  Allow handsets to scan SSCC codes (boxes, cartons, pallets). When disabled, handsets can only scan unit labels.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                {settings.sscc_scanning_enabled ? (
+                  <Badge variant="default" className="bg-emerald-600">Enabled</Badge>
+                ) : (
+                  <Badge variant="secondary">Disabled</Badge>
+                )}
+                <Button
+                  variant={settings.sscc_scanning_enabled ? "outline" : "default"}
+                  size="sm"
+                  onClick={async () => {
+                    setActionLoading(true);
+                    setError(null);
+                    try {
+                      const { data: sessionData } = await supabaseClient().auth.getSession();
+                      if (!sessionData?.session?.access_token) {
+                        throw new Error('Not authenticated');
+                      }
+                      const res = await fetch('/api/admin/scanner-settings', {
+                        method: 'POST',
+                        headers: {
+                          Authorization: `Bearer ${sessionData.session.access_token}`,
+                          'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ sscc_scanning_enabled: !settings.sscc_scanning_enabled }),
+                      });
+                      if (!res.ok) throw new Error('Failed to update setting');
+                      await load();
+                    } catch (e: any) {
+                      setError(e.message);
+                    } finally {
+                      setActionLoading(false);
+                    }
+                  }}
+                  disabled={actionLoading}
+                >
+                  {settings.sscc_scanning_enabled ? 'Disable' : 'Enable'}
+                </Button>
+              </div>
+            </div>
+
+            {/* Registration Toggle */}
+            <div className="flex items-center justify-between">
+              <div className="flex-1">
+                <label className="text-sm font-medium">Allow New Handset Registration</label>
+                <p className="text-xs text-gray-500 mt-1">
+                  Allow mobile apps to register new handsets using company ID. When disabled, no new handsets can be registered.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                {settings.registration_enabled ? (
+                  <Badge variant="default" className="bg-emerald-600">Enabled</Badge>
+                ) : (
+                  <Badge variant="secondary">Disabled</Badge>
+                )}
+                <Button
+                  variant={settings.registration_enabled ? "outline" : "default"}
+                  size="sm"
+                  onClick={async () => {
+                    setActionLoading(true);
+                    setError(null);
+                    try {
+                      const { data: sessionData } = await supabaseClient().auth.getSession();
+                      if (!sessionData?.session?.access_token) {
+                        throw new Error('Not authenticated');
+                      }
+                      const res = await fetch('/api/admin/scanner-settings', {
+                        method: 'POST',
+                        headers: {
+                          Authorization: `Bearer ${sessionData.session.access_token}`,
+                          'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ registration_enabled: !settings.registration_enabled }),
+                      });
+                      if (!res.ok) throw new Error('Failed to update setting');
+                      await load();
+                    } catch (e: any) {
+                      setError(e.message);
+                    } finally {
+                      setActionLoading(false);
+                    }
+                  }}
+                  disabled={actionLoading}
+                >
+                  {settings.registration_enabled ? 'Disable' : 'Enable'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
       </Card>
 
-      {/* Count */}
+      {/* Legacy Token Display (for backward compatibility) */}
+      {data.token && (
+        <Card className="p-6 border-amber-200 bg-amber-50">
+          <div className="flex items-start gap-3">
+            <div className="flex-1">
+              <h2 className="font-medium mb-2 text-amber-900">Legacy Activation Token</h2>
+              <p className="text-xs text-amber-700 mb-3">
+                This token is from the old activation system. New handsets use company ID activation instead.
+              </p>
+              <div className="flex items-center justify-between gap-4">
+                <code className="rounded bg-white border border-amber-200 px-4 py-2 text-lg font-mono font-bold text-amber-800 tracking-wider">
+                  {data.token}
+                </code>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigator.clipboard.writeText(data.token!)}
+                  className="gap-2 border-amber-300 text-amber-700 hover:bg-amber-100"
+                >
+                  <Copy className="h-4 w-4" /> Copy
+                </Button>
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {/* Statistics Dashboard */}
       <Card className="p-6">
-        <h2 className="font-medium">Active Handsets</h2>
-        <div className="mt-2 text-4xl font-bold">
-          {data.active_handsets}
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-medium text-lg">Handset Statistics</h2>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => { loadStatistics(); loadHandsets(); }}
+            disabled={statisticsLoading}
+          >
+            <Power className={`h-4 w-4 mr-2 ${statisticsLoading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
         </div>
-        <p className="mt-1 text-sm text-gray-500">
-          Handsets currently scanning using the active token
-        </p>
+
+        {statisticsLoading && !statistics ? (
+          <div className="text-center py-8 text-gray-500">Loading statistics...</div>
+        ) : statistics ? (
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {/* Active Handsets */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="text-sm text-blue-600 font-medium mb-1">Active Handsets</div>
+                <div className="text-3xl font-bold text-blue-900">{statistics.handsets?.total_active || 0}</div>
+              </div>
+
+              {/* Registered Today */}
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                <div className="text-sm text-green-600 font-medium mb-1">Registered Today</div>
+                <div className="text-3xl font-bold text-green-900">{statistics.handsets?.registered_today || 0}</div>
+              </div>
+
+              {/* Registered This Week */}
+              <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                <div className="text-sm text-purple-600 font-medium mb-1">This Week</div>
+                <div className="text-3xl font-bold text-purple-900">{statistics.handsets?.registered_this_week || 0}</div>
+              </div>
+
+              {/* Registered This Month */}
+              <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                <div className="text-sm text-orange-600 font-medium mb-1">This Month</div>
+                <div className="text-3xl font-bold text-orange-900">{statistics.handsets?.registered_this_month || 0}</div>
+              </div>
+            </div>
+
+            {/* SSCC Scan Statistics */}
+            <div className="mt-6 pt-6 border-t">
+              <h3 className="text-sm font-medium text-gray-700 mb-4">SSCC Scan Activity</h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                  <div className="text-xs text-gray-600 mb-1">Total SSCC Scans</div>
+                  <div className="text-2xl font-bold text-gray-900">{statistics.scans?.total_sscc_scans || 0}</div>
+                </div>
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                  <div className="text-xs text-gray-600 mb-1">Today</div>
+                  <div className="text-2xl font-bold text-gray-900">{statistics.scans?.sscc_scans_today || 0}</div>
+                </div>
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                  <div className="text-xs text-gray-600 mb-1">This Week</div>
+                  <div className="text-2xl font-bold text-gray-900">{statistics.scans?.sscc_scans_this_week || 0}</div>
+                </div>
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                  <div className="text-xs text-gray-600 mb-1">This Month</div>
+                  <div className="text-2xl font-bold text-gray-900">{statistics.scans?.sscc_scans_this_month || 0}</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Most Active Handsets */}
+            {statistics.most_active_handsets && statistics.most_active_handsets.length > 0 && (
+              <div className="mt-6 pt-6 border-t">
+                <h3 className="text-sm font-medium text-gray-700 mb-4">Most Active Handsets</h3>
+                <div className="space-y-2">
+                  {statistics.most_active_handsets.map((handset: any, idx: number) => (
+                    <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold">
+                          {idx + 1}
+                        </div>
+                        <code className="text-sm font-mono">{handset.handset_id}</code>
+                      </div>
+                      <Badge variant="default">{handset.scan_count} scans</Badge>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="text-center py-8 text-gray-500">No statistics available</div>
+        )}
       </Card>
 
       {/* Handset List */}
@@ -484,7 +685,7 @@ export default function HandsetsAdminPage() {
           <div className="text-center py-8 text-gray-500">
             <Smartphone className="h-16 w-16 mx-auto mb-3 opacity-20" />
             <p>No handsets registered yet</p>
-            <p className="text-xs mt-1">Activate scanning and use the token on a device</p>
+            <p className="text-xs mt-1">Handsets will appear here after activation from the mobile app</p>
           </div>
         ) : (
           <div className="space-y-2">
@@ -496,20 +697,38 @@ export default function HandsetsAdminPage() {
                 <div className="flex-1">
                   <div className="flex items-center gap-3">
                     <Smartphone className="h-5 w-5 text-blue-600" />
-                    <div>
-                      <div className="font-mono font-medium">{handset.handset_id}</div>
-                      {handset.activated_at && (
-                        <div className="text-xs text-gray-500 flex items-center gap-1 mt-1">
-                          <Clock className="h-3 w-3" />
-                          Activated: {new Date(handset.activated_at).toLocaleString('en-IN')}
-                        </div>
-                      )}
-                      {handset.last_seen && (
-                        <div className="text-xs text-gray-500 flex items-center gap-1 mt-1">
-                          <Clock className="h-3 w-3" />
-                          Last seen: {new Date(handset.last_seen).toLocaleString('en-IN')}
-                        </div>
-                      )}
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <div className="font-mono font-medium">{handset.handset_id}</div>
+                        {handset.registration_method && (
+                          <Badge 
+                            variant={handset.registration_method === 'register-lite' ? 'default' : 'secondary'}
+                            className="text-xs"
+                          >
+                            {handset.registration_method === 'register-lite' ? '📱 Mobile App' : '🔑 Token'}
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="space-y-1">
+                        {handset.activated_at && (
+                          <div className="text-xs text-gray-500 flex items-center gap-1">
+                            <Clock className="h-3 w-3" />
+                            Registered: {new Date(handset.activated_at).toLocaleString('en-IN')}
+                          </div>
+                        )}
+                        {handset.last_scan_at && (
+                          <div className="text-xs text-blue-600 flex items-center gap-1 font-medium">
+                            <Clock className="h-3 w-3" />
+                            Last scan: {new Date(handset.last_scan_at).toLocaleString('en-IN')}
+                          </div>
+                        )}
+                        {!handset.last_scan_at && handset.activated_at && (
+                          <div className="text-xs text-gray-400 flex items-center gap-1">
+                            <Clock className="h-3 w-3" />
+                            No scans yet
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
