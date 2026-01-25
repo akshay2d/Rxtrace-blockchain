@@ -162,7 +162,7 @@ export default function PricingPage() {
 
         const { data: company } = await supabase
           .from("companies")
-          .select("id, subscription_status, trial_start_date, trial_end_date")
+          .select("id, subscription_status, trial_start_date, trial_end_date, trial_activated_at")
           .eq("user_id", user.id)
           .maybeSingle();
 
@@ -278,6 +278,90 @@ export default function PricingPage() {
     : company?.subscription_status
     ? 'Trial already active. Manage subscription in Billing.'
     : null;
+
+  /* ---------- SUBSCRIBE TO PLAN (UPGRADE FROM TRIAL) ---------- */
+  async function subscribeToPlan(plan: Plan) {
+    setTrialMessage(null);
+
+    if (!companyId) {
+      router.push('/dashboard/company-setup');
+      return;
+    }
+
+    // Check if user is in trial
+    if (company?.subscription_status !== 'trial' && company?.subscription_status !== 'TRIAL') {
+      router.push('/dashboard/billing');
+      return;
+    }
+
+    const ok = await loadRazorpay();
+    if (!ok) {
+      setTrialMessage('Razorpay failed to load. Please refresh and try again.');
+      return;
+    }
+
+    // Normalize plan name to match API expectations (starter, growth, enterprise)
+    const planKey = plan.name.toLowerCase().replace(/\s+/g, '_');
+    const normalizedPlan = planKey.includes('starter') ? 'starter' : 
+                           planKey.includes('growth') ? 'growth' : 
+                           planKey.includes('enterprise') ? 'enterprise' : 'starter';
+
+    try {
+      // Create/upgrade subscription via API
+      const res = await fetch('/api/billing/subscription/upgrade', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan: normalizedPlan }),
+      });
+
+      const body = await res.json();
+      if (!res.ok || !body.subscription) {
+        setTrialMessage(body?.error || 'Failed to create subscription');
+        return;
+      }
+
+      const subscription = body.subscription;
+      const keyId = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
+
+      if (!keyId) {
+        setTrialMessage('Razorpay key not configured');
+        return;
+      }
+
+      // Open Razorpay subscription payment modal
+      if (subscription.short_url) {
+        // Use short_url if available (Razorpay subscription link)
+        window.location.href = subscription.short_url;
+      } else {
+        // Fallback: Use Razorpay Checkout for subscription
+        new (window as any).Razorpay({
+          key: keyId,
+          subscription_id: subscription.id,
+          name: 'RxTrace',
+          description: `Subscribe to ${plan.name} Plan`,
+          handler: async (response: any) => {
+            try {
+              // Refresh session and redirect to billing
+              await supabaseClient().auth.refreshSession();
+              await new Promise(resolve => setTimeout(resolve, 500));
+              router.push('/dashboard/billing');
+            } catch (err) {
+              setTrialMessage('Payment successful. Please refresh the page.');
+            }
+          },
+          modal: {
+            ondismiss: () => {
+              setTrialMessage('Payment cancelled. You can try again anytime.');
+            },
+          },
+          theme: { color: '#0052CC' },
+        }).open();
+      }
+    } catch (err: any) {
+      setTrialMessage(err?.message || 'Failed to process subscription. Please try again.');
+      console.error('Subscription error:', err);
+    }
+  }
 
   const cartItems = React.useMemo(() => {
     const items = Object.entries(cart)
@@ -526,8 +610,20 @@ export default function PricingPage() {
                   savings={savings}
                   items={items}
                   highlight={plan.name.toLowerCase().includes('growth') || plan.name.toLowerCase().includes('popular')}
-                  actionLabel={company?.subscription_status ? "Go to Billing" : "Start Free Trial"}
-                  onAction={company?.subscription_status ? () => router.push('/dashboard/billing') : startFreeTrial}
+                  actionLabel={
+                    company?.subscription_status === 'trial' || company?.subscription_status === 'TRIAL'
+                      ? `Subscribe to ${plan.name}`
+                      : company?.subscription_status
+                      ? "Go to Billing"
+                      : "Start Free Trial"
+                  }
+                  onAction={
+                    company?.subscription_status === 'trial' || company?.subscription_status === 'TRIAL'
+                      ? () => subscribeToPlan(plan)
+                      : company?.subscription_status
+                      ? () => router.push('/dashboard/billing')
+                      : startFreeTrial
+                  }
                   disabled={!trialEligible}
                   disabledReason={trialDisabledReason}
                 />
