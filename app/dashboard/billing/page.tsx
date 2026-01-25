@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { formatCurrency, PRICING } from '@/lib/billingConfig';
@@ -98,6 +99,7 @@ function SeatSummaryDisplay({ company }: { company: any }) {
 }
 
 export default function BillingPage() {
+  const router = useRouter();
   const { subscription, add_ons, loading: subscriptionLoading, refresh } = useSubscription();
   const [message, setMessage] = useState<string | null>(null);
   const [invoices, setInvoices] = useState<any[]>([]);
@@ -106,6 +108,8 @@ export default function BillingPage() {
   const [company, setCompany] = useState<any>(null);
   const [trialUsed, setTrialUsed] = useState<boolean | null>(null);
   const [usageData, setUsageData] = useState<any>(null);
+  const [cancelLoading, setCancelLoading] = useState(false);
+  const [resumeLoading, setResumeLoading] = useState(false);
 
   const fetchInvoices = useCallback(async () => {
     setInvoicesLoading(true);
@@ -172,6 +176,50 @@ export default function BillingPage() {
     fetchInvoices();
   }, [fetchInvoices]);
 
+  const handleCancelSubscription = async () => {
+    const confirmed = window.confirm(
+      'Are you sure you want to cancel your subscription? This will stop auto-renewal at the end of your current billing period. You can resume anytime before the period ends.'
+    );
+    if (!confirmed) return;
+
+    setCancelLoading(true);
+    setMessage(null);
+    try {
+      const res = await fetch('/api/billing/subscription/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ at_period_end: true }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || 'Cancel failed');
+      setMessage('✅ Subscription cancellation requested (end of billing period).');
+      await refresh();
+    } catch (e: any) {
+      setMessage(e.message || String(e));
+    } finally {
+      setCancelLoading(false);
+    }
+  };
+
+  const handleResumeSubscription = async () => {
+    setResumeLoading(true);
+    setMessage(null);
+    try {
+      const res = await fetch('/api/billing/subscription/resume', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || 'Resume failed');
+      setMessage('✅ Subscription resumed successfully.');
+      await refresh();
+    } catch (e: any) {
+      setMessage(e.message || String(e) || 'Failed to resume subscription. Please contact support.');
+    } finally {
+      setResumeLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-6 max-w-5xl">
       <h1 className="text-2xl font-bold">Billing & Usage</h1>
@@ -217,9 +265,15 @@ export default function BillingPage() {
                       ? 'bg-green-600' 
                       : subscription.status === 'ACTIVE'
                       ? 'bg-blue-600'
+                      : subscription.status === 'CANCELLED' || subscription.status === 'PAUSED'
+                      ? 'bg-orange-600'
                       : 'bg-red-600'
                   }`}>
-                    {subscription.status === 'TRIAL' ? '🎉 Trial' : subscription.status}
+                    {subscription.status === 'TRIAL' 
+                      ? '🎉 Trial Active' 
+                      : subscription.status === 'CANCELLED' || subscription.status === 'PAUSED'
+                      ? '⚠️ Subscription Cancelled'
+                      : subscription.status}
                   </Badge>
                 </div>
 
@@ -246,10 +300,26 @@ export default function BillingPage() {
                   </div>
                 )}
 
-                {subscription.current_period_end && subscription.status === 'ACTIVE' && (
-                  <div className="p-4 bg-blue-50 border-2 border-blue-300 rounded-lg">
-                    <div className="text-sm text-blue-800 font-semibold mb-1">⏰ Billing Period</div>
-                    <div className="text-2xl font-bold text-blue-900">
+                {subscription.current_period_end && (subscription.status === 'ACTIVE' || subscription.status === 'CANCELLED' || subscription.status === 'PAUSED') && (
+                  <div className={`p-4 border-2 rounded-lg ${
+                    subscription.status === 'CANCELLED' || subscription.status === 'PAUSED'
+                      ? 'bg-orange-50 border-orange-300'
+                      : 'bg-blue-50 border-blue-300'
+                  }`}>
+                    <div className={`text-sm font-semibold mb-1 ${
+                      subscription.status === 'CANCELLED' || subscription.status === 'PAUSED'
+                        ? 'text-orange-800'
+                        : 'text-blue-800'
+                    }`}>
+                      {subscription.status === 'CANCELLED' || subscription.status === 'PAUSED'
+                        ? '⏰ Access Active Until'
+                        : '⏰ Billing Period'}
+                    </div>
+                    <div className={`text-2xl font-bold ${
+                      subscription.status === 'CANCELLED' || subscription.status === 'PAUSED'
+                        ? 'text-orange-900'
+                        : 'text-blue-900'
+                    }`}>
                       {(() => {
                         const now = new Date();
                         const endDate = new Date(subscription.current_period_end);
@@ -257,8 +327,15 @@ export default function BillingPage() {
                         return `${daysLeft} days left`;
                       })()}
                     </div>
-                    <div className="text-xs text-blue-700 mt-2">
-                      Ends: {new Date(subscription.current_period_end).toLocaleDateString('en-IN', {
+                    <div className={`text-xs mt-2 ${
+                      subscription.status === 'CANCELLED' || subscription.status === 'PAUSED'
+                        ? 'text-orange-700'
+                        : 'text-blue-700'
+                    }`}>
+                      {subscription.status === 'CANCELLED' || subscription.status === 'PAUSED'
+                        ? 'Access will end: '
+                        : 'Ends: '}
+                      {new Date(subscription.current_period_end).toLocaleDateString('en-IN', {
                         day: 'numeric',
                         month: 'long',
                         year: 'numeric',
@@ -266,6 +343,11 @@ export default function BillingPage() {
                         minute: '2-digit'
                       })}
                     </div>
+                    {(subscription.status === 'CANCELLED' || subscription.status === 'PAUSED') && (
+                      <div className="text-xs text-orange-700 mt-2 font-medium">
+                        Resume subscription to continue access after this date.
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -302,22 +384,47 @@ export default function BillingPage() {
 
             {/* Action Buttons */}
             <div className="grid md:grid-cols-2 gap-3 pt-4 border-t">
-              <Button 
-                asChild 
-                variant="outline" 
-                size="lg" 
-                className="w-full"
-                disabled={subscription.status === 'PAUSED' || subscription.status === 'CANCELLED' || subscription.status === 'EXPIRED'}
-              >
-                <Link href="/pricing">
-                  <span className="text-base">Change Plan</span>
-                </Link>
-              </Button>
-              {(subscription.status === 'ACTIVE' || subscription.status === 'TRIAL') && (
-                <Button asChild variant="destructive" size="lg" className="w-full">
-                  <Link href="/dashboard/billing/cancel">
-                    <span className="text-base">Cancel Subscription</span>
-                  </Link>
+              {/* Upgrade/Change Plan Button - Always visible except for EXPIRED */}
+              {subscription.status !== 'EXPIRED' && (
+                <Button 
+                  onClick={() => router.push('/pricing')}
+                  variant={subscription.status === 'TRIAL' ? 'default' : 'outline'}
+                  size="lg" 
+                  className="w-full"
+                >
+                  <span className="text-base">
+                    {subscription.status === 'TRIAL' ? 'Upgrade Plan' : 'Change / Upgrade Plan'}
+                  </span>
+                </Button>
+              )}
+
+              {/* Cancel Button - Only for TRIAL and ACTIVE */}
+              {(subscription.status === 'TRIAL' || subscription.status === 'ACTIVE') && (
+                <Button 
+                  onClick={handleCancelSubscription}
+                  disabled={cancelLoading}
+                  variant="destructive" 
+                  size="lg" 
+                  className="w-full"
+                >
+                  <span className="text-base">
+                    {cancelLoading ? 'Processing...' : 'Cancel Subscription'}
+                  </span>
+                </Button>
+              )}
+
+              {/* Resume Button - Only for CANCELLED or PAUSED */}
+              {(subscription.status === 'CANCELLED' || subscription.status === 'PAUSED') && (
+                <Button 
+                  onClick={handleResumeSubscription}
+                  disabled={resumeLoading}
+                  variant="default" 
+                  size="lg" 
+                  className="w-full bg-green-600 hover:bg-green-700"
+                >
+                  <span className="text-base">
+                    {resumeLoading ? 'Processing...' : 'Resume Subscription'}
+                  </span>
                 </Button>
               )}
             </div>
