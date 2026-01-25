@@ -267,6 +267,48 @@ async function handleSimpleTrialActivation(payment_id: string, company_id: strin
     }
   }
 
+  // FIX: Create company_subscriptions record so billing page can show trial details
+  // Get starter monthly plan ID
+  const { data: starterPlan, error: planError } = await supabase
+    .from('subscription_plans')
+    .select('id')
+    .eq('name', 'Starter')
+    .eq('billing_cycle', 'monthly')
+    .maybeSingle();
+
+  if (planError) {
+    console.error('Failed to find starter plan:', planError);
+    // Continue - subscription can be created later
+  } else if (starterPlan) {
+    // Check if subscription already exists (idempotency)
+    const { data: existingSubscription } = await supabase
+      .from('company_subscriptions')
+      .select('id')
+      .eq('company_id', company_id)
+      .eq('status', 'TRIAL')
+      .maybeSingle();
+
+    if (!existingSubscription && starterPlan.id) {
+      // Create subscription record
+      const { error: subError } = await supabase
+        .from('company_subscriptions')
+        .insert({
+          company_id: company_id,
+          plan_id: starterPlan.id,
+          status: 'TRIAL',
+          trial_end: trialEndDate.toISOString(),
+          current_period_end: trialEndDate.toISOString(),
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        });
+
+      if (subError) {
+        console.error('Failed to create subscription record:', subError);
+        // Continue - trial activated, subscription can be created manually if needed
+      }
+    }
+  }
+
   // BLOCKER 4: Audit log for trial activation
   try {
     await writeAuditLog({

@@ -325,8 +325,22 @@ export default function PricingPage() {
   async function checkoutCart() {
     setCheckoutMessage(null);
 
-    if (cartItems.length === 0) {
-      setCheckoutMessage("Cart is empty.");
+    // Recalculate cartItems to ensure we have latest state
+    const currentCartItems = Object.entries(cart)
+      .map(([key, qty]) => {
+        const addon = addOns.find((a) => {
+          const addonKey = a.name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+          return addonKey === key;
+        });
+        if (!addon) return null;
+        const quantity = Number(qty);
+        if (!Number.isInteger(quantity) || quantity <= 0) return null;
+        return { addon, qty: quantity };
+      })
+      .filter(Boolean) as Array<{ addon: AddOnAPI; qty: number }>;
+
+    if (currentCartItems.length === 0) {
+      setCheckoutMessage("Cart is empty. Please add items to cart first.");
       return;
     }
 
@@ -348,7 +362,7 @@ export default function PricingPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           company_id: companyId,
-          items: cartItems.map((i) => {
+          items: currentCartItems.map((i) => {
             const key = i.addon.name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
             return { kind: key, qty: i.qty };
           }),
@@ -374,7 +388,7 @@ export default function PricingPage() {
         amount: order.amount,
         currency: "INR",
         name: "RxTrace",
-        description: `Add-ons cart (${cartItems.length} item${cartItems.length === 1 ? "" : "s"})`,
+        description: `Add-ons cart (${currentCartItems.length} item${currentCartItems.length === 1 ? "" : "s"})`,
         handler: async (response: any) => {
           try {
             const activateRes = await fetch("/api/addons/activate", {

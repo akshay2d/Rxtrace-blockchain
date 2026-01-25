@@ -1,12 +1,14 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { formatCurrency, PRICING } from '@/lib/billingConfig';
 import { normalizePlanType } from '@/lib/billing/period';
 import { useSubscription } from '@/lib/hooks/useSubscription';
 import { Badge } from '@/components/ui/badge';
+import { supabaseClient } from '@/lib/supabase/client';
 
 // Seat summary component (inline for billing page)
 function SeatSummaryDisplay({ company }: { company: any }) {
@@ -102,6 +104,7 @@ export default function BillingPage() {
   const [invoicesLoading, setInvoicesLoading] = useState(false);
   const [trialInvoice, setTrialInvoice] = useState<any>(null);
   const [company, setCompany] = useState<any>(null);
+  const [trialUsed, setTrialUsed] = useState<boolean | null>(null);
 
   const fetchInvoices = useCallback(async () => {
     setInvoicesLoading(true);
@@ -142,6 +145,19 @@ export default function BillingPage() {
         const data = await res.json();
         if (res.ok && data.company_name) {
           setCompany({ company_name: data.company_name, id: data.company_id });
+        }
+
+        // Check if company has used trial before
+        const supabase = supabaseClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const { data: companyData } = await supabase
+            .from('companies')
+            .select('trial_activated_at')
+            .eq('user_id', user.id)
+            .maybeSingle();
+          
+          setTrialUsed(!!companyData?.trial_activated_at);
         }
       } catch (err) {
         console.error('Failed to fetch company:', err);
@@ -272,15 +288,15 @@ export default function BillingPage() {
                 className="w-full"
                 disabled={subscription.status === 'PAUSED' || subscription.status === 'CANCELLED' || subscription.status === 'EXPIRED'}
               >
-                <a href="/pricing">
+                <Link href="/pricing">
                   <span className="text-base">Change Plan</span>
-                </a>
+                </Link>
               </Button>
-              {subscription.status === 'ACTIVE' && (
+              {(subscription.status === 'ACTIVE' || subscription.status === 'TRIAL') && (
                 <Button asChild variant="destructive" size="lg" className="w-full">
-                  <a href="/dashboard/billing/cancel">
+                  <Link href="/dashboard/billing/cancel">
                     <span className="text-base">Cancel Subscription</span>
-                  </a>
+                  </Link>
                 </Button>
               )}
             </div>
@@ -292,9 +308,15 @@ export default function BillingPage() {
           <CardContent className="pt-6">
             <div className="text-center py-8">
               <p className="text-gray-600 mb-4">No active subscription</p>
-              <Button asChild>
-                <a href="/pricing">Choose a Plan</a>
-              </Button>
+              {trialUsed === false ? (
+                <Button asChild className="bg-green-600 hover:bg-green-700">
+                  <Link href="/pricing">Start Free Trial</Link>
+                </Button>
+              ) : (
+                <Button asChild>
+                  <Link href="/pricing">Choose a Plan</Link>
+                </Button>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -394,7 +416,7 @@ export default function BillingPage() {
               Purchase additional seats or labels from the pricing page.
             </div>
             <Button asChild size="sm" variant="outline" className="border-gray-300">
-              <a href="/pricing">Buy Add-ons</a>
+              <Link href="/pricing">Buy Add-ons</Link>
             </Button>
           </div>
         </CardContent>
