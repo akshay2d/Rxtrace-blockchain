@@ -7,13 +7,21 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { supabaseClient } from '@/lib/supabase/client';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, RefreshCw, TrendingUp, Users, FileText } from 'lucide-react';
+import { ArrowLeft, RefreshCw, TrendingUp, Users, FileText, Tag, X, Save } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
 import { UsageMeter } from '@/components/usage/UsageMeter';
 
 type Company = {
   id: string;
   company_name: string;
   created_at: string;
+  discount_type?: 'percentage' | 'flat' | null;
+  discount_value?: number | null;
+  discount_applies_to?: 'subscription' | 'addon' | 'both' | null;
+  discount_notes?: string | null;
 };
 
 type UsageData = {
@@ -119,6 +127,10 @@ export default function CompanyDetailPage() {
             <FileText className="w-4 h-4 mr-2" />
             Subscription
           </TabsTrigger>
+          <TabsTrigger value="discounts">
+            <Tag className="w-4 h-4 mr-2" />
+            Discounts
+          </TabsTrigger>
         </TabsList>
 
         {/* Usage Tab */}
@@ -220,7 +232,176 @@ export default function CompanyDetailPage() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* Discounts Tab */}
+        <TabsContent value="discounts" className="space-y-4">
+          <CompanyDiscountManager company={company} onUpdate={fetchData} />
+        </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+function CompanyDiscountManager({ company, onUpdate }: { company: Company; onUpdate: () => void }) {
+  const [discountType, setDiscountType] = useState<string>(company.discount_type || '');
+  const [discountValue, setDiscountValue] = useState<string>(company.discount_value?.toString() || '');
+  const [discountAppliesTo, setDiscountAppliesTo] = useState<string>(company.discount_applies_to || 'both');
+  const [discountNotes, setDiscountNotes] = useState<string>(company.discount_notes || '');
+  const [saving, setSaving] = useState(false);
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      const res = await fetch('/api/admin/companies/discount', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          company_id: company.id,
+          discount_type: discountType || null,
+          discount_value: discountValue ? parseFloat(discountValue) : null,
+          discount_applies_to: discountAppliesTo || null,
+          discount_notes: discountNotes || null,
+        }),
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        alert('Discount updated successfully');
+        onUpdate();
+      } else {
+        alert('Failed to update: ' + data.error);
+      }
+    } catch (err: any) {
+      alert('Error: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleRemove() {
+    if (!confirm('Are you sure you want to remove this discount? This action cannot be undone.')) {
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/admin/companies/discount?company_id=${company.id}`, {
+        method: 'DELETE',
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        alert('Discount removed successfully');
+        setDiscountType('');
+        setDiscountValue('');
+        setDiscountAppliesTo('both');
+        setDiscountNotes('');
+        onUpdate();
+      } else {
+        alert('Failed to remove: ' + data.error);
+      }
+    } catch (err: any) {
+      alert('Error: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const hasDiscount = company.discount_type && company.discount_value;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Direct Company Discount</CardTitle>
+        <p className="text-sm text-gray-600 mt-1">
+          Set a permanent discount for this company. This discount will be automatically applied to all purchases.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {hasDiscount && (
+          <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <div className="flex justify-between items-start">
+              <div>
+                <p className="font-semibold text-blue-900">Current Discount</p>
+                <p className="text-sm text-blue-700 mt-1">
+                  {company.discount_type === 'percentage' 
+                    ? `${company.discount_value}% off`
+                    : `₹${company.discount_value} off`}
+                </p>
+                <p className="text-xs text-blue-600 mt-1">
+                  Applies to: {company.discount_applies_to || 'both'}
+                </p>
+                {company.discount_notes && (
+                  <p className="text-xs text-blue-600 mt-1">Notes: {company.discount_notes}</p>
+                )}
+              </div>
+              <Button variant="destructive" size="sm" onClick={handleRemove} disabled={saving}>
+                <X className="w-4 h-4 mr-1" />
+                Remove
+              </Button>
+            </div>
+          </div>
+        )}
+
+        <div className="grid md:grid-cols-2 gap-4">
+          <div>
+            <Label>Discount Type</Label>
+            <Select value={discountType} onValueChange={setDiscountType}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select type" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="percentage">Percentage (%)</SelectItem>
+                <SelectItem value="flat">Flat Amount (₹)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label>Discount Value</Label>
+            <Input
+              type="number"
+              step="0.01"
+              value={discountValue}
+              onChange={(e) => setDiscountValue(e.target.value)}
+              placeholder={discountType === 'percentage' ? 'e.g. 20' : 'e.g. 500'}
+            />
+          </div>
+        </div>
+        <div>
+          <Label>Applies To</Label>
+          <Select value={discountAppliesTo} onValueChange={setDiscountAppliesTo}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="subscription">Subscription Only</SelectItem>
+              <SelectItem value="addon">Add-ons Only</SelectItem>
+              <SelectItem value="both">Both</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <Label>Notes (Optional)</Label>
+          <Textarea
+            value={discountNotes}
+            onChange={(e) => setDiscountNotes(e.target.value)}
+            placeholder="e.g. Enterprise deal, Loyalty discount, etc."
+            rows={3}
+          />
+        </div>
+        <div className="flex gap-2">
+          <Button onClick={handleSave} disabled={saving || !discountType || !discountValue}>
+            <Save className="w-4 h-4 mr-2" />
+            {hasDiscount ? 'Update Discount' : 'Set Discount'}
+          </Button>
+          {hasDiscount && (
+            <Button variant="destructive" onClick={handleRemove} disabled={saving}>
+              <X className="w-4 h-4 mr-2" />
+              Remove Discount
+            </Button>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 }

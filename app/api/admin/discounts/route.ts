@@ -112,3 +112,52 @@ export async function PUT(req: Request) {
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
 }
+
+// DELETE: Delete discount (removes from database)
+export async function DELETE(req: Request) {
+  try {
+    const supabase = getSupabaseAdmin();
+    const { searchParams } = new URL(req.url);
+    const id = searchParams.get('id');
+
+    if (!id) {
+      return NextResponse.json({ success: false, error: "id is required" }, { status: 400 });
+    }
+
+    // Get discount before deletion for audit
+    const { data: currentDiscount } = await supabase
+      .from("discounts")
+      .select("*")
+      .eq("id", id)
+      .single();
+
+    if (!currentDiscount) {
+      return NextResponse.json({ success: false, error: "Discount not found" }, { status: 404 });
+    }
+
+    // Remove all company assignments first
+    await supabase
+      .from("company_discounts")
+      .delete()
+      .eq("discount_id", id);
+
+    // Delete the discount
+    const { error } = await supabase
+      .from("discounts")
+      .delete()
+      .eq("id", id);
+
+    if (error) throw error;
+
+    // Log audit
+    await supabase.from("audit_logs").insert({
+      action: "DISCOUNT_DELETED",
+      old_value: currentDiscount,
+      metadata: { deleted_at: new Date().toISOString() },
+    });
+
+    return NextResponse.json({ success: true, message: "Discount deleted successfully" });
+  } catch (err: any) {
+    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+  }
+}

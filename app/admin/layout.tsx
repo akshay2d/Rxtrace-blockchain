@@ -3,7 +3,7 @@
 
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Shield, LogOut, Building2, Users, Activity, Database, BarChart, TrendingUp } from 'lucide-react';
+import { Shield, LogOut, Building2, Users, Activity, Database, BarChart, TrendingUp, Tag } from 'lucide-react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { supabaseClient } from '@/lib/supabase/client';
@@ -100,6 +100,13 @@ export default function AdminLayout({
               <Link href="/admin/add-ons">
                 <Button variant="ghost" className="w-full justify-start gap-3 hover:bg-orange-50">
                   <Shield className="h-5 w-5" /> Add-ons
+                </Button>
+              </Link>
+            </li>
+            <li>
+              <Link href="/admin/discounts">
+                <Button variant="ghost" className="w-full justify-start gap-3 hover:bg-orange-50">
+                  <Tag className="h-5 w-5" /> Discounts & Coupons
                 </Button>
               </Link>
             </li>
