@@ -11,6 +11,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 export default function CodeGenerationIndexPage() {
   const router = useRouter();
   const { subscription, isFeatureEnabled, loading } = useSubscription();
+  const canGenerate = isFeatureEnabled('code_generation');
 
   return (
     <div className="space-y-6">

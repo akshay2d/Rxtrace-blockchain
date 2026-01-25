@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { formatCurrency } from '@/lib/billingConfig';
+import { formatCurrency, PRICING } from '@/lib/billingConfig';
+import { normalizePlanType } from '@/lib/billing/period';
 import { useSubscription } from '@/lib/hooks/useSubscription';
 import { Badge } from '@/components/ui/badge';
 

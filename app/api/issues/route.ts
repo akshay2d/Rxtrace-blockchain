@@ -114,6 +114,21 @@ export async function POST(req: Request) {
     await assertCompanyCanOperate({ supabase: admin, companyId });
     await ensureActiveBillingUsage({ supabase: admin, companyId });
 
+    // Check usage limits before generation
+    const limitCheck = await checkUsageLimits(admin, companyId, 'UNIT', quantity);
+    if (!limitCheck.allowed) {
+      return NextResponse.json(
+        {
+          error: limitCheck.reason || 'Unit label limit exceeded',
+          code: 'limit_exceeded',
+          limit_type: limitCheck.limit_type,
+          current_usage: limitCheck.current_usage,
+          limit_value: limitCheck.limit_value,
+        },
+        { status: 403 }
+      );
+    }
+
     // Generate unit serials and GS1 payloads (before quota check)
     const items: Array<{ serial: string; gs1: string }> = [];
     const unitRows: Array<{
