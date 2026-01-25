@@ -108,6 +108,7 @@ export default function PricingPage() {
   const router = useRouter();
   const [companyId, setCompanyId] = React.useState<string | null>(null);
   const [company, setCompany] = React.useState<any>(null);
+  const [subscription, setSubscription] = React.useState<any>(null);
   const [cart, setCart] = React.useState<Record<string, number>>({});
   const [checkoutLoading, setCheckoutLoading] = React.useState(false);
   const [checkoutMessage, setCheckoutMessage] = React.useState<string | null>(null);
@@ -160,15 +161,29 @@ export default function PricingPage() {
         const user = data?.user;
         if (!user) return;
 
+        // Fetch company data
         const { data: company } = await supabase
           .from("companies")
           .select("id, subscription_status, trial_start_date, trial_end_date, trial_activated_at")
           .eq("user_id", user.id)
           .maybeSingle();
 
+        // Fetch subscription data from API (same source as billing page)
+        let subscriptionData = null;
+        try {
+          const subRes = await fetch('/api/user/subscription', { cache: 'no-store' });
+          if (subRes.ok) {
+            const subBody = await subRes.json();
+            subscriptionData = subBody.subscription || null;
+          }
+        } catch (subErr) {
+          console.log('Failed to fetch subscription:', subErr);
+        }
+
         if (!cancelled) {
           setCompany(company ?? null);
           setCompanyId((company as any)?.id ?? null);
+          setSubscription(subscriptionData);
         }
       } catch {
         // ignore
@@ -288,8 +303,11 @@ export default function PricingPage() {
       return;
     }
 
-    // Check if user is in trial
-    if (company?.subscription_status !== 'trial' && company?.subscription_status !== 'TRIAL') {
+    // Check if user is in trial (check both company table and subscription table)
+    const isTrial = (company?.subscription_status === 'trial' || company?.subscription_status === 'TRIAL') ||
+                    (subscription?.status === 'TRIAL');
+    
+    if (!isTrial) {
       router.push('/dashboard/billing');
       return;
     }
@@ -611,16 +629,16 @@ export default function PricingPage() {
                   items={items}
                   highlight={plan.name.toLowerCase().includes('growth') || plan.name.toLowerCase().includes('popular')}
                   actionLabel={
-                    company?.subscription_status === 'trial' || company?.subscription_status === 'TRIAL'
+                    (company?.subscription_status === 'trial' || company?.subscription_status === 'TRIAL' || subscription?.status === 'TRIAL')
                       ? `Subscribe to ${plan.name}`
-                      : company?.subscription_status
+                      : (company?.subscription_status || subscription?.status)
                       ? "Go to Billing"
                       : "Start Free Trial"
                   }
                   onAction={
-                    company?.subscription_status === 'trial' || company?.subscription_status === 'TRIAL'
+                    (company?.subscription_status === 'trial' || company?.subscription_status === 'TRIAL' || subscription?.status === 'TRIAL')
                       ? () => subscribeToPlan(plan)
-                      : company?.subscription_status
+                      : (company?.subscription_status || subscription?.status)
                       ? () => router.push('/dashboard/billing')
                       : startFreeTrial
                   }
