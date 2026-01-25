@@ -872,7 +872,7 @@ export default function PricingPage() {
               <button
                 type="button"
                 onClick={clearCart}
-                disabled={cartItems.length === 0 || checkoutLoading}
+                disabled={Object.keys(cart).length === 0 || checkoutLoading}
                 className="text-sm underline text-slate-700 disabled:opacity-50"
               >
                 Clear cart
@@ -880,10 +880,10 @@ export default function PricingPage() {
               <button
                 type="button"
                 onClick={checkoutCart}
-                disabled={cartItems.length === 0 || checkoutLoading || cartTotalPaise === 0}
+                disabled={Object.keys(cart).length === 0 || checkoutLoading}
                 className="px-5 py-2.5 rounded-lg font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {checkoutLoading ? "Processing…" : cartItems.length === 0 ? "Add items to cart" : `Checkout (${formatINRFromPaise(cartTotalPaise)})`}
+                {checkoutLoading ? "Processing…" : Object.keys(cart).length === 0 ? "Add items to cart" : `Checkout (${formatINRFromPaise(cartTotalPaise)})`}
               </button>
             </div>
           </div>
@@ -900,7 +900,7 @@ export default function PricingPage() {
             </div>
           ) : null}
 
-          {cartItems.length === 0 ? (
+          {Object.keys(cart).length === 0 ? (
             <div className="mt-4 text-sm text-slate-600">No items added yet.</div>
           ) : (
             <div className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-white">
