@@ -1,16 +1,15 @@
 // components/ui/sonner.tsx
 "use client"
 
-import { useTheme } from "next-themes"
 import { Toaster as Sonner, ToasterProps } from "sonner"
 import { CircleCheckIcon, InfoIcon, Loader2Icon, OctagonXIcon, TriangleAlertIcon } from "lucide-react"
 
 const Toaster = ({ ...props }: ToasterProps) => {
-  const { theme = "system" } = useTheme()
-
+  // Remove useTheme dependency to avoid 404 errors if theme provider not set up
+  // Default to light theme
   return (
     <Sonner
-      theme={theme as ToasterProps["theme"]}
+      theme="light"
       className="toaster group"
       toastOptions={{
         classNames: {
