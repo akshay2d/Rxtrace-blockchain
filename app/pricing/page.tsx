@@ -308,16 +308,6 @@ export default function PricingPage() {
       return;
     }
 
-    // Check if user is in trial (check both company table and subscription table)
-    const isTrial = (company?.subscription_status === 'trial' || company?.subscription_status === 'TRIAL') ||
-                    (subscription?.status === 'TRIAL');
-    
-    if (!isTrial) {
-      setTrialMessage('You are not in trial. Redirecting to billing...');
-      setTimeout(() => router.push('/dashboard/billing'), 1000);
-      return;
-    }
-
     const ok = await loadRazorpay();
     if (!ok) {
       setTrialMessage('Razorpay failed to load. Please refresh and try again.');
@@ -481,8 +471,19 @@ export default function PricingPage() {
   async function checkoutCart() {
     setCheckoutMessage(null);
 
+    // Ensure addOns are loaded before checkout
+    if (!addOns || addOns.length === 0) {
+      setCheckoutMessage("Loading add-ons. Please wait a moment and try again.");
+      return;
+    }
+
+    // Check if cart has items
+    if (!cart || Object.keys(cart).length === 0) {
+      setCheckoutMessage("Cart is empty. Please add items to cart first.");
+      return;
+    }
+
     // ALWAYS recalculate from cart state to ensure we have latest data
-    // Don't rely on memoized cartItems - recalculate fresh
     const currentCartItems = Object.entries(cart)
       .map(([key, qty]) => {
         const addon = addOns.find((a) => {
@@ -502,20 +503,8 @@ export default function PricingPage() {
       })
       .filter(Boolean) as Array<{ addon: AddOnAPI; qty: number }>;
 
-    console.log('[Cart] Checkout - Fresh calculation:', { 
-      cart: cart,
-      cartKeys: Object.keys(cart), 
-      cartValues: Object.values(cart),
-      cartItemsMemoLength: cartItems.length,
-      addOnsCount: addOns.length, 
-      calculatedItemsCount: currentCartItems.length,
-      calculatedItems: currentCartItems 
-    });
-
     if (currentCartItems.length === 0) {
-      const errorMsg = `Cart is empty. Cart: ${JSON.stringify(cart)}, CartItems memo: ${cartItems.length}, AddOns: ${addOns.length}`;
-      console.error('[Cart]', errorMsg);
-      setCheckoutMessage("Cart is empty. Please add items to cart first.");
+      setCheckoutMessage("Cart items could not be processed. Please remove and re-add items.");
       return;
     }
 
@@ -684,36 +673,10 @@ export default function PricingPage() {
                   savings={savings}
                   items={items}
                   highlight={plan.name.toLowerCase().includes('growth') || plan.name.toLowerCase().includes('popular')}
-                  actionLabel={(() => {
-                    // Check trial status from both sources
-                    const isTrial = (company?.subscription_status === 'trial' || company?.subscription_status === 'TRIAL') || 
-                                   (subscription?.status === 'TRIAL');
-                    const hasSubscription = company?.subscription_status || subscription?.status;
-                    
-                    console.log('[Pricing] Plan button logic:', { 
-                      planName: plan.name,
-                      companyStatus: company?.subscription_status, 
-                      subscriptionStatus: subscription?.status,
-                      isTrial,
-                      hasSubscription
-                    });
-                    
-                    if (isTrial) return `Subscribe to ${plan.name}`;
-                    if (hasSubscription) return "Go to Billing";
-                    return "Start Free Trial";
-                  })()}
-                  onAction={(() => {
-                    // Check trial status from both sources
-                    const isTrial = (company?.subscription_status === 'trial' || company?.subscription_status === 'TRIAL') || 
-                                   (subscription?.status === 'TRIAL');
-                    const hasSubscription = company?.subscription_status || subscription?.status;
-                    
-                    if (isTrial) return () => subscribeToPlan(plan);
-                    if (hasSubscription) return () => router.push('/dashboard/billing');
-                    return startFreeTrial;
-                  })()}
-                  disabled={!trialEligible}
-                  disabledReason={trialDisabledReason}
+                  actionLabel={`Subscribe to ${plan.name}`}
+                  onAction={() => subscribeToPlan(plan)}
+                  disabled={false}
+                  disabledReason={null}
                 />
               );
             })}

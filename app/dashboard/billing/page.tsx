@@ -105,6 +105,7 @@ export default function BillingPage() {
   const [trialInvoice, setTrialInvoice] = useState<any>(null);
   const [company, setCompany] = useState<any>(null);
   const [trialUsed, setTrialUsed] = useState<boolean | null>(null);
+  const [usageData, setUsageData] = useState<any>(null);
 
   const fetchInvoices = useCallback(async () => {
     setInvoicesLoading(true);
@@ -138,13 +139,17 @@ export default function BillingPage() {
   }, []);
 
   useEffect(() => {
-    // Fetch company info for display
+    // Fetch company info and usage data for display
     const fetchCompany = async () => {
       try {
         const res = await fetch('/api/dashboard/stats');
         const data = await res.json();
-        if (res.ok && data.company_name) {
-          setCompany({ company_name: data.company_name, id: data.company_id });
+        if (res.ok) {
+          if (data.company_name) {
+            setCompany({ company_name: data.company_name, id: data.company_id });
+          }
+          // Store usage data for quota display
+          setUsageData(data);
         }
 
         // Check if company has used trial before
@@ -242,13 +247,23 @@ export default function BillingPage() {
                 )}
 
                 {subscription.current_period_end && subscription.status === 'ACTIVE' && (
-                  <div className="p-3 bg-blue-50 rounded-lg">
-                    <div className="text-xs text-gray-600">Current Period Ends:</div>
-                    <div className="text-sm font-semibold text-gray-900">
-                      {new Date(subscription.current_period_end).toLocaleDateString('en-IN', {
+                  <div className="p-4 bg-blue-50 border-2 border-blue-300 rounded-lg">
+                    <div className="text-sm text-blue-800 font-semibold mb-1">⏰ Billing Period</div>
+                    <div className="text-2xl font-bold text-blue-900">
+                      {(() => {
+                        const now = new Date();
+                        const endDate = new Date(subscription.current_period_end);
+                        const daysLeft = Math.max(0, Math.ceil((endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+                        return `${daysLeft} days left`;
+                      })()}
+                    </div>
+                    <div className="text-xs text-blue-700 mt-2">
+                      Ends: {new Date(subscription.current_period_end).toLocaleDateString('en-IN', {
                         day: 'numeric',
                         month: 'long',
-                        year: 'numeric'
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
                       })}
                     </div>
                   </div>
@@ -369,6 +384,47 @@ export default function BillingPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Quota Usage Summary */}
+      {subscription && usageData && (
+        <Card className="border-gray-200">
+          <CardHeader>
+            <CardTitle className="text-lg font-semibold text-gray-900">Quota Usage (Current Period)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {usageData.label_generation && (
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div className="p-3 bg-gray-50 rounded-lg">
+                    <div className="text-sm text-gray-600 mb-1">Unit Labels</div>
+                    <div className="text-lg font-semibold text-gray-900">
+                      {usageData.label_generation.unit || 0} used
+                    </div>
+                  </div>
+                  <div className="p-3 bg-gray-50 rounded-lg">
+                    <div className="text-sm text-gray-600 mb-1">Box Labels</div>
+                    <div className="text-lg font-semibold text-gray-900">
+                      {usageData.label_generation.box || 0} used
+                    </div>
+                  </div>
+                  <div className="p-3 bg-gray-50 rounded-lg">
+                    <div className="text-sm text-gray-600 mb-1">Carton Labels</div>
+                    <div className="text-lg font-semibold text-gray-900">
+                      {usageData.label_generation.carton || 0} used
+                    </div>
+                  </div>
+                  <div className="p-3 bg-gray-50 rounded-lg">
+                    <div className="text-sm text-gray-600 mb-1">Pallet Labels (SSCC)</div>
+                    <div className="text-lg font-semibold text-gray-900">
+                      {usageData.label_generation.pallet || 0} used
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Seat Usage Summary */}
       {company && (
