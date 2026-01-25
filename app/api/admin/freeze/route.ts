@@ -22,6 +22,16 @@ export async function POST(req: Request) {
       );
     }
 
+    // Get current status before update (for audit)
+    const { data: currentWallet } = await supabase
+      .from("company_wallets")
+      .select("status")
+      .eq("company_id", company_id)
+      .maybeSingle();
+
+    const oldStatus = currentWallet?.status || "ACTIVE";
+
+    // Update wallet status (freeze/unfreeze only - no balance changes)
     const { error } = await supabase
       .from("company_wallets")
       .upsert({
@@ -32,6 +42,22 @@ export async function POST(req: Request) {
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    // Log audit
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      await supabase.from("audit_logs").insert({
+        action: "COMPANY_FREEZE_TOGGLED",
+        company_id,
+        old_value: { status: oldStatus },
+        new_value: { status: newStatus },
+        performed_by: user?.id || null,
+        performed_by_email: user?.email || null,
+      });
+    } catch (auditErr: any) {
+      console.error("Audit log insert failed:", auditErr);
+      // Don't fail the freeze operation if audit logging fails
     }
 
     return NextResponse.json({

@@ -3,6 +3,7 @@ import { getSupabaseAdmin } from '@/lib/supabase/admin';
 import { assertCompanyCanOperate, ensureActiveBillingUsage } from '@/lib/billing/usage';
 import { supabaseServer } from '@/lib/supabase/server';
 import { refundQuotaBalance } from '@/lib/billing/quota';
+import { trackUsage, checkUsageLimits } from '@/lib/usage/tracking';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -212,6 +213,21 @@ export async function POST(req: Request) {
     if (generate_pallet) {
       // Pallets: number_of_pallets
       totalSSCCCount += number_of_pallets;
+    }
+
+    // Check usage limits (HARD limit blocks, SOFT limit warns)
+    const limitCheck = await checkUsageLimits(supabase, company_id, 'SSCC', totalSSCCCount);
+    if (!limitCheck.allowed) {
+      return NextResponse.json(
+        {
+          error: limitCheck.reason || 'SSCC label limit exceeded',
+          code: 'limit_exceeded',
+          limit_type: limitCheck.limit_type,
+          current_usage: limitCheck.current_usage,
+          limit_value: limitCheck.limit_value,
+        },
+        { status: 403 }
+      );
     }
 
     // Consume SSCC quota BEFORE generating labels
@@ -467,11 +483,23 @@ export async function POST(req: Request) {
     // TODO: Link parent-child relationships (box → carton, carton → pallet)
     // This requires updating boxes.carton_id and cartons.pallet_id
 
+    // Track usage (non-blocking)
+    trackUsage(supabase, {
+      company_id: company_id,
+      metric_type: 'SSCC',
+      quantity: totalSSCCCount,
+      source: 'api',
+      reference_id: `sscc_${skuUuid}_${Date.now()}`,
+    }).catch((err) => {
+      console.error('Usage tracking failed (non-blocking):', err);
+    });
+
     return NextResponse.json({
       boxes: insertedBoxes.data || [],
       cartons: insertedCartons.data || [],
       pallets: insertedPallets.data || [],
       total_sscc_generated: totalSSCCCount,
+      usage_warning: limitCheck.reason || undefined, // Include soft limit warning if applicable
     });
   } catch (err: any) {
     // If quota was consumed but an error occurred, try to refund

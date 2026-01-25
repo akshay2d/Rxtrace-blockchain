@@ -18,6 +18,7 @@ import QRCodeComponent from '@/components/custom/QRCodeComponent';
 import DataMatrixComponent from '@/components/custom/DataMatrixComponent';
 import { supabaseClient } from '@/lib/supabase/client';
 import { exportLabels as exportLabelsUtil, LabelData } from '@/lib/labelExporter';
+import { useSubscription } from '@/lib/hooks/useSubscription';
 
 // ---------- Types ----------
 type Gs1Fields = {
@@ -303,6 +304,8 @@ function exportUnitCodesCSV(batch: UnitBatchRow[]): void {
 
 // ---------- Main Component ----------
 export default function UnitCodeGenerationPage() {
+  const { subscription, isFeatureEnabled, loading: subscriptionLoading } = useSubscription();
+  const canGenerate = isFeatureEnabled('code_generation');
   const [form, setForm] = useState<UnitFormState>({
     sku: '',
     batch: '',
@@ -514,6 +517,11 @@ export default function UnitCodeGenerationPage() {
     setCsvValidation(null);
     setCsvFile(file);
 
+    if (!canGenerate) {
+      setError('Code generation is disabled. Please activate a subscription to use this feature.');
+      return;
+    }
+
     try {
       const text = await file.text();
       const parsed = Papa.parse<Record<string, string>>(text, { header: true, skipEmptyLines: true });
@@ -598,6 +606,20 @@ export default function UnitCodeGenerationPage() {
         <h1 className="text-3xl font-semibold text-gray-900 mb-1.5">Unit-Level Code Generation</h1>
         <p className="text-sm text-gray-600">Generate GS1-compliant unit-level codes for saleable packs</p>
       </div>
+
+      {/* Subscription Status Alert */}
+      {!subscriptionLoading && !canGenerate && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            Code generation is disabled. Your subscription is {subscription?.status || 'inactive'}. 
+            Please activate a subscription to use this feature.
+            <Button asChild variant="link" className="p-0 ml-2 h-auto">
+              <a href="/pricing">View Plans →</a>
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Action Relationship Info */}
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
@@ -806,7 +828,11 @@ export default function UnitCodeGenerationPage() {
               </div>
 
 
-              <Button onClick={handleGenerateSingle} className="w-full bg-blue-600 hover:bg-blue-700">
+              <Button 
+                onClick={handleGenerateSingle} 
+                className="w-full bg-blue-600 hover:bg-blue-700"
+                disabled={!canGenerate}
+              >
                 Generate Unit Codes
               </Button>
               <p className="text-xs text-gray-500 text-center mt-2">
@@ -866,7 +892,7 @@ export default function UnitCodeGenerationPage() {
                       if (file) handleCSVUpload(file);
                       e.currentTarget.value = '';
                     }}
-                    disabled={csvProcessing}
+                    disabled={csvProcessing || !canGenerate}
                   />
                   {csvFile && (
                     <Badge variant="outline" className="flex items-center gap-1">

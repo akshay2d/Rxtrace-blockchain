@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { supabaseServer } from "@/lib/supabase/server";
-import { PRICING, type PlanType } from "@/lib/billingConfig";
-import { normalizePlanType } from "@/lib/billing/period";
+import { canCreateSeat } from "@/lib/usage/seats";
 import { sendInvitationEmail } from "@/lib/email";
 
 export async function POST(req: Request) {
@@ -83,27 +82,16 @@ export async function POST(req: Request) {
       }
     }
 
-    // Prefer subscription_plan (source of truth for billing) over legacy columns.
-    const planRaw = company?.subscription_plan ?? company?.plan_type ?? company?.plan ?? company?.tier;
-    const planType = normalizePlanType(planRaw);
-    const extra = Number((company as any)?.extra_user_seats ?? 0);
-    const maxSeats = (planType ? PRICING.plans[planType].max_seats : 1) + (Number.isFinite(extra) ? extra : 0);
-
-    const { count: usedSeats, error: usedSeatsError } = await supabase
-      .from("seats")
-      .select("*", { count: "exact", head: true })
-      .eq("company_id", company_id)
-      .in("status", ["active", "pending"]);
-
-    if (usedSeatsError) {
-      return NextResponse.json({ error: usedSeatsError.message }, { status: 500 });
-    }
-
-    if ((usedSeats ?? 0) >= maxSeats) {
+    // Enforce seat limits using subscription system
+    const seatCheck = await canCreateSeat(supabase, company_id);
+    if (!seatCheck.allowed) {
       return NextResponse.json(
         { 
-          error: "User ID limit reached. Upgrade your plan or purchase additional User IDs.",
-          requires_payment: true 
+          error: seatCheck.reason || "User ID limit reached. Upgrade your plan or purchase additional User IDs.",
+          requires_payment: true,
+          max_seats: seatCheck.max_seats,
+          used_seats: seatCheck.used_seats,
+          available_seats: seatCheck.available_seats,
         },
         { status: 403 }
       );

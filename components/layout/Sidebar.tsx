@@ -9,14 +9,15 @@ import {
   Package,
   QrCode,
   Boxes,
+  Search,
   ScanLine,
   FileText,
+  Users,
   CreditCard,
   Settings,
   HelpCircle,
   ChevronLeft,
   ChevronRight,
-  Smartphone,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -26,7 +27,6 @@ const MENU = [
   { label: "Code Generation", path: "/dashboard/code-generation", icon: QrCode },
   { label: "Trace Hierarchy", path: "/dashboard/search", icon: Boxes },
   { label: "Scan Logs", path: "/dashboard/scans", icon: ScanLine },
-  { label: "Handsets", path: "/dashboard/handset", icon: Smartphone },
   { label: "Reports", path: "/dashboard/audit", icon: FileText },
   { label: "Billing", path: "/dashboard/billing", icon: CreditCard },
   { label: "Help & Support", path: "/dashboard/help", icon: HelpCircle },

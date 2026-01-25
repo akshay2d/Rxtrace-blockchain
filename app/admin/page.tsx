@@ -27,6 +27,27 @@ type Stats = {
   last24h: number;
 };
 
+type RevenueStats = {
+  mrr: number;
+  arr: number;
+  add_on_mrr: number;
+  total_mrr: number;
+  revenue_by_plan: Record<string, number>;
+  revenue_by_addon: Record<string, number>;
+  total_refunds: number;
+  active_subscriptions: number;
+};
+
+type SubscriptionStats = {
+  status_breakdown: Record<string, number>;
+  total_subscriptions: number;
+  active_subscriptions: number;
+  trial_to_active_conversions: number;
+  conversion_rate: number;
+  churned_subscriptions: number;
+  churn_rate: number;
+};
+
 export default function AdminDashboard() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(false);
@@ -40,6 +61,8 @@ export default function AdminDashboard() {
     invalidScans: 0,
     last24h: 0
   });
+  const [revenueStats, setRevenueStats] = useState<RevenueStats | null>(null);
+  const [subscriptionStats, setSubscriptionStats] = useState<SubscriptionStats | null>(null);
 
   useEffect(() => {
     fetchData();
@@ -81,6 +104,28 @@ export default function AdminDashboard() {
           invalidScans: logsData.filter(s => s.metadata?.status === 'INVALID').length,
           last24h: logsData.filter(s => new Date(s.scanned_at) > yesterday).length
         });
+      }
+
+      // Fetch revenue analytics
+      try {
+        const revenueRes = await fetch('/api/admin/analytics/revenue');
+        const revenueData = await revenueRes.json();
+        if (revenueData.success) {
+          setRevenueStats(revenueData);
+        }
+      } catch (err) {
+        console.error('Failed to fetch revenue stats:', err);
+      }
+
+      // Fetch subscription analytics
+      try {
+        const subRes = await fetch('/api/admin/analytics/subscriptions');
+        const subData = await subRes.json();
+        if (subData.success) {
+          setSubscriptionStats(subData);
+        }
+      } catch (err) {
+        console.error('Failed to fetch subscription stats:', err);
       }
     } catch (error) {
       console.error('Error:', error);
@@ -203,6 +248,76 @@ export default function AdminDashboard() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Revenue Analytics */}
+      {revenueStats && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <TrendingUp className="w-5 h-5" /> Revenue Analytics
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+                <div className="text-sm text-gray-600 mb-1">Monthly Recurring Revenue</div>
+                <div className="text-2xl font-bold text-blue-700">₹{revenueStats.mrr.toLocaleString('en-IN')}</div>
+              </div>
+              <div className="p-4 bg-green-50 rounded-lg border border-green-200">
+                <div className="text-sm text-gray-600 mb-1">Annual Recurring Revenue</div>
+                <div className="text-2xl font-bold text-green-700">₹{revenueStats.arr.toLocaleString('en-IN')}</div>
+              </div>
+              <div className="p-4 bg-purple-50 rounded-lg border border-purple-200">
+                <div className="text-sm text-gray-600 mb-1">Add-on MRR</div>
+                <div className="text-2xl font-bold text-purple-700">₹{revenueStats.add_on_mrr.toLocaleString('en-IN')}</div>
+              </div>
+              <div className="p-4 bg-orange-50 rounded-lg border border-orange-200">
+                <div className="text-sm text-gray-600 mb-1">Total MRR</div>
+                <div className="text-2xl font-bold text-orange-700">₹{revenueStats.total_mrr.toLocaleString('en-IN')}</div>
+              </div>
+            </div>
+            <div className="mt-4 pt-4 border-t">
+              <div className="text-sm font-semibold text-gray-700 mb-2">Active Subscriptions: {revenueStats.active_subscriptions}</div>
+              {revenueStats.total_refunds > 0 && (
+                <div className="text-sm text-red-600">Total Refunds: ₹{revenueStats.total_refunds.toLocaleString('en-IN')}</div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Subscription Analytics */}
+      {subscriptionStats && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Users className="w-5 h-5" /> Subscription Analytics
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid md:grid-cols-2 lg:grid-cols-5 gap-4 mb-4">
+              {Object.entries(subscriptionStats.status_breakdown).map(([status, count]) => (
+                <div key={status} className="p-4 bg-gray-50 rounded-lg border">
+                  <div className="text-sm text-gray-600 mb-1">{status}</div>
+                  <div className="text-2xl font-bold text-gray-900">{count}</div>
+                </div>
+              ))}
+            </div>
+            <div className="grid md:grid-cols-2 gap-4 pt-4 border-t">
+              <div>
+                <div className="text-sm text-gray-600 mb-1">Conversion Rate</div>
+                <div className="text-xl font-bold text-green-600">{subscriptionStats.conversion_rate}%</div>
+                <div className="text-xs text-gray-500 mt-1">{subscriptionStats.trial_to_active_conversions} trial → active</div>
+              </div>
+              <div>
+                <div className="text-sm text-gray-600 mb-1">Churn Rate</div>
+                <div className="text-xl font-bold text-red-600">{subscriptionStats.churn_rate}%</div>
+                <div className="text-xs text-gray-500 mt-1">{subscriptionStats.churned_subscriptions} churned</div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Companies List */}
       <Card>

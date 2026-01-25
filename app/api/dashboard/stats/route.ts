@@ -157,17 +157,6 @@ export async function GET() {
       console.warn('Could not fetch recent activity:', activityErr.message);
     }
 
-    // Wallet
-    const { data: walletRow, error: walletErr } = await supabase
-      .from('company_wallets')
-      .select('balance, credit_limit, status, updated_at')
-      .eq('company_id', companyId)
-      .maybeSingle();
-
-    if (walletErr) {
-      return NextResponse.json({ error: walletErr.message }, { status: 500 });
-    }
-
     return NextResponse.json({
       company_id: companyId,
       company_name: company.company_name ?? null,
@@ -188,12 +177,6 @@ export async function GET() {
         box: activeUsage ? toNumber((activeUsage as any).box_labels_used) : 0,
         carton: activeUsage ? toNumber((activeUsage as any).carton_labels_used) : 0,
         pallet: activeUsage ? toNumber((activeUsage as any).pallet_labels_used) : 0,
-      },
-      wallet: {
-        balance: walletRow?.balance ?? 0,
-        credit_limit: walletRow?.credit_limit ?? 10000,
-        status: walletRow?.status ?? 'ACTIVE',
-        updated_at: walletRow?.updated_at ?? null,
       },
       recent_activity: recentActivity ?? [],
     });

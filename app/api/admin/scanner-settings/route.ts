@@ -7,14 +7,10 @@ export const revalidate = 0;
 
 const HEAD_ACTIVATION_ENABLED = 'scanner_activation_enabled';
 const HEAD_SCANNING_ENABLED = 'scanner_scanning_enabled';
-const HEAD_SSCC_SCANNING_ENABLED = 'scanner_sscc_scanning_enabled';
-const HEAD_REGISTRATION_ENABLED = 'scanner_registration_enabled';
 
 type ScannerSettings = {
   activation_enabled: boolean;
   scanning_enabled: boolean;
-  sscc_scanning_enabled: boolean;
-  registration_enabled: boolean;
 };
 
 async function resolveCompanyIdFromRequest(req: Request): Promise<string | null> {
@@ -65,10 +61,6 @@ function readSettingsFromHeads(heads: Record<string, any>): ScannerSettings {
       heads[HEAD_ACTIVATION_ENABLED] === undefined ? true : !!heads[HEAD_ACTIVATION_ENABLED],
     scanning_enabled:
       heads[HEAD_SCANNING_ENABLED] === undefined ? true : !!heads[HEAD_SCANNING_ENABLED],
-    sscc_scanning_enabled:
-      heads[HEAD_SSCC_SCANNING_ENABLED] === undefined ? true : !!heads[HEAD_SSCC_SCANNING_ENABLED],
-    registration_enabled:
-      heads[HEAD_REGISTRATION_ENABLED] === undefined ? true : !!heads[HEAD_REGISTRATION_ENABLED],
   };
 }
 
@@ -98,17 +90,10 @@ export async function POST(req: Request) {
     const body = await req.json().catch(() => ({}));
     const activation_enabled = body.activation_enabled;
     const scanning_enabled = body.scanning_enabled;
-    const sscc_scanning_enabled = body.sscc_scanning_enabled;
-    const registration_enabled = body.registration_enabled;
 
-    if (
-      activation_enabled === undefined &&
-      scanning_enabled === undefined &&
-      sscc_scanning_enabled === undefined &&
-      registration_enabled === undefined
-    ) {
+    if (activation_enabled === undefined && scanning_enabled === undefined) {
       return NextResponse.json(
-        { error: 'Provide at least one setting: activation_enabled, scanning_enabled, sscc_scanning_enabled, or registration_enabled' },
+        { error: 'Provide activation_enabled and/or scanning_enabled' },
         { status: 400 }
       );
     }
@@ -136,14 +121,6 @@ export async function POST(req: Request) {
 
     if (scanning_enabled !== undefined) {
       nextHeads[HEAD_SCANNING_ENABLED] = !!scanning_enabled;
-    }
-
-    if (sscc_scanning_enabled !== undefined) {
-      nextHeads[HEAD_SSCC_SCANNING_ENABLED] = !!sscc_scanning_enabled;
-    }
-
-    if (registration_enabled !== undefined) {
-      nextHeads[HEAD_REGISTRATION_ENABLED] = !!registration_enabled;
     }
 
     await upsertHeads(companyId, nextHeads);

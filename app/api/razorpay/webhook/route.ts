@@ -725,32 +725,93 @@ export async function POST(req: Request) {
       const cancelAtCycleEnd = subscriptionEntity.cancel_at_cycle_end === 1 || subscriptionEntity.cancel_at_cycle_end === true;
 
       const admin = getSupabaseAdmin();
-      const nextSubscriptionStatus =
-        status === 'active'
-          ? 'active'
-          : status === 'cancelled' || status === 'completed'
-            ? 'cancelled'
-            : status === 'paused'
-              ? 'paused'
-              : null;
+      
+      // Map Razorpay status to our status
+      let subscriptionStatus: 'TRIAL' | 'ACTIVE' | 'PAUSED' | 'CANCELLED' | 'EXPIRED' = 'ACTIVE';
+      if (status === 'active') subscriptionStatus = 'ACTIVE';
+      else if (status === 'cancelled' || status === 'completed') subscriptionStatus = 'CANCELLED';
+      else if (status === 'paused') subscriptionStatus = 'PAUSED';
+      else if (status === 'expired') subscriptionStatus = 'EXPIRED';
 
-      await admin
+      // Find company by subscription ID
+      const { data: company } = await admin
         .from('companies')
-        .update({
-          razorpay_subscription_id: subId,
-          razorpay_subscription_status: subscriptionEntity.status ?? null,
-          razorpay_plan_id: subscriptionEntity.plan_id ?? null,
-          subscription_cancel_at_period_end: cancelAtCycleEnd,
-          subscription_current_period_end: currentEnd,
-          ...(nextSubscriptionStatus ? { subscription_status: nextSubscriptionStatus } : {}),
-          subscription_updated_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-        .eq('razorpay_subscription_id', subId);
+        .select('id')
+        .eq('razorpay_subscription_id', subId)
+        .maybeSingle();
+
+      if (company) {
+        // Update company_subscriptions table
+        const { data: existingSub } = await admin
+          .from('company_subscriptions')
+          .select('id, plan_id')
+          .eq('company_id', company.id)
+          .maybeSingle();
+
+        if (existingSub) {
+          await admin
+            .from('company_subscriptions')
+            .update({
+              razorpay_subscription_id: subId,
+              status: subscriptionStatus,
+              current_period_end: currentEnd,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', existingSub.id);
+        } else {
+          // Find plan by razorpay_plan_id
+          const planId = subscriptionEntity.plan_id ? String(subscriptionEntity.plan_id) : null;
+          let plan_id: string | null = null;
+          if (planId) {
+            const { data: plan } = await admin
+              .from('subscription_plans')
+              .select('id')
+              .eq('razorpay_plan_id', planId)
+              .maybeSingle();
+            plan_id = plan?.id || null;
+          }
+
+          if (plan_id) {
+            await admin
+              .from('company_subscriptions')
+              .insert({
+                company_id: company.id,
+                plan_id,
+                razorpay_subscription_id: subId,
+                status: subscriptionStatus,
+                current_period_end: currentEnd,
+              });
+          }
+        }
+
+        // Also update companies table for backward compatibility
+        const nextSubscriptionStatus =
+          status === 'active'
+            ? 'active'
+            : status === 'cancelled' || status === 'completed'
+              ? 'cancelled'
+              : status === 'paused'
+                ? 'paused'
+                : null;
+
+        await admin
+          .from('companies')
+          .update({
+            razorpay_subscription_id: subId,
+            razorpay_subscription_status: subscriptionEntity.status ?? null,
+            razorpay_plan_id: subscriptionEntity.plan_id ?? null,
+            subscription_cancel_at_period_end: cancelAtCycleEnd,
+            subscription_current_period_end: currentEnd,
+            ...(nextSubscriptionStatus ? { subscription_status: nextSubscriptionStatus } : {}),
+            subscription_updated_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', company.id);
+      }
 
       try {
         await writeAuditLog({
-          companyId: String(subscriptionEntity?.notes?.company_id ?? ''),
+          companyId: String(subscriptionEntity?.notes?.company_id ?? company?.id ?? ''),
           actor: 'system',
           action: `razorpay_subscription_${status || 'event'}`,
           status: 'success',

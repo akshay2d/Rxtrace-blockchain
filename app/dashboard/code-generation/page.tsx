@@ -4,10 +4,13 @@ import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Package, Boxes, ArrowRight } from 'lucide-react';
+import { Package, Boxes, ArrowRight, AlertCircle } from 'lucide-react';
+import { useSubscription } from '@/lib/hooks/useSubscription';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 export default function CodeGenerationIndexPage() {
   const router = useRouter();
+  const { subscription, isFeatureEnabled, loading } = useSubscription();
 
   return (
     <div className="space-y-6">
@@ -41,7 +44,10 @@ export default function CodeGenerationIndexPage() {
                 <li>Bulk CSV upload support</li>
                 <li>Unit-level exports</li>
               </ul>
-              <Button className="w-full mt-4 bg-blue-600 hover:bg-blue-700">
+              <Button 
+                className="w-full mt-4 bg-blue-600 hover:bg-blue-700"
+                disabled={!canGenerate}
+              >
                 Generate Unit Codes
                 <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
@@ -76,7 +82,10 @@ export default function CodeGenerationIndexPage() {
               <div className="p-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800 mt-2">
                 <strong>Note:</strong> SSCC is for logistics units only. Unit-level codes must be generated separately.
               </div>
-              <Button className="w-full mt-4 bg-purple-600 hover:bg-purple-700">
+              <Button 
+                className="w-full mt-4 bg-purple-600 hover:bg-purple-700"
+                disabled={!canGenerate}
+              >
                 Generate SSCC Codes
                 <ArrowRight className="w-4 h-4 ml-2" />
               </Button>

@@ -4,8 +4,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { formatCurrency } from '@/lib/billingConfig';
-import { PRICING } from '@/lib/billingConfig';
-import { normalizePlanType } from '@/lib/billing/period';
+import { useSubscription } from '@/lib/hooks/useSubscription';
+import { Badge } from '@/components/ui/badge';
 
 // Seat summary component (inline for billing page)
 function SeatSummaryDisplay({ company }: { company: any }) {
@@ -95,27 +95,12 @@ function SeatSummaryDisplay({ company }: { company: any }) {
 }
 
 export default function BillingPage() {
-  const [loading, setLoading] = useState(false);
+  const { subscription, add_ons, loading: subscriptionLoading, refresh } = useSubscription();
   const [message, setMessage] = useState<string | null>(null);
   const [invoices, setInvoices] = useState<any[]>([]);
   const [invoicesLoading, setInvoicesLoading] = useState(false);
-  const [company, setCompany] = useState<any>(null);
   const [trialInvoice, setTrialInvoice] = useState<any>(null);
-
-  const fetchSubscription = useCallback(async () => {
-    setLoading(true);
-    setMessage(null);
-    try {
-      const res = await fetch('/api/billing/subscription', { cache: 'no-store' });
-      const body = await res.json();
-      if (!res.ok) throw new Error(body.error || 'Failed to load subscription');
-      setCompany(body.company ?? null);
-    } catch (err: any) {
-      setMessage(err.message || String(err));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const [company, setCompany] = useState<any>(null);
 
   const fetchInvoices = useCallback(async () => {
     setInvoicesLoading(true);
@@ -149,9 +134,21 @@ export default function BillingPage() {
   }, []);
 
   useEffect(() => {
-    fetchSubscription();
+    // Fetch company info for display
+    const fetchCompany = async () => {
+      try {
+        const res = await fetch('/api/dashboard/stats');
+        const data = await res.json();
+        if (res.ok && data.company_name) {
+          setCompany({ company_name: data.company_name, id: data.company_id });
+        }
+      } catch (err) {
+        console.error('Failed to fetch company:', err);
+      }
+    };
+    fetchCompany();
     fetchInvoices();
-  }, [fetchInvoices, fetchSubscription]);
+  }, [fetchInvoices]);
 
   return (
     <div className="space-y-6 max-w-5xl">
@@ -169,7 +166,13 @@ export default function BillingPage() {
 
 
       {/* Subscription Summary - Enhanced */}
-      {company && (
+      {subscriptionLoading ? (
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-sm text-gray-500">Loading subscription information...</div>
+          </CardContent>
+        </Card>
+      ) : subscription ? (
         <Card className="border-2 border-blue-300 shadow-lg">
           <CardHeader className="bg-gradient-to-r from-blue-100 to-orange-100">
             <CardTitle className="text-xl text-blue-900">📦 Your Subscription Plan</CardTitle>
@@ -180,56 +183,56 @@ export default function BillingPage() {
               <div className="space-y-3">
                 <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
                   <span className="text-gray-600 font-medium">Plan:</span>
-                  <span className="font-bold text-lg text-blue-900 uppercase">
-                    {company.subscription_plan || 'No Plan'}
+                  <span className="font-bold text-lg text-blue-900">
+                    {subscription.plan.name} ({subscription.plan.billing_cycle})
                   </span>
                 </div>
                 
                 <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
                   <span className="text-gray-600 font-medium">Status:</span>
-                  <span className={`font-bold text-lg uppercase ${
-                    company.subscription_status === 'trial' 
-                      ? 'text-green-600' 
-                      : company.subscription_status === 'active'
-                      ? 'text-blue-600'
-                      : 'text-red-600'
+                  <Badge className={`font-bold text-lg uppercase ${
+                    subscription.status === 'TRIAL' 
+                      ? 'bg-green-600' 
+                      : subscription.status === 'ACTIVE'
+                      ? 'bg-blue-600'
+                      : 'bg-red-600'
                   }`}>
-                    {company.subscription_status === 'trial' ? '🎉 Trial Active' : company.subscription_status || 'Inactive'}
-                  </span>
+                    {subscription.status === 'TRIAL' ? '🎉 Trial' : subscription.status}
+                  </Badge>
                 </div>
 
-                {company.subscription_status === 'trial' && company.trial_end_date && (
+                {subscription.status === 'TRIAL' && subscription.trial_end && (
                   <div className="p-4 bg-yellow-50 border-2 border-yellow-300 rounded-lg">
                     <div className="text-sm text-yellow-800 font-semibold mb-1">⏰ Trial Period</div>
                     <div className="text-2xl font-bold text-yellow-900">
                       {(() => {
                         const now = new Date();
-                        const endDate = new Date(company.trial_end_date);
+                        const endDate = new Date(subscription.trial_end);
                         const daysLeft = Math.max(0, Math.ceil((endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
                         return `${daysLeft} days left`;
                       })()}
                     </div>
-                    <div className="text-xs text-yellow-700 mt-2 space-y-1">
-                      {company.trial_start_date && (
-                        <div>
-                          Starts: {new Date(company.trial_start_date).toLocaleDateString('en-IN', {
-                            day: 'numeric',
-                            month: 'long',
-                            year: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit'
-                          })}
-                        </div>
-                      )}
-                      <div>
-                        Ends: {new Date(company.trial_end_date).toLocaleDateString('en-IN', {
-                          day: 'numeric',
-                          month: 'long',
-                          year: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit'
-                        })}
-                      </div>
+                    <div className="text-xs text-yellow-700 mt-2">
+                      Ends: {new Date(subscription.trial_end).toLocaleDateString('en-IN', {
+                        day: 'numeric',
+                        month: 'long',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {subscription.current_period_end && subscription.status === 'ACTIVE' && (
+                  <div className="p-3 bg-blue-50 rounded-lg">
+                    <div className="text-xs text-gray-600">Current Period Ends:</div>
+                    <div className="text-sm font-semibold text-gray-900">
+                      {new Date(subscription.current_period_end).toLocaleDateString('en-IN', {
+                        day: 'numeric',
+                        month: 'long',
+                        year: 'numeric'
+                      })}
                     </div>
                   </div>
                 )}
@@ -237,55 +240,25 @@ export default function BillingPage() {
 
               {/* Plan Features Summary */}
               <div className="p-4 bg-gray-50 rounded-lg">
-                <h4 className="font-semibold text-gray-800 mb-3">Plan Includes:</h4>
-                {company.subscription_plan === 'growth' ? (
-                  <ul className="text-sm text-gray-700 space-y-1">
-                    <li>✓ 10,00,000 Unit labels/month</li>
-                    <li>✓ 2,00,000 Box labels/month</li>
-                    <li>✓ 20,000 Carton labels/month</li>
-                    <li>✓ 2,000 Pallet labels/month</li>
-                    <li>✓ 5 User seats</li>
-                    <li>✓ 1 ERP integration</li>
-                    <li>✓ Unlimited handsets</li>
-                    <li className="font-semibold text-blue-700 mt-2">Monthly: ₹49,000</li>
-                  </ul>
-                ) : company.subscription_plan === 'starter' ? (
-                  <ul className="text-sm text-gray-700 space-y-1">
-                    <li>✓ 2,00,000 Unit labels/month</li>
-                    <li>✓ 20,000 Box labels/month</li>
-                    <li>✓ 2,000 Carton labels/month</li>
-                    <li>✓ 500 Pallet labels/month</li>
-                    <li>✓ 1 User seat</li>
-                    <li>✓ 1 ERP integration</li>
-                    <li>✓ Unlimited handsets</li>
-                    <li className="font-semibold text-blue-700 mt-2">Monthly: ₹18,000</li>
-                  </ul>
-                ) : (
-                  <p className="text-gray-500 text-sm">No active plan</p>
-                )}
+                <h4 className="font-semibold text-gray-800 mb-3">Plan Details:</h4>
+                <ul className="text-sm text-gray-700 space-y-1">
+                  <li className="font-semibold text-blue-700">
+                    ₹{subscription.plan.base_price.toLocaleString('en-IN')} / {subscription.plan.billing_cycle}
+                  </li>
+                  {subscription.plan.description && (
+                    <li className="text-gray-600 mt-2">{subscription.plan.description}</li>
+                  )}
+                </ul>
               </div>
             </div>
 
             {/* Razorpay Subscription ID */}
-            {company.razorpay_subscription_id && (
+            {subscription.razorpay_subscription_id && (
               <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
                 <span className="text-xs text-gray-500">Razorpay Subscription ID:</span>
                 <div className="font-mono text-xs text-gray-700 mt-1 break-all">
-                  {company.razorpay_subscription_id}
+                  {subscription.razorpay_subscription_id}
                 </div>
-              </div>
-            )}
-
-            {/* Payment Status Banner */}
-            {(company.subscription_status === 'pending' || company.subscription_status === 'past_due' || 
-              (company as any)?.razorpay_subscription_status === 'pending' || 
-              (company as any)?.razorpay_subscription_status === 'past_due') && (
-              <div className="p-4 bg-amber-50 border-2 border-amber-300 rounded-lg">
-                <p className="text-sm font-semibold text-amber-900 mb-1">Payment Status: Pending</p>
-                <p className="text-xs text-amber-800">
-                  Your subscription payment is pending. Please complete payment to restore full access.
-                  Invite User and Upgrade actions are disabled until payment is confirmed.
-                </p>
               </div>
             )}
 
@@ -296,24 +269,32 @@ export default function BillingPage() {
                 variant="outline" 
                 size="lg" 
                 className="w-full"
-                disabled={
-                  company.subscription_status === 'pending' || 
-                  company.subscription_status === 'past_due' ||
-                  (company as any)?.razorpay_subscription_status === 'pending' ||
-                  (company as any)?.razorpay_subscription_status === 'past_due'
-                }
+                disabled={subscription.status === 'PAUSED' || subscription.status === 'CANCELLED' || subscription.status === 'EXPIRED'}
               >
-                <a href="/dashboard/billing/upgrade">
-                  <span className="text-base">Upgrade Plan</span>
+                <a href="/pricing">
+                  <span className="text-base">Change Plan</span>
                 </a>
               </Button>
-              <Button asChild variant="destructive" size="lg" className="w-full">
-                <a href="/dashboard/billing/cancel">
-                  <span className="text-base">Cancel Subscription</span>
-                </a>
-              </Button>
+              {subscription.status === 'ACTIVE' && (
+                <Button asChild variant="destructive" size="lg" className="w-full">
+                  <a href="/dashboard/billing/cancel">
+                    <span className="text-base">Cancel Subscription</span>
+                  </a>
+                </Button>
+              )}
             </div>
 
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-center py-8">
+              <p className="text-gray-600 mb-4">No active subscription</p>
+              <Button asChild>
+                <a href="/pricing">Choose a Plan</a>
+              </Button>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -373,31 +354,50 @@ export default function BillingPage() {
       )}
 
       {/* Add-ons */}
-      {company && (
-        <Card className="border-gray-200">
-          <CardHeader>
-            <CardTitle className="text-lg font-semibold text-gray-900">Add-ons</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm">
+      <Card className="border-gray-200">
+        <CardHeader>
+          <CardTitle className="text-lg font-semibold text-gray-900">Add-ons</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm">
+          {add_ons.length > 0 ? (
+            <div className="space-y-3">
+              {add_ons.map((addOn) => (
+                <div key={addOn.id} className="rounded-md border border-gray-200 p-4 bg-gray-50">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <div className="text-gray-900 font-semibold mb-1">{addOn.add_ons.name}</div>
+                      <div className="text-xs text-gray-600 mb-2">{addOn.add_ons.description}</div>
+                      <div className="text-sm text-gray-700">
+                        Quantity: <span className="font-semibold">{addOn.quantity}</span>
+                        {' • '}
+                        Price: <span className="font-semibold">₹{addOn.add_ons.price.toLocaleString('en-IN')} / {addOn.add_ons.unit}</span>
+                        {addOn.add_ons.recurring && <Badge variant="outline" className="ml-2">Recurring</Badge>}
+                      </div>
+                    </div>
+                    <Badge variant={addOn.status === 'ACTIVE' ? 'default' : 'secondary'}>
+                      {addOn.status}
+                    </Badge>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
             <div className="rounded-md border border-gray-200 p-4 bg-gray-50">
-              <div className="text-gray-600 mb-1">Additional User IDs (Seats)</div>
-              <div className="text-2xl font-semibold text-gray-900">
-                {Number((company as any)?.extra_user_seats ?? 0) || 0}
-              </div>
-              <p className="text-xs text-gray-500 mt-2">Additional seats purchased beyond plan limits</p>
+              <div className="text-gray-600 mb-2">No add-ons purchased</div>
+              <p className="text-xs text-gray-500">Purchase additional resources from the pricing page.</p>
             </div>
+          )}
 
-            <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-              <div className="text-gray-600 text-sm">
-                Purchase additional seats or labels from the pricing page.
-              </div>
-              <Button asChild size="sm" variant="outline" className="border-gray-300">
-                <a href="/pricing">Buy Add-ons</a>
-              </Button>
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+            <div className="text-gray-600 text-sm">
+              Purchase additional seats or labels from the pricing page.
             </div>
-          </CardContent>
-        </Card>
-      )}
+            <Button asChild size="sm" variant="outline" className="border-gray-300">
+              <a href="/pricing">Buy Add-ons</a>
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Invoices - Enhanced with Categories */}
       <Card>
@@ -533,7 +533,6 @@ export default function BillingPage() {
         </CardContent>
       </Card>
 
-      {loading && !company && <div className="text-sm text-gray-500">Loading subscription information…</div>}
     </div>
   );
 }

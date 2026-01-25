@@ -6,7 +6,6 @@ import {
   BarChart3,
   QrCode,
   Boxes,
-  Wallet,
   Smartphone,
   Activity,
   Package,
@@ -15,6 +14,9 @@ import {
   Copy,
   AlertCircle,
 } from 'lucide-react';
+import { useSubscription } from '@/lib/hooks/useSubscription';
+import { UsageMeter } from '@/components/usage/UsageMeter';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import type { LucideIcon } from 'lucide-react';
 import { LabelGenerationTrend } from '@/components/charts/LabelGenerationTrend';
 import { LabelsByLevel } from '@/components/charts/LabelsByLevel';
@@ -40,12 +42,6 @@ type DashboardStats = {
     box: number;
     carton: number;
     pallet: number;
-  };
-  wallet: {
-    balance: number;
-    credit_limit: number;
-    status: string;
-    updated_at: string | null;
   };
   recent_activity?: Array<{
     id: string;
@@ -95,13 +91,26 @@ function KpiCard({
    Dashboard Page
 ------------------------------ */
 export default function DashboardPage() {
+  const { subscription, isFeatureEnabled } = useSubscription();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
+  const [usage, setUsage] = useState<Record<string, any> | null>(null);
 
   async function refreshStats(signal?: AbortSignal) {
     const res = await fetch('/api/dashboard/stats', { cache: 'no-store', signal });
     const body = await res.json().catch(() => null);
     if (res.ok) setStats(body as DashboardStats);
+
+    // Fetch usage data
+    try {
+      const usageRes = await fetch('/api/user/usage', { cache: 'no-store', signal });
+      const usageBody = await usageRes.json().catch(() => null);
+      if (usageRes.ok && usageBody.success) {
+        setUsage(usageBody.usage);
+      }
+    } catch (err) {
+      // Non-blocking
+    }
   }
 
   useEffect(() => {
@@ -136,7 +145,6 @@ export default function DashboardPage() {
 
   const kpi = useMemo(() => {
     const dash = (n: number | null | undefined) => (typeof n === 'number' ? n.toLocaleString('en-IN') : '—');
-    const rupee = (n: number | null | undefined) => (typeof n === 'number' ? `₹${Math.round(n).toLocaleString('en-IN')}` : '—');
 
     const labelGen = stats?.label_generation;
 
@@ -145,7 +153,6 @@ export default function DashboardPage() {
       unitsGenerated: stats ? dash(stats.units_generated) : (loading ? '—' : '0'),
       ssccGenerated: stats ? dash(stats.sscc_generated) : (loading ? '—' : '0'),
       totalScans: stats ? dash(stats.total_scans) : (loading ? '—' : '0'),
-      walletBalance: stats ? rupee(stats.wallet?.balance) : (loading ? '—' : '₹0'),
       activeHandsets: stats ? dash(stats.active_handsets) : (loading ? '—' : '0'),
       activeSeats: stats ? dash(stats.active_seats ?? 0) : (loading ? '—' : '0'),
 
@@ -245,6 +252,54 @@ export default function DashboardPage() {
           <KpiCard title="Pallet Labels" value={kpi.palletLabels} icon={Boxes} />
         </div>
       </div>
+
+      {/* Usage Limits */}
+      {usage && Object.keys(usage).length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg font-semibold text-gray-900">Usage & Limits</CardTitle>
+            <p className="text-sm text-gray-600">Current period usage against your plan limits</p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {usage.UNIT && (
+              <UsageMeter
+                label="Unit Labels"
+                used={usage.UNIT.used}
+                limit={usage.UNIT.limit_value}
+                limitType={usage.UNIT.limit_type}
+                exceeded={usage.UNIT.exceeded}
+              />
+            )}
+            {usage.BOX && (
+              <UsageMeter
+                label="Box Labels"
+                used={usage.BOX.used}
+                limit={usage.BOX.limit_value}
+                limitType={usage.BOX.limit_type}
+                exceeded={usage.BOX.exceeded}
+              />
+            )}
+            {usage.CARTON && (
+              <UsageMeter
+                label="Carton Labels"
+                used={usage.CARTON.used}
+                limit={usage.CARTON.limit_value}
+                limitType={usage.CARTON.limit_type}
+                exceeded={usage.CARTON.exceeded}
+              />
+            )}
+            {usage.SSCC && (
+              <UsageMeter
+                label="SSCC Labels"
+                used={usage.SSCC.used}
+                limit={usage.SSCC.limit_value}
+                limitType={usage.SSCC.limit_type}
+                exceeded={usage.SSCC.exceeded}
+              />
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Charts Section */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

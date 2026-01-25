@@ -86,6 +86,24 @@ function formatINRFromPaise(paise: number): string {
 /* ===================== PAGE ======================= */
 /* ================================================== */
 
+type Plan = {
+  id: string;
+  name: string;
+  description: string | null;
+  billing_cycle: string;
+  base_price: number;
+  items: Array<{ label: string; value: string | null }>;
+};
+
+type AddOnAPI = {
+  id: string;
+  name: string;
+  description: string | null;
+  price: number;
+  unit: string;
+  recurring: boolean;
+};
+
 export default function PricingPage() {
   const router = useRouter();
   const [companyId, setCompanyId] = React.useState<string | null>(null);
@@ -94,10 +112,44 @@ export default function PricingPage() {
   const [checkoutLoading, setCheckoutLoading] = React.useState(false);
   const [checkoutMessage, setCheckoutMessage] = React.useState<string | null>(null);
   const [trialMessage, setTrialMessage] = React.useState<string | null>(null);
+  const [plans, setPlans] = React.useState<Plan[]>([]);
+  const [addOns, setAddOns] = React.useState<AddOnAPI[]>([]);
+  const [loadingPlans, setLoadingPlans] = React.useState(true);
 
-  const [qtyByKey, setQtyByKey] = React.useState<Record<string, string>>(() =>
-    Object.fromEntries(ADDONS.map((a) => [a.key, ""]))
-  );
+  const [qtyByKey, setQtyByKey] = React.useState<Record<string, string>>({});
+
+  // Fetch plans and add-ons from public APIs
+  React.useEffect(() => {
+    (async () => {
+      try {
+        const [plansRes, addOnsRes] = await Promise.all([
+          fetch('/api/public/plans'),
+          fetch('/api/public/add-ons'),
+        ]);
+        
+        const plansData = await plansRes.json();
+        const addOnsData = await addOnsRes.json();
+        
+        if (plansData.success) {
+          setPlans(plansData.plans || []);
+        }
+        if (addOnsData.success) {
+          setAddOns(addOnsData.add_ons || []);
+          // Initialize qtyByKey for add-ons
+          const initialQty: Record<string, string> = {};
+          addOnsData.add_ons?.forEach((ao: AddOnAPI) => {
+            const key = ao.name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+            initialQty[key] = '';
+          });
+          setQtyByKey(initialQty);
+        }
+      } catch (err) {
+        console.error('Failed to fetch plans/add-ons:', err);
+      } finally {
+        setLoadingPlans(false);
+      }
+    })();
+  }, []);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -247,9 +299,10 @@ export default function PricingPage() {
     return cartItems.reduce((sum, item) => sum + item.totalPaise, 0);
   }, [cartItems]);
 
-  function addToCart(addon: AddOn, qty: number) {
+  function addToCart(addon: AddOnAPI, qty: number) {
     setCheckoutMessage(null);
-    setCart((prev) => ({ ...prev, [addon.key]: qty }));
+    const key = addon.name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+    setCart((prev) => ({ ...prev, [key]: qty }));
   }
 
   function removeFromCart(key: string) {
@@ -398,65 +451,53 @@ export default function PricingPage() {
       )}
 
       {/* PLANS */}
-      <section className="max-w-7xl mx-auto px-6 py-16 grid md:grid-cols-3 gap-8">
-
-        <PlanCard
-          title="Starter"
-          price="₹18,000 / month"
-          yearly="₹2,00,000 / year"
-          savings="Save ₹17,000 / month • ₹2,20,000 / year"
-          items={[
-            "2,00,000 Unit labels",
-            "20,000 Box labels",
-            "2,000 Carton labels",
-            "500 Pallet labels",
-            "1 User ID",
-            "Unlimited handsets",
-          ]}
-          actionLabel={company?.subscription_status ? "Go to Billing" : "Start Free Trial"}
-          onAction={company?.subscription_status ? () => router.push('/dashboard/billing') : startFreeTrial}
-          disabled={!trialEligible}
-          disabledReason={trialDisabledReason}
-        />
-
-        <PlanCard
-          title="Growth (Most Popular)"
-          price="₹49,000 / month"
-          yearly="₹5,00,000 / year"
-          savings="Save ₹1,53,000 / month • ₹19,24,000 / year"
-          highlight
-          items={[
-            "10,00,000 Unit labels",
-            "2,00,000 Box labels",
-            "20,000 Carton labels",
-            "2,000 Pallet labels",
-            "5 User IDs",
-            "Unlimited handsets",
-          ]}
-          actionLabel={company?.subscription_status ? "Go to Billing" : "Start Free Trial"}
-          onAction={company?.subscription_status ? () => router.push('/dashboard/billing') : startFreeTrial}
-          disabled={!trialEligible}
-          disabledReason={trialDisabledReason}
-        />
-
-        <PlanCard
-          title="Enterprise"
-          price="₹2,00,000 / month"
-          yearly="₹5,00,000 / quarter (₹20L/year)"
-          savings="Save ₹12,53,000 / month • ₹1.5 Cr+ / year"
-          items={[
-            "10 Million Unit labels",
-            "10 Lakh Box labels",
-            "1 Lakh Carton labels",
-            "10,000 Pallet labels",
-            "10 User IDs",
-            "Unlimited handsets",
-          ]}
-          actionLabel={company?.subscription_status ? "Go to Billing" : "Start Free Trial"}
-          onAction={company?.subscription_status ? () => router.push('/dashboard/billing') : startFreeTrial}
-          disabled={!trialEligible}
-          disabledReason={trialDisabledReason}
-        />
+      <section className="max-w-7xl mx-auto px-6 py-16">
+        {loadingPlans ? (
+          <div className="text-center py-12">
+            <p className="text-gray-600">Loading plans...</p>
+          </div>
+        ) : plans.length === 0 ? (
+          <div className="text-center py-12">
+            <p className="text-gray-600">No plans available at the moment.</p>
+          </div>
+        ) : (
+          <div className="grid md:grid-cols-3 gap-8">
+            {plans.map((plan) => {
+              const monthlyPlan = plans.find(p => p.name === plan.name && p.billing_cycle === 'monthly');
+              const yearlyPlan = plans.find(p => p.name === plan.name && p.billing_cycle === 'yearly');
+              
+              // Show monthly if available, otherwise show the plan itself
+              const displayPlan = plan.billing_cycle === 'monthly' ? plan : monthlyPlan || plan;
+              const yearly = yearlyPlan;
+              
+              const price = `₹${displayPlan.base_price.toLocaleString('en-IN')} / month`;
+              const yearlyPrice = yearly ? `₹${yearly.base_price.toLocaleString('en-IN')} / year` : '';
+              const savings = yearly && monthlyPlan 
+                ? `Save ₹${((monthlyPlan.base_price * 12) - yearly.base_price).toLocaleString('en-IN')} / year`
+                : '';
+              
+              const items = plan.items.map(item => 
+                item.value ? `${item.label}: ${item.value}` : item.label
+              );
+              
+              return (
+                <PlanCard
+                  key={plan.id}
+                  title={plan.name}
+                  price={price}
+                  yearly={yearlyPrice}
+                  savings={savings}
+                  items={items}
+                  highlight={plan.name.toLowerCase().includes('growth') || plan.name.toLowerCase().includes('popular')}
+                  actionLabel={company?.subscription_status ? "Go to Billing" : "Start Free Trial"}
+                  onAction={company?.subscription_status ? () => router.push('/dashboard/billing') : startFreeTrial}
+                  disabled={!trialEligible}
+                  disabledReason={trialDisabledReason}
+                />
+              );
+            })}
+          </div>
+        )}
       </section>
 
       {/* BILLING POLICY */}
@@ -544,25 +585,27 @@ export default function PricingPage() {
               </tr>
             </thead>
             <tbody>
-              {ADDONS.map((addon) => {
-                const qty = parseQuantity(qtyByKey[addon.key] ?? "");
-                const totalPaise = qty ? qty * addon.unitPricePaise : null;
-                const inCartQty = cart[addon.key];
+              {addOns.map((addon) => {
+                const key = addon.name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+                const qty = parseQuantity(qtyByKey[key] ?? "");
+                const totalPaise = qty ? Math.round(qty * addon.price * 100) : null;
+                const inCartQty = cart[key];
+                const priceLabel = `₹${addon.price.toLocaleString('en-IN')} / ${addon.unit}`;
 
                 return (
-                  <tr key={addon.key} className="border-t border-slate-200">
+                  <tr key={addon.id} className="border-t border-slate-200">
                     <td className="p-4">{addon.name}</td>
-                    <td className="p-4">{addon.priceLabel}</td>
+                    <td className="p-4">{priceLabel}</td>
                     <td className="p-4">
                       <input
-                        value={qtyByKey[addon.key] ?? ""}
+                        value={qtyByKey[key] ?? ""}
                         onChange={(e) =>
                           setQtyByKey((prev) => ({
                             ...prev,
-                            [addon.key]: e.target.value,
+                            [key]: e.target.value,
                           }))
                         }
-                        placeholder={addon.quantityPlaceholder ?? "e.g. 1"}
+                        placeholder="e.g. 1"
                         className="w-32 bg-white border border-slate-300 rounded-md px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-200"
                       />
                       {inCartQty ? (
@@ -583,7 +626,7 @@ export default function PricingPage() {
                       {inCartQty ? (
                         <button
                           type="button"
-                          onClick={() => removeFromCart(addon.key)}
+                          onClick={() => removeFromCart(key)}
                           className="ml-3 text-sm text-slate-600 hover:text-slate-900 underline"
                         >
                           Remove
@@ -650,26 +693,29 @@ export default function PricingPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {cartItems.map((item) => (
-                    <tr key={item.addon.key} className="border-t border-slate-200">
-                      <td className="p-3">
-                        <div className="font-medium text-slate-900">{item.addon.name}</div>
-                        <div className="text-xs text-slate-500">{item.addon.priceLabel}</div>
-                      </td>
-                      <td className="p-3">{item.qty}</td>
-                      <td className="p-3 font-medium">{formatINRFromPaise(item.totalPaise)}</td>
-                      <td className="p-3">
-                        <button
-                          type="button"
-                          onClick={() => removeFromCart(item.addon.key)}
-                          disabled={checkoutLoading}
-                          className="text-sm underline text-slate-700 disabled:opacity-50"
-                        >
-                          Remove
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                  {cartItems.map((item) => {
+                    const key = item.addon.name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+                    return (
+                      <tr key={item.addon.id} className="border-t border-slate-200">
+                        <td className="p-3">
+                          <div className="font-medium text-slate-900">{item.addon.name}</div>
+                          <div className="text-xs text-slate-500">₹{item.addon.price.toLocaleString('en-IN')} / {item.addon.unit}</div>
+                        </td>
+                        <td className="p-3">{item.qty}</td>
+                        <td className="p-3 font-medium">{formatINRFromPaise(item.totalPaise)}</td>
+                        <td className="p-3">
+                          <button
+                            type="button"
+                            onClick={() => removeFromCart(key)}
+                            disabled={checkoutLoading}
+                            className="text-sm underline text-slate-700 disabled:opacity-50"
+                          >
+                            Remove
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
               <div className="flex items-center justify-between p-4 border-t border-slate-200 bg-slate-50">

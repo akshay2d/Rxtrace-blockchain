@@ -3,7 +3,7 @@
 
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Shield, LogOut, Building2, Users, Activity, Database, BarChart } from 'lucide-react';
+import { Shield, LogOut, Building2, Users, Activity, Database, BarChart, TrendingUp } from 'lucide-react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { supabaseClient } from '@/lib/supabase/client';
@@ -62,6 +62,13 @@ export default function AdminLayout({
               </Link>
             </li>
             <li>
+              <Link href="/admin/analytics">
+                <Button variant="ghost" className="w-full justify-start gap-3 hover:bg-orange-50">
+                  <TrendingUp className="h-5 w-5" /> Analytics
+                </Button>
+              </Link>
+            </li>
+            <li>
               <Link href="/admin/companies">
                 <Button variant="ghost" className="w-full justify-start gap-3 hover:bg-orange-50">
                   <Building2 className="h-5 w-5" /> Companies
@@ -79,6 +86,20 @@ export default function AdminLayout({
               <Link href="/admin/scans">
                 <Button variant="ghost" className="w-full justify-start gap-3 hover:bg-orange-50">
                   <Activity className="h-5 w-5" /> Scan Logs
+                </Button>
+              </Link>
+            </li>
+            <li>
+              <Link href="/admin/subscriptions">
+                <Button variant="ghost" className="w-full justify-start gap-3 hover:bg-orange-50">
+                  <Shield className="h-5 w-5" /> Subscriptions
+                </Button>
+              </Link>
+            </li>
+            <li>
+              <Link href="/admin/add-ons">
+                <Button variant="ghost" className="w-full justify-start gap-3 hover:bg-orange-50">
+                  <Shield className="h-5 w-5" /> Add-ons
                 </Button>
               </Link>
             </li>

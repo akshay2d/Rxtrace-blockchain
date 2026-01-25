@@ -15,6 +15,7 @@ import QRCodeComponent from '@/components/custom/QRCodeComponent';
 import DataMatrixComponent from '@/components/custom/DataMatrixComponent';
 import { supabaseClient } from '@/lib/supabase/client';
 import { exportLabels as exportLabelsUtil, LabelData } from '@/lib/labelExporter';
+import { useSubscription } from '@/lib/hooks/useSubscription';
 
 // ---------- Types ----------
 type CodeType = 'QR' | 'DATAMATRIX';
@@ -232,6 +233,9 @@ function exportSSCCCodesCSV(labels: SSCCLabel[]): void {
 
 // ---------- Main Component ----------
 export default function SSCCCodeGenerationPage() {
+  const { subscription, isFeatureEnabled, loading: subscriptionLoading } = useSubscription();
+  const canGenerate = isFeatureEnabled('code_generation');
+  
   const [form, setForm] = useState<SSCCFormState>({
     skuId: '',
     batch: '',
@@ -324,6 +328,12 @@ export default function SSCCCodeGenerationPage() {
     setSuccess(null);
     setLoading(true);
 
+    if (!canGenerate) {
+      setError('Code generation is disabled. Please activate a subscription to use this feature.');
+      setLoading(false);
+      return;
+    }
+
     if (!form.skuId || !form.batch || !form.expiryDate) {
       setError('SKU, Batch Number, and Expiry Date are required');
       setLoading(false);
@@ -410,6 +420,11 @@ export default function SSCCCodeGenerationPage() {
     setSuccess(null);
     setCsvValidation(null);
     setCsvFile(file);
+
+    if (!canGenerate) {
+      setError('Code generation is disabled. Please activate a subscription to use this feature.');
+      return;
+    }
 
     try {
       const text = await file.text();
@@ -531,6 +546,20 @@ export default function SSCCCodeGenerationPage() {
         <h1 className="text-3xl font-semibold text-gray-900 mb-1.5">SSCC / Logistics Code Generation</h1>
         <p className="text-sm text-gray-600">Generate logistics codes using hierarchy: Unit → Box → Carton → Pallet (SSCC)</p>
       </div>
+
+      {/* Subscription Status Alert */}
+      {!subscriptionLoading && !canGenerate && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            Code generation is disabled. Your subscription is {subscription?.status || 'inactive'}. 
+            Please activate a subscription to use this feature.
+            <Button asChild variant="link" className="p-0 ml-2 h-auto">
+              <a href="/pricing">View Plans →</a>
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Important Disclaimer */}
       <Alert className="bg-amber-50 border-amber-200">
@@ -715,7 +744,7 @@ export default function SSCCCodeGenerationPage() {
 
               <Button 
                 onClick={handleGenerateSingle} 
-                disabled={loading}
+                disabled={loading || !canGenerate}
                 className="w-full bg-blue-600 hover:bg-blue-700"
               >
                 {loading ? 'Generating...' : 'Generate SSCC Codes'}
@@ -775,7 +804,7 @@ export default function SSCCCodeGenerationPage() {
                       if (file) handleCSVUpload(file);
                       e.currentTarget.value = '';
                     }}
-                    disabled={csvProcessing}
+                    disabled={csvProcessing || !canGenerate}
                   />
                   {csvFile && (
                     <Badge variant="outline" className="flex items-center gap-1">

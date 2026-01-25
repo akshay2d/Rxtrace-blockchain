@@ -3,6 +3,7 @@ import { supabaseServer } from '@/lib/supabase/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
 import { assertCompanyCanOperate, ensureActiveBillingUsage } from '@/lib/billing/usage';
 import { generateCanonicalGS1 } from '@/lib/gs1Canonical';
+import { trackUsage, checkUsageLimits } from '@/lib/usage/tracking';
 import crypto from 'crypto';
 
 export const runtime = 'nodejs';
@@ -249,10 +250,22 @@ export async function POST(req: Request) {
       );
     }
 
+    // Track usage (non-blocking)
+    trackUsage(admin, {
+      company_id: companyId,
+      metric_type: 'UNIT',
+      quantity,
+      source: 'api',
+      reference_id: `batch_${batch}_${Date.now()}`,
+    }).catch((err) => {
+      console.error('Usage tracking failed (non-blocking):', err);
+    });
+
     // Success: quota was consumed and labels were inserted atomically
     // Return format expected by frontend
     return NextResponse.json({
       items,
+      usage_warning: limitCheck.reason || undefined, // Include soft limit warning if applicable
     });
   } catch (err: any) {
     console.error('Issues API error:', err);
