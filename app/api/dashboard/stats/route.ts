@@ -95,10 +95,10 @@ export async function GET() {
       return NextResponse.json({ error: scansErr.message }, { status: 500 });
     }
 
-    // Scan breakdown by expiry status (CRITICAL BLOCKER FIX)
+    // Scan breakdown by expiry status (FIX: removed status column that doesn't exist)
     const { data: scanLogs, error: scanLogsErr } = await supabase
       .from('scan_logs')
-      .select('metadata, status')
+      .select('metadata')
       .eq('company_id', companyId);
 
     if (scanLogsErr) {
@@ -107,7 +107,7 @@ export async function GET() {
 
     const validProductScans = (scanLogs || []).filter(log => {
       const expiryStatus = log.metadata?.expiry_status;
-      return expiryStatus === 'VALID' || (!expiryStatus && log.status === 'SUCCESS');
+      return expiryStatus === 'VALID' || (!expiryStatus && !log.metadata?.error_reason);
     }).length;
 
     const expiredProductScans = (scanLogs || []).filter(log => {
@@ -120,7 +120,7 @@ export async function GET() {
     }).length;
 
     const errorScans = (scanLogs || []).filter(log => {
-      return log.status === 'ERROR' || log.status === 'FAILED';
+      return log.metadata?.error_reason && log.metadata.error_reason !== 'PRODUCT_EXPIRED';
     }).length;
 
     // Active handsets
@@ -145,10 +145,10 @@ export async function GET() {
       return NextResponse.json({ error: seatsErr.message }, { status: 500 });
     }
 
-    // Recent activity from audit_logs (last 10 entries)
+    // Recent activity from audit_logs (last 10 entries) - FIX: removed details column that doesn't exist
     const { data: recentActivity, error: activityErr } = await supabase
       .from('audit_logs')
-      .select('id, action, status, details, created_at')
+      .select('id, action, status, metadata, created_at')
       .eq('company_id', companyId)
       .order('created_at', { ascending: false })
       .limit(10);

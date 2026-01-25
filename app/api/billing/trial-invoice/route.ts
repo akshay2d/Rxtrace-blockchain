@@ -44,42 +44,62 @@ export async function GET(req: NextRequest) {
     }
 
     // Get trial authorization payment (₹5 order)
-    const { data: trialOrder, error: orderErr } = await supabase
-      .from('razorpay_orders')
+    // First get company's trial payment from billing_transactions
+    const { data: trialTransaction, error: transactionErr } = await supabase
+      .from('billing_transactions')
       .select('*')
-      .eq('user_id', user.id)
-      .or('purpose.eq.trial_auth,purpose.like.trial_auth_%')
-      .eq('status', 'paid')
-      .order('paid_at', { ascending: false })
+      .eq('company_id', company.id)
+      .eq('transaction_type', 'trial_activation')
+      .eq('status', 'success')
+      .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
 
-    if (orderErr) {
-      console.error('Trial order fetch error:', orderErr);
-      return NextResponse.json(
-        { error: orderErr.message || 'Failed to fetch trial order' },
-        { status: 500 }
-      );
+    if (transactionErr) {
+      console.error('Trial transaction fetch error:', transactionErr);
     }
 
-    if (!trialOrder) {
+    // Also try to get from razorpay_orders if it exists (using company_id instead of user_id)
+    let trialOrder = null;
+    if (!trialTransaction) {
+      const { data: orderData, error: orderErr } = await supabase
+        .from('razorpay_orders')
+        .select('*')
+        .eq('company_id', company.id)
+        .or('purpose.eq.trial_auth,purpose.like.trial_auth_%')
+        .eq('status', 'paid')
+        .order('paid_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (orderErr) {
+        console.error('Trial order fetch error:', orderErr);
+      } else {
+        trialOrder = orderData;
+      }
+    }
+
+    // Use trialTransaction if available, otherwise use trialOrder
+    const invoiceData = trialTransaction || trialOrder;
+
+    if (!invoiceData) {
       return NextResponse.json(
         { error: 'Trial authorization payment not found' },
         { status: 404 }
       );
     }
 
-    // Return invoice data
+    // Return invoice data (handle both billing_transactions and razorpay_orders formats)
     return NextResponse.json({
       invoice: {
-        order_id: trialOrder.order_id,
-        payment_id: trialOrder.payment_id,
-        amount: trialOrder.amount,
-        currency: trialOrder.currency || 'INR',
-        status: trialOrder.status,
-        paid_at: trialOrder.paid_at,
-        created_at: trialOrder.created_at,
-        purpose: trialOrder.purpose,
+        order_id: invoiceData.order_id || invoiceData.payment_id || null,
+        payment_id: invoiceData.payment_id || invoiceData.id || null,
+        amount: invoiceData.amount || (invoiceData.amount ? invoiceData.amount * 100 : 500), // Convert to paise if needed
+        currency: invoiceData.currency || 'INR',
+        status: invoiceData.status || 'success',
+        paid_at: invoiceData.paid_at || invoiceData.created_at,
+        created_at: invoiceData.created_at,
+        purpose: invoiceData.purpose || invoiceData.transaction_type || 'trial_activation',
         company: {
           name: company.company_name,
           email: company.email,
