@@ -24,7 +24,10 @@ export async function getSeatLimits(
     .eq('status', 'ACTIVE')
     .maybeSingle();
 
-  const seatsFromPlan = subscription?.subscription_plans?.max_users || 1;
+  const plan = Array.isArray(subscription?.subscription_plans) 
+    ? subscription.subscription_plans[0] 
+    : subscription?.subscription_plans;
+  const seatsFromPlan = (plan as { max_users?: number } | undefined)?.max_users || 1;
 
   // Get seat add-ons
   const { data: addOns } = await supabase
@@ -87,8 +90,10 @@ export async function canCreateSeat(
         used_seats: limits.used_seats,
         available_seats: limits.available_seats,
       },
-    }).catch((err) => {
-      console.error('Failed to log seat limit:', err);
+    }).then(({ error }) => {
+      if (error) {
+        console.error('Failed to log seat limit:', error);
+      }
     });
 
     return {

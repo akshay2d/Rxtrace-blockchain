@@ -161,8 +161,10 @@ export async function checkUsageLimits(
         limit_value: limit.limit_value,
         limit_type: limit.limit_type,
       },
-    }).catch((err) => {
-      console.error('Failed to log limit crossing:', err);
+    }).then(({ error }) => {
+      if (error) {
+        console.error('Failed to log limit crossing:', error);
+      }
     });
   }
 
