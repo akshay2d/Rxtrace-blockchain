@@ -408,9 +408,16 @@ export default function PricingPage() {
     setCheckoutMessage(null);
     const key = addon.name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
     console.log('[Cart] Adding to cart:', { addonName: addon.name, key, qty });
+    
+    // Validate quantity
+    if (!Number.isInteger(qty) || qty <= 0) {
+      setCheckoutMessage(`Invalid quantity: ${qty}. Please enter a positive number.`);
+      return;
+    }
+    
     setCart((prev) => {
       const updated = { ...prev, [key]: qty };
-      console.log('[Cart] Cart updated:', { prev, updated });
+      console.log('[Cart] Cart updated:', { prev, updated, newCart: updated });
       return updated;
     });
   }
@@ -432,36 +439,23 @@ export default function PricingPage() {
   async function checkoutCart() {
     setCheckoutMessage(null);
 
-    console.log('[Cart] Checkout started', { cart, addOnsCount: addOns.length, cartItemsCount: cartItems.length });
+    console.log('[Cart] Checkout started', { cart, addOnsCount: addOns.length, cartItemsCount: cartItems.length, cartItems });
 
-    // Recalculate cartItems to ensure we have latest state
-    const currentCartItems = Object.entries(cart)
-      .map(([key, qty]) => {
-        const addon = addOns.find((a) => {
-          const addonKey = a.name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
-          return addonKey === key;
-        });
-        if (!addon) {
-          console.warn('[Cart] Addon not found for key:', key);
-          return null;
-        }
-        const quantity = Number(qty);
-        if (!Number.isInteger(quantity) || quantity <= 0) {
-          console.warn('[Cart] Invalid quantity:', qty, 'for key:', key);
-          return null;
-        }
-        return { addon, qty: quantity };
-      })
-      .filter(Boolean) as Array<{ addon: AddOnAPI; qty: number }>;
-
-    console.log('[Cart] Recalculated items:', { currentCartItemsCount: currentCartItems.length, items: currentCartItems });
-
-    if (currentCartItems.length === 0) {
-      const errorMsg = `Cart is empty. Cart state: ${JSON.stringify(cart)}, AddOns: ${addOns.length}`;
+    // Use the memoized cartItems directly (it's already calculated from cart state)
+    if (cartItems.length === 0) {
+      const errorMsg = `Cart is empty. Cart state: ${JSON.stringify(cart)}, AddOns: ${addOns.length}, cartItems: ${cartItems.length}`;
       console.error('[Cart]', errorMsg);
       setCheckoutMessage("Cart is empty. Please add items to cart first.");
       return;
     }
+
+    // Convert cartItems to the format needed for API
+    const currentCartItems = cartItems.map((item) => ({
+      addon: item.addon,
+      qty: item.qty,
+    }));
+
+    console.log('[Cart] Using cartItems:', { currentCartItemsCount: currentCartItems.length, items: currentCartItems });
 
     const ok = await loadRazorpay();
     if (!ok) {
@@ -810,10 +804,10 @@ export default function PricingPage() {
               <button
                 type="button"
                 onClick={checkoutCart}
-                disabled={cartItems.length === 0 || checkoutLoading}
-                className="px-5 py-2.5 rounded-lg font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                disabled={cartItems.length === 0 || checkoutLoading || cartTotalPaise === 0}
+                className="px-5 py-2.5 rounded-lg font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {checkoutLoading ? "Processing…" : `Checkout (${formatINRFromPaise(cartTotalPaise)})`}
+                {checkoutLoading ? "Processing…" : cartItems.length === 0 ? "Add items to cart" : `Checkout (${formatINRFromPaise(cartTotalPaise)})`}
               </button>
             </div>
           </div>
