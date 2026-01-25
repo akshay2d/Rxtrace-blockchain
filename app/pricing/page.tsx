@@ -305,7 +305,12 @@ export default function PricingPage() {
   function addToCart(addon: AddOnAPI, qty: number) {
     setCheckoutMessage(null);
     const key = addon.name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
-    setCart((prev) => ({ ...prev, [key]: qty }));
+    console.log('[Cart] Adding to cart:', { addonName: addon.name, key, qty });
+    setCart((prev) => {
+      const updated = { ...prev, [key]: qty };
+      console.log('[Cart] Cart updated:', { prev, updated });
+      return updated;
+    });
   }
 
   function removeFromCart(key: string) {
@@ -325,6 +330,8 @@ export default function PricingPage() {
   async function checkoutCart() {
     setCheckoutMessage(null);
 
+    console.log('[Cart] Checkout started', { cart, addOnsCount: addOns.length, cartItemsCount: cartItems.length });
+
     // Recalculate cartItems to ensure we have latest state
     const currentCartItems = Object.entries(cart)
       .map(([key, qty]) => {
@@ -332,14 +339,24 @@ export default function PricingPage() {
           const addonKey = a.name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
           return addonKey === key;
         });
-        if (!addon) return null;
+        if (!addon) {
+          console.warn('[Cart] Addon not found for key:', key);
+          return null;
+        }
         const quantity = Number(qty);
-        if (!Number.isInteger(quantity) || quantity <= 0) return null;
+        if (!Number.isInteger(quantity) || quantity <= 0) {
+          console.warn('[Cart] Invalid quantity:', qty, 'for key:', key);
+          return null;
+        }
         return { addon, qty: quantity };
       })
       .filter(Boolean) as Array<{ addon: AddOnAPI; qty: number }>;
 
+    console.log('[Cart] Recalculated items:', { currentCartItemsCount: currentCartItems.length, items: currentCartItems });
+
     if (currentCartItems.length === 0) {
+      const errorMsg = `Cart is empty. Cart state: ${JSON.stringify(cart)}, AddOns: ${addOns.length}`;
+      console.error('[Cart]', errorMsg);
       setCheckoutMessage("Cart is empty. Please add items to cart first.");
       return;
     }
@@ -510,7 +527,18 @@ export default function PricingPage() {
                   items={items}
                   highlight={plan.name.toLowerCase().includes('growth') || plan.name.toLowerCase().includes('popular')}
                   actionLabel={company?.subscription_status ? "Go to Billing" : "Start Free Trial"}
-                  onAction={company?.subscription_status ? () => router.push('/dashboard/billing') : startFreeTrial}
+                  onAction={company?.subscription_status ? () => {
+                    console.log('[Pricing] Navigating to billing');
+                    try {
+                      router.push('/dashboard/billing');
+                    } catch (error) {
+                      console.error('[Pricing] Router push error:', error);
+                      window.location.href = '/dashboard/billing';
+                    }
+                  } : () => {
+                    console.log('[Pricing] Starting free trial');
+                    startFreeTrial();
+                  }}
                   disabled={!trialEligible}
                   disabledReason={trialDisabledReason}
                 />
@@ -865,7 +893,20 @@ function PlanCard({
       </div>
 
       <button
-        onClick={onAction}
+        onClick={(e) => {
+          e.preventDefault();
+          try {
+            console.log('[Pricing] Button clicked:', { actionLabel, disabled, onAction: typeof onAction });
+            if (!disabled && onAction) {
+              onAction();
+            } else {
+              console.warn('[Pricing] Action disabled or missing:', { disabled, hasOnAction: !!onAction });
+            }
+          } catch (error) {
+            console.error('[Pricing] Error in button click:', error);
+            alert('Navigation error: ' + (error as Error).message);
+          }
+        }}
         disabled={disabled}
         className={`mt-8 w-full py-3 rounded-lg font-semibold transition ${
           disabled

@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { supabaseClient } from '@/lib/supabase/client';
-import { Building2, Users, Activity, TrendingUp, RefreshCw, AlertCircle, CheckCircle } from 'lucide-react';
+import { Building2, Users, Activity, TrendingUp, RefreshCw, AlertCircle, CheckCircle, Wrench } from 'lucide-react';
 
 type Company = {
   id: string;
@@ -63,6 +63,8 @@ export default function AdminDashboard() {
   });
   const [revenueStats, setRevenueStats] = useState<RevenueStats | null>(null);
   const [subscriptionStats, setSubscriptionStats] = useState<SubscriptionStats | null>(null);
+  const [fixingSubscriptions, setFixingSubscriptions] = useState(false);
+  const [fixMessage, setFixMessage] = useState<string | null>(null);
 
   useEffect(() => {
     fetchData();
@@ -142,11 +144,75 @@ export default function AdminDashboard() {
           <h1 className="text-4xl font-bold text-gray-900">🔐 Super Admin Dashboard</h1>
           <p className="text-gray-600 mt-1">System-wide monitoring and management</p>
         </div>
-        <Button onClick={fetchData} disabled={loading} className="bg-orange-500 hover:bg-orange-600">
-          <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
+        <div className="flex gap-2">
+          <Button onClick={fetchData} disabled={loading} className="bg-orange-500 hover:bg-orange-600">
+            <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+        </div>
       </div>
+
+      {/* Fix Missing Subscriptions Tool */}
+      <Card className="border-2 border-yellow-300 bg-yellow-50">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-yellow-900">
+            <Wrench className="w-5 h-5" /> System Maintenance
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-yellow-800 font-medium mb-1">Fix Missing Subscription Records</p>
+              <p className="text-xs text-yellow-700">
+                Creates company_subscriptions records for companies with trial status but no subscription record.
+                This fixes billing pages showing "No active subscription" for existing trial users.
+              </p>
+            </div>
+            <Button 
+              onClick={async () => {
+                setFixingSubscriptions(true);
+                setFixMessage(null);
+                try {
+                  const res = await fetch('/api/admin/fix-missing-subscriptions', { method: 'POST' });
+                  const data = await res.json();
+                  if (data.success) {
+                    setFixMessage(`✅ ${data.message}`);
+                  } else {
+                    setFixMessage(`❌ Error: ${data.error}`);
+                  }
+                } catch (err: any) {
+                  setFixMessage(`❌ Error: ${err.message}`);
+                } finally {
+                  setFixingSubscriptions(false);
+                }
+              }}
+              disabled={fixingSubscriptions}
+              className="bg-yellow-600 hover:bg-yellow-700"
+            >
+              {fixingSubscriptions ? (
+                <>
+                  <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                  Fixing...
+                </>
+              ) : (
+                <>
+                  <Wrench className="w-4 h-4 mr-2" />
+                  Fix Missing Subscriptions
+                </>
+              )}
+            </Button>
+          </div>
+          {fixMessage && (
+            <div className={`mt-4 p-3 rounded-lg text-sm ${
+              fixMessage.includes('✅') 
+                ? 'bg-green-100 text-green-800 border border-green-300' 
+                : 'bg-red-100 text-red-800 border border-red-300'
+            }`}>
+              {fixMessage}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Stats Grid */}
       <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
