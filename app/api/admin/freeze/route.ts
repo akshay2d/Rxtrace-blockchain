@@ -51,7 +51,7 @@ export async function POST(req: Request) {
         action: "COMPANY_FREEZE_TOGGLED",
         company_id,
         old_value: { status: oldStatus },
-        new_value: { status: newStatus },
+        new_value: { status },
         performed_by: user?.id || null,
         performed_by_email: user?.email || null,
       });
