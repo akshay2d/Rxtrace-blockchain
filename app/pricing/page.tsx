@@ -297,8 +297,10 @@ export default function PricingPage() {
   /* ---------- SUBSCRIBE TO PLAN (UPGRADE FROM TRIAL) ---------- */
   async function subscribeToPlan(plan: Plan) {
     setTrialMessage(null);
+    setCheckoutMessage(null);
 
     if (!companyId) {
+      setTrialMessage('Please complete company setup first.');
       router.push('/dashboard/company-setup');
       return;
     }
@@ -308,7 +310,8 @@ export default function PricingPage() {
                     (subscription?.status === 'TRIAL');
     
     if (!isTrial) {
-      router.push('/dashboard/billing');
+      setTrialMessage('You are not in trial. Redirecting to billing...');
+      setTimeout(() => router.push('/dashboard/billing'), 1000);
       return;
     }
 
@@ -324,6 +327,8 @@ export default function PricingPage() {
                            planKey.includes('growth') ? 'growth' : 
                            planKey.includes('enterprise') ? 'enterprise' : 'starter';
 
+    setTrialMessage('Processing subscription...');
+    
     try {
       // Create/upgrade subscription via API
       const res = await fetch('/api/billing/subscription/upgrade', {
@@ -333,38 +338,47 @@ export default function PricingPage() {
       });
 
       const body = await res.json();
-      if (!res.ok || !body.subscription) {
-        setTrialMessage(body?.error || 'Failed to create subscription');
+      if (!res.ok) {
+        setTrialMessage(body?.error || 'Failed to create subscription. Please try again.');
+        console.error('Subscription upgrade error:', body);
         return;
       }
 
-      const subscription = body.subscription;
+      if (!body.subscription || !body.subscription.id) {
+        setTrialMessage('Subscription created but payment link not available. Please contact support.');
+        return;
+      }
+
+      const subscriptionData = body.subscription;
       const keyId = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
 
       if (!keyId) {
-        setTrialMessage('Razorpay key not configured');
+        setTrialMessage('Razorpay key not configured. Please contact support.');
         return;
       }
 
+      setTrialMessage(null); // Clear message before opening payment
+
       // Open Razorpay subscription payment modal
-      if (subscription.short_url) {
+      if (subscriptionData.short_url) {
         // Use short_url if available (Razorpay subscription link)
-        window.location.href = subscription.short_url;
-      } else {
-        // Fallback: Use Razorpay Checkout for subscription
+        window.location.href = subscriptionData.short_url;
+      } else if (subscriptionData.id) {
+        // Use Razorpay Checkout for subscription
         new (window as any).Razorpay({
           key: keyId,
-          subscription_id: subscription.id,
+          subscription_id: subscriptionData.id,
           name: 'RxTrace',
           description: `Subscribe to ${plan.name} Plan`,
           handler: async (response: any) => {
             try {
+              setTrialMessage('Payment successful! Updating subscription...');
               // Refresh session and redirect to billing
               await supabaseClient().auth.refreshSession();
-              await new Promise(resolve => setTimeout(resolve, 500));
+              await new Promise(resolve => setTimeout(resolve, 1000));
               router.push('/dashboard/billing');
             } catch (err) {
-              setTrialMessage('Payment successful. Please refresh the page.');
+              setTrialMessage('Payment successful. Please refresh the page to see your subscription.');
             }
           },
           modal: {
@@ -374,6 +388,8 @@ export default function PricingPage() {
           },
           theme: { color: '#0052CC' },
         }).open();
+      } else {
+        setTrialMessage('Payment link not available. Please contact support.');
       }
     } catch (err: any) {
       setTrialMessage(err?.message || 'Failed to process subscription. Please try again.');
@@ -407,7 +423,6 @@ export default function PricingPage() {
   function addToCart(addon: AddOnAPI, qty: number) {
     setCheckoutMessage(null);
     const key = addon.name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
-    console.log('[Cart] Adding to cart:', { addonName: addon.name, key, qty });
     
     // Validate quantity
     if (!Number.isInteger(qty) || qty <= 0) {
@@ -415,11 +430,19 @@ export default function PricingPage() {
       return;
     }
     
+    // Force state update with functional update to ensure React detects change
     setCart((prev) => {
       const updated = { ...prev, [key]: qty };
-      console.log('[Cart] Cart updated:', { prev, updated, newCart: updated });
-      return updated;
+      console.log('[Cart] Adding item:', { addonName: addon.name, key, qty, prevKeys: Object.keys(prev), newKeys: Object.keys(updated) });
+      // Return new object to trigger re-render
+      return { ...updated };
     });
+    
+    // Clear quantity input after adding
+    setQtyByKey((prev) => ({
+      ...prev,
+      [key]: '',
+    }));
   }
 
   function removeFromCart(key: string) {
@@ -439,23 +462,40 @@ export default function PricingPage() {
   async function checkoutCart() {
     setCheckoutMessage(null);
 
-    console.log('[Cart] Checkout started', { cart, addOnsCount: addOns.length, cartItemsCount: cartItems.length, cartItems });
+    // Recalculate cartItems from current cart state to ensure we have latest
+    const currentCartItems = Object.entries(cart)
+      .map(([key, qty]) => {
+        const addon = addOns.find((a) => {
+          const addonKey = a.name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+          return addonKey === key;
+        });
+        if (!addon) {
+          console.warn('[Cart] Addon not found for key:', key);
+          return null;
+        }
+        const quantity = Number(qty);
+        if (!Number.isInteger(quantity) || quantity <= 0) {
+          console.warn('[Cart] Invalid quantity:', qty, 'for key:', key);
+          return null;
+        }
+        return { addon, qty: quantity };
+      })
+      .filter(Boolean) as Array<{ addon: AddOnAPI; qty: number }>;
 
-    // Use the memoized cartItems directly (it's already calculated from cart state)
-    if (cartItems.length === 0) {
-      const errorMsg = `Cart is empty. Cart state: ${JSON.stringify(cart)}, AddOns: ${addOns.length}, cartItems: ${cartItems.length}`;
+    console.log('[Cart] Checkout started', { 
+      cartKeys: Object.keys(cart), 
+      cartValues: Object.values(cart),
+      addOnsCount: addOns.length, 
+      currentCartItemsCount: currentCartItems.length,
+      items: currentCartItems 
+    });
+
+    if (currentCartItems.length === 0) {
+      const errorMsg = `Cart is empty. Cart state: ${JSON.stringify(cart)}, AddOns: ${addOns.length}`;
       console.error('[Cart]', errorMsg);
       setCheckoutMessage("Cart is empty. Please add items to cart first.");
       return;
     }
-
-    // Convert cartItems to the format needed for API
-    const currentCartItems = cartItems.map((item) => ({
-      addon: item.addon,
-      qty: item.qty,
-    }));
-
-    console.log('[Cart] Using cartItems:', { currentCartItemsCount: currentCartItems.length, items: currentCartItems });
 
     const ok = await loadRazorpay();
     if (!ok) {

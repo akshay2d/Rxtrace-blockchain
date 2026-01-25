@@ -267,46 +267,84 @@ async function handleSimpleTrialActivation(payment_id: string, company_id: strin
     }
   }
 
-  // FIX: Create company_subscriptions record so billing page can show trial details
-  // Get starter monthly plan ID
-  const { data: starterPlan, error: planError } = await supabase
+  // CRITICAL: Create company_subscriptions record so billing page can show trial details
+  // Get starter monthly plan ID - try multiple queries if needed
+  let starterPlanId: string | null = null;
+  
+  // Try exact match first
+  let { data: starterPlan, error: planError } = await supabase
     .from('subscription_plans')
     .select('id')
     .eq('name', 'Starter')
     .eq('billing_cycle', 'monthly')
     .maybeSingle();
 
-  if (planError) {
-    console.error('Failed to find starter plan:', planError);
-    // Continue - subscription can be created later
-  } else if (starterPlan) {
-    // Check if subscription already exists (idempotency)
-    const { data: existingSubscription } = await supabase
-      .from('company_subscriptions')
+  // If not found, try case-insensitive or just name match
+  if (planError || !starterPlan) {
+    const { data: altPlan } = await supabase
+      .from('subscription_plans')
       .select('id')
-      .eq('company_id', company_id)
-      .eq('status', 'TRIAL')
+      .ilike('name', 'starter')
+      .eq('billing_cycle', 'monthly')
       .maybeSingle();
+    if (altPlan) starterPlan = altPlan;
+  }
 
-    if (!existingSubscription && starterPlan.id) {
-      // Create subscription record
-      const { error: subError } = await supabase
-        .from('company_subscriptions')
-        .insert({
-          company_id: company_id,
-          plan_id: starterPlan.id,
-          status: 'TRIAL',
-          trial_end: trialEndDate.toISOString(),
-          current_period_end: trialEndDate.toISOString(),
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        });
+  // If still not found, get first monthly plan
+  if (!starterPlan) {
+    const { data: firstPlan } = await supabase
+      .from('subscription_plans')
+      .select('id')
+      .eq('billing_cycle', 'monthly')
+      .limit(1)
+      .maybeSingle();
+    if (firstPlan) starterPlan = firstPlan;
+  }
 
-      if (subError) {
-        console.error('Failed to create subscription record:', subError);
-        // Continue - trial activated, subscription can be created manually if needed
-      }
+  if (starterPlan?.id) {
+    starterPlanId = starterPlan.id;
+  }
+
+  // ALWAYS create subscription record - check for existing first
+  const { data: existingSubscription } = await supabase
+    .from('company_subscriptions')
+    .select('id, status')
+    .eq('company_id', company_id)
+    .maybeSingle();
+
+  if (!existingSubscription && starterPlanId) {
+    // Create subscription record - this is CRITICAL for billing page to work
+    const { error: subError } = await supabase
+      .from('company_subscriptions')
+      .insert({
+        company_id: company_id,
+        plan_id: starterPlanId,
+        status: 'TRIAL',
+        trial_end: trialEndDate.toISOString(),
+        current_period_end: trialEndDate.toISOString(),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+
+    if (subError) {
+      console.error('CRITICAL: Failed to create subscription record:', subError);
+      // Return error - subscription record is required
+      return NextResponse.json({ 
+        error: 'Trial activated but failed to create subscription record. Please contact support.',
+        details: subError.message 
+      }, { status: 500 });
     }
+  } else if (existingSubscription && existingSubscription.status !== 'TRIAL') {
+    // Update existing subscription to TRIAL if it's not already
+    await supabase
+      .from('company_subscriptions')
+      .update({
+        status: 'TRIAL',
+        trial_end: trialEndDate.toISOString(),
+        current_period_end: trialEndDate.toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', existingSubscription.id);
   }
 
   // BLOCKER 4: Audit log for trial activation
