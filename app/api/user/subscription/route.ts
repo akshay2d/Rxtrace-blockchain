@@ -35,14 +35,26 @@ export async function GET() {
       .maybeSingle();
 
     // Transform subscription to match expected structure
+    // Supabase returns subscription_plans as an array, but we need a single plan object
     let subscription = null;
     if (subscriptionRaw) {
+      // Handle both array and object formats from Supabase
+      const planData = Array.isArray(subscriptionRaw.subscription_plans) 
+        ? subscriptionRaw.subscription_plans[0] 
+        : subscriptionRaw.subscription_plans;
+      
       subscription = {
-        ...subscriptionRaw,
-        plan: subscriptionRaw.subscription_plans || null,
+        id: subscriptionRaw.id,
+        company_id: subscriptionRaw.company_id,
+        plan_id: subscriptionRaw.plan_id,
+        status: subscriptionRaw.status,
+        trial_end: subscriptionRaw.trial_end,
+        current_period_end: subscriptionRaw.current_period_end,
+        razorpay_subscription_id: subscriptionRaw.razorpay_subscription_id,
+        created_at: subscriptionRaw.created_at,
+        updated_at: subscriptionRaw.updated_at,
+        plan: planData || null, // Single plan object, not array
       };
-      // Remove the raw subscription_plans field
-      delete (subscription as any).subscription_plans;
     }
 
     // Get add-ons

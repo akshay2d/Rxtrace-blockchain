@@ -481,51 +481,39 @@ export default function PricingPage() {
   async function checkoutCart() {
     setCheckoutMessage(null);
 
-    // Use memoized cartItems first, but also recalculate as fallback
-    let currentCartItems = cartItems;
-    
-    // If memoized is empty but cart has items, recalculate
-    if (currentCartItems.length === 0 && Object.keys(cart).length > 0) {
-      console.warn('[Cart] Memoized cartItems empty but cart has items, recalculating...');
-      currentCartItems = Object.entries(cart)
-        .map(([key, qty]) => {
-          const addon = addOns.find((a) => {
-            const addonKey = a.name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
-            return addonKey === key;
-          });
-          if (!addon) {
-            console.warn('[Cart] Addon not found for key:', key);
-            return null;
-          }
-          const quantity = Number(qty);
-          if (!Number.isInteger(quantity) || quantity <= 0) {
-            console.warn('[Cart] Invalid quantity:', qty, 'for key:', key);
-            return null;
-          }
-          return { addon, qty: quantity };
-        })
-        .filter(Boolean) as Array<{ addon: AddOnAPI; qty: number }>;
-    }
+    // ALWAYS recalculate from cart state to ensure we have latest data
+    // Don't rely on memoized cartItems - recalculate fresh
+    const currentCartItems = Object.entries(cart)
+      .map(([key, qty]) => {
+        const addon = addOns.find((a) => {
+          const addonKey = a.name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+          return addonKey === key;
+        });
+        if (!addon) {
+          console.warn('[Cart] Addon not found for key:', key, 'Available:', addOns.map(a => a.name));
+          return null;
+        }
+        const quantity = Number(qty);
+        if (!Number.isInteger(quantity) || quantity <= 0) {
+          console.warn('[Cart] Invalid quantity:', qty, 'for key:', key);
+          return null;
+        }
+        return { addon, qty: quantity };
+      })
+      .filter(Boolean) as Array<{ addon: AddOnAPI; qty: number }>;
 
-    // Convert to API format
-    const apiItems = currentCartItems.map((item) => ({
-      addon: item.addon,
-      qty: item.qty,
-    }));
-
-    console.log('[Cart] Checkout started', { 
+    console.log('[Cart] Checkout - Fresh calculation:', { 
       cart: cart,
       cartKeys: Object.keys(cart), 
       cartValues: Object.values(cart),
-      cartItemsLength: cartItems.length,
+      cartItemsMemoLength: cartItems.length,
       addOnsCount: addOns.length, 
-      currentCartItemsCount: currentCartItems.length,
-      apiItemsCount: apiItems.length,
-      items: apiItems 
+      calculatedItemsCount: currentCartItems.length,
+      calculatedItems: currentCartItems 
     });
 
-    if (apiItems.length === 0) {
-      const errorMsg = `Cart is empty. Cart: ${JSON.stringify(cart)}, CartItems: ${cartItems.length}, AddOns: ${addOns.length}`;
+    if (currentCartItems.length === 0) {
+      const errorMsg = `Cart is empty. Cart: ${JSON.stringify(cart)}, CartItems memo: ${cartItems.length}, AddOns: ${addOns.length}`;
       console.error('[Cart]', errorMsg);
       setCheckoutMessage("Cart is empty. Please add items to cart first.");
       return;
@@ -575,7 +563,7 @@ export default function PricingPage() {
         amount: order.amount,
         currency: "INR",
         name: "RxTrace",
-        description: `Add-ons cart (${apiItems.length} item${apiItems.length === 1 ? "" : "s"})`,
+        description: `Add-ons cart (${currentCartItems.length} item${currentCartItems.length === 1 ? "" : "s"})`,
         handler: async (response: any) => {
           try {
             const activateRes = await fetch("/api/addons/activate", {

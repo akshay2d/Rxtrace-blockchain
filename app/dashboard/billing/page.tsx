@@ -201,7 +201,7 @@ export default function BillingPage() {
                 <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
                   <span className="text-gray-600 font-medium">Plan:</span>
                   <span className="font-bold text-lg text-blue-900">
-                    {subscription.plan.name} ({subscription.plan.billing_cycle})
+                    {subscription.plan?.name || 'N/A'} ({subscription.plan?.billing_cycle || 'N/A'})
                   </span>
                 </div>
                 
@@ -260,9 +260,9 @@ export default function BillingPage() {
                 <h4 className="font-semibold text-gray-800 mb-3">Plan Details:</h4>
                 <ul className="text-sm text-gray-700 space-y-1">
                   <li className="font-semibold text-blue-700">
-                    ₹{subscription.plan.base_price.toLocaleString('en-IN')} / {subscription.plan.billing_cycle}
+                    {subscription.plan?.base_price ? `₹${subscription.plan.base_price.toLocaleString('en-IN')} / ${subscription.plan.billing_cycle}` : 'Plan details not available'}
                   </li>
-                  {subscription.plan.description && (
+                  {subscription.plan?.description && (
                     <li className="text-gray-600 mt-2">{subscription.plan.description}</li>
                   )}
                 </ul>
