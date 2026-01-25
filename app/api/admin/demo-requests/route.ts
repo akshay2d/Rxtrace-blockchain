@@ -1,53 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@supabase/ssr';
-import { prisma } from '@/app/lib/prisma';
+import { getSupabaseAdmin } from '@/lib/supabase/admin';
+import { supabaseServer } from '@/lib/supabase/server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-async function ensureDemoRequestsTable() {
-  await prisma.$executeRawUnsafe(`create extension if not exists pgcrypto;`);
-  await prisma.$executeRawUnsafe(`
-    create table if not exists public.demo_requests (
-      id uuid primary key default gen_random_uuid(),
-      name text not null,
-      company_name text not null,
-      email text not null,
-      phone text not null,
-      message text null,
-      source text not null default 'landing',
-      ip text null,
-      user_agent text null,
-      created_at timestamptz not null default now()
-    );
-  `);
-}
-
-function getSupabaseFromRequest(request: NextRequest) {
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll() {
-          // No-op for API read; we just need to read the session.
-        },
-      },
-    }
-  );
-}
-
 export async function GET(request: NextRequest) {
   try {
-    const supabase = getSupabaseFromRequest(request);
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
+    // Authenticate user
+    const supabase = await supabaseServer();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
 
-    if (!session) {
+    if (authError || !user) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -55,18 +19,30 @@ export async function GET(request: NextRequest) {
     const limitParam = url.searchParams.get('limit');
     const limit = limitParam ? Math.min(Math.max(parseInt(limitParam, 10) || 100, 1), 500) : 100;
 
-    await ensureDemoRequestsTable();
+    // Use admin client to query demo_requests table
+    const adminClient = getSupabaseAdmin();
+    
+    const { data: rows, error } = await adminClient
+      .from('demo_requests')
+      .select('id, name, company_name, email, phone, message, source, ip, user_agent, created_at')
+      .order('created_at', { ascending: false })
+      .limit(limit);
 
-    const rows = await prisma.$queryRawUnsafe(
-      `select id, name, company_name, email, phone, message, source, ip, user_agent, created_at
-       from public.demo_requests
-       order by created_at desc
-       limit $1`,
-      limit
-    );
+    if (error) {
+      // If table doesn't exist, return empty array (table will be created when first demo request is submitted)
+      if (error.code === 'PGRST116' || error.message?.includes('does not exist')) {
+        return NextResponse.json({ success: true, rows: [] });
+      }
+      console.error('Error fetching demo requests:', error);
+      return NextResponse.json(
+        { success: false, error: error.message || 'Failed to load demo requests' },
+        { status: 500 }
+      );
+    }
 
-    return NextResponse.json({ success: true, rows });
+    return NextResponse.json({ success: true, rows: rows || [] });
   } catch (err: any) {
+    console.error('Demo requests fetch error:', err);
     return NextResponse.json(
       { success: false, error: err?.message || 'Failed to load demo requests' },
       { status: 500 }
