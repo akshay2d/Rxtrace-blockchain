@@ -95,10 +95,10 @@ export async function GET() {
       return NextResponse.json({ error: scansErr.message }, { status: 500 });
     }
 
-    // Scan breakdown by expiry status (FIX: removed status column that doesn't exist)
+    // Scan breakdown by expiry status
     const { data: scanLogs, error: scanLogsErr } = await supabase
       .from('scan_logs')
-      .select('metadata')
+      .select('metadata, status')
       .eq('company_id', companyId);
 
     if (scanLogsErr) {
@@ -107,7 +107,7 @@ export async function GET() {
 
     const validProductScans = (scanLogs || []).filter(log => {
       const expiryStatus = log.metadata?.expiry_status;
-      return expiryStatus === 'VALID' || (!expiryStatus && !log.metadata?.error_reason);
+      return expiryStatus === 'VALID' || (!expiryStatus && log.status === 'SUCCESS');
     }).length;
 
     const expiredProductScans = (scanLogs || []).filter(log => {
@@ -120,7 +120,7 @@ export async function GET() {
     }).length;
 
     const errorScans = (scanLogs || []).filter(log => {
-      return log.metadata?.error_reason && log.metadata.error_reason !== 'PRODUCT_EXPIRED';
+      return log.status === 'ERROR' || log.status === 'FAILED';
     }).length;
 
     // Active handsets
