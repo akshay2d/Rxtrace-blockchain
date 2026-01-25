@@ -175,9 +175,12 @@ export default function PricingPage() {
           if (subRes.ok) {
             const subBody = await subRes.json();
             subscriptionData = subBody.subscription || null;
+            console.log('[Pricing] Subscription data:', subscriptionData);
+          } else {
+            console.error('[Pricing] Subscription API error:', subRes.status, await subRes.text());
           }
         } catch (subErr) {
-          console.log('Failed to fetch subscription:', subErr);
+          console.error('[Pricing] Failed to fetch subscription:', subErr);
         }
 
         if (!cancelled) {
@@ -430,19 +433,32 @@ export default function PricingPage() {
       return;
     }
     
-    // Force state update with functional update to ensure React detects change
+    // Force state update - create completely new object to ensure React detects change
     setCart((prev) => {
-      const updated = { ...prev, [key]: qty };
-      console.log('[Cart] Adding item:', { addonName: addon.name, key, qty, prevKeys: Object.keys(prev), newKeys: Object.keys(updated) });
-      // Return new object to trigger re-render
-      return { ...updated };
+      const newCart = { ...prev };
+      newCart[key] = qty;
+      console.log('[Cart] Adding item:', { 
+        addonName: addon.name, 
+        key, 
+        qty, 
+        prevCart: prev, 
+        newCart,
+        prevKeys: Object.keys(prev), 
+        newKeys: Object.keys(newCart),
+        prevValues: Object.values(prev),
+        newValues: Object.values(newCart)
+      });
+      return newCart;
     });
     
     // Clear quantity input after adding
-    setQtyByKey((prev) => ({
-      ...prev,
-      [key]: '',
-    }));
+    setTimeout(() => {
+      setQtyByKey((prev) => {
+        const updated = { ...prev };
+        updated[key] = '';
+        return updated;
+      });
+    }, 100);
   }
 
   function removeFromCart(key: string) {
@@ -462,36 +478,51 @@ export default function PricingPage() {
   async function checkoutCart() {
     setCheckoutMessage(null);
 
-    // Recalculate cartItems from current cart state to ensure we have latest
-    const currentCartItems = Object.entries(cart)
-      .map(([key, qty]) => {
-        const addon = addOns.find((a) => {
-          const addonKey = a.name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
-          return addonKey === key;
-        });
-        if (!addon) {
-          console.warn('[Cart] Addon not found for key:', key);
-          return null;
-        }
-        const quantity = Number(qty);
-        if (!Number.isInteger(quantity) || quantity <= 0) {
-          console.warn('[Cart] Invalid quantity:', qty, 'for key:', key);
-          return null;
-        }
-        return { addon, qty: quantity };
-      })
-      .filter(Boolean) as Array<{ addon: AddOnAPI; qty: number }>;
+    // Use memoized cartItems first, but also recalculate as fallback
+    let currentCartItems = cartItems;
+    
+    // If memoized is empty but cart has items, recalculate
+    if (currentCartItems.length === 0 && Object.keys(cart).length > 0) {
+      console.warn('[Cart] Memoized cartItems empty but cart has items, recalculating...');
+      currentCartItems = Object.entries(cart)
+        .map(([key, qty]) => {
+          const addon = addOns.find((a) => {
+            const addonKey = a.name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+            return addonKey === key;
+          });
+          if (!addon) {
+            console.warn('[Cart] Addon not found for key:', key);
+            return null;
+          }
+          const quantity = Number(qty);
+          if (!Number.isInteger(quantity) || quantity <= 0) {
+            console.warn('[Cart] Invalid quantity:', qty, 'for key:', key);
+            return null;
+          }
+          return { addon, qty: quantity };
+        })
+        .filter(Boolean) as Array<{ addon: AddOnAPI; qty: number }>;
+    }
+
+    // Convert to API format
+    const apiItems = currentCartItems.map((item) => ({
+      addon: item.addon,
+      qty: item.qty,
+    }));
 
     console.log('[Cart] Checkout started', { 
+      cart: cart,
       cartKeys: Object.keys(cart), 
       cartValues: Object.values(cart),
+      cartItemsLength: cartItems.length,
       addOnsCount: addOns.length, 
       currentCartItemsCount: currentCartItems.length,
-      items: currentCartItems 
+      apiItemsCount: apiItems.length,
+      items: apiItems 
     });
 
-    if (currentCartItems.length === 0) {
-      const errorMsg = `Cart is empty. Cart state: ${JSON.stringify(cart)}, AddOns: ${addOns.length}`;
+    if (apiItems.length === 0) {
+      const errorMsg = `Cart is empty. Cart: ${JSON.stringify(cart)}, CartItems: ${cartItems.length}, AddOns: ${addOns.length}`;
       console.error('[Cart]', errorMsg);
       setCheckoutMessage("Cart is empty. Please add items to cart first.");
       return;
@@ -515,7 +546,7 @@ export default function PricingPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           company_id: companyId,
-          items: currentCartItems.map((i) => {
+          items: apiItems.map((i) => {
             const key = i.addon.name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
             return { kind: key, qty: i.qty };
           }),
@@ -541,7 +572,7 @@ export default function PricingPage() {
         amount: order.amount,
         currency: "INR",
         name: "RxTrace",
-        description: `Add-ons cart (${currentCartItems.length} item${currentCartItems.length === 1 ? "" : "s"})`,
+        description: `Add-ons cart (${apiItems.length} item${apiItems.length === 1 ? "" : "s"})`,
         handler: async (response: any) => {
           try {
             const activateRes = await fetch("/api/addons/activate", {
@@ -662,20 +693,34 @@ export default function PricingPage() {
                   savings={savings}
                   items={items}
                   highlight={plan.name.toLowerCase().includes('growth') || plan.name.toLowerCase().includes('popular')}
-                  actionLabel={
-                    (company?.subscription_status === 'trial' || company?.subscription_status === 'TRIAL' || subscription?.status === 'TRIAL')
-                      ? `Subscribe to ${plan.name}`
-                      : (company?.subscription_status || subscription?.status)
-                      ? "Go to Billing"
-                      : "Start Free Trial"
-                  }
-                  onAction={
-                    (company?.subscription_status === 'trial' || company?.subscription_status === 'TRIAL' || subscription?.status === 'TRIAL')
-                      ? () => subscribeToPlan(plan)
-                      : (company?.subscription_status || subscription?.status)
-                      ? () => router.push('/dashboard/billing')
-                      : startFreeTrial
-                  }
+                  actionLabel={(() => {
+                    // Check trial status from both sources
+                    const isTrial = (company?.subscription_status === 'trial' || company?.subscription_status === 'TRIAL') || 
+                                   (subscription?.status === 'TRIAL');
+                    const hasSubscription = company?.subscription_status || subscription?.status;
+                    
+                    console.log('[Pricing] Plan button logic:', { 
+                      planName: plan.name,
+                      companyStatus: company?.subscription_status, 
+                      subscriptionStatus: subscription?.status,
+                      isTrial,
+                      hasSubscription
+                    });
+                    
+                    if (isTrial) return `Subscribe to ${plan.name}`;
+                    if (hasSubscription) return "Go to Billing";
+                    return "Start Free Trial";
+                  })()}
+                  onAction={(() => {
+                    // Check trial status from both sources
+                    const isTrial = (company?.subscription_status === 'trial' || company?.subscription_status === 'TRIAL') || 
+                                   (subscription?.status === 'TRIAL');
+                    const hasSubscription = company?.subscription_status || subscription?.status;
+                    
+                    if (isTrial) return () => subscribeToPlan(plan);
+                    if (hasSubscription) return () => router.push('/dashboard/billing');
+                    return startFreeTrial;
+                  })()}
                   disabled={!trialEligible}
                   disabledReason={trialDisabledReason}
                 />

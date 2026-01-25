@@ -24,12 +24,12 @@ export async function GET() {
       return NextResponse.json({ success: true, subscription: null });
     }
 
-    // Get subscription
+    // Get subscription - use left join so subscription is returned even if plan is missing
     const { data: subscription } = await supabase
       .from("company_subscriptions")
       .select(`
         *,
-        subscription_plans!inner(id, name, description, billing_cycle, base_price)
+        subscription_plans(id, name, description, billing_cycle, base_price)
       `)
       .eq("company_id", company.id)
       .maybeSingle();
