@@ -60,10 +60,10 @@ export default function CompanyDetailPage() {
     try {
       const supabase = supabaseClient();
       
-      // Fetch company
+      // Fetch company with discount fields
       const { data: companyData } = await supabase
         .from('companies')
-        .select('id, company_name, created_at')
+        .select('id, company_name, created_at, discount_type, discount_value, discount_applies_to, discount_notes')
         .eq('id', companyId)
         .single();
 
