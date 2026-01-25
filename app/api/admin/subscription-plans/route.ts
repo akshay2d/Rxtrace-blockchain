@@ -60,7 +60,7 @@ export async function POST(req: Request) {
     let razorpay_plan_id: string | null = null;
     try {
       const razorpay = getRazorpay();
-      const period = billing_cycle === "monthly" ? "monthly" : "yearly";
+      const period: "monthly" | "yearly" = billing_cycle === "monthly" ? "monthly" : "yearly";
       const interval = 1;
       
       const razorpayPlan = await razorpay.plans.create({
