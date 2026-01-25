@@ -24,8 +24,8 @@ export async function GET() {
       return NextResponse.json({ success: true, subscription: null });
     }
 
-    // Get subscription - use left join so subscription is returned even if plan is missing
-    const { data: subscription } = await supabase
+    // Get subscription with plan data
+    const { data: subscriptionRaw } = await supabase
       .from("company_subscriptions")
       .select(`
         *,
@@ -33,6 +33,17 @@ export async function GET() {
       `)
       .eq("company_id", company.id)
       .maybeSingle();
+
+    // Transform subscription to match expected structure
+    let subscription = null;
+    if (subscriptionRaw) {
+      subscription = {
+        ...subscriptionRaw,
+        plan: subscriptionRaw.subscription_plans || null,
+      };
+      // Remove the raw subscription_plans field
+      delete (subscription as any).subscription_plans;
+    }
 
     // Get add-ons
     const { data: addOns } = await supabase

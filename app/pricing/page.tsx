@@ -425,7 +425,6 @@ export default function PricingPage() {
 
   function addToCart(addon: AddOnAPI, qty: number) {
     setCheckoutMessage(null);
-    const key = addon.name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
     
     // Validate quantity
     if (!Number.isInteger(qty) || qty <= 0) {
@@ -433,21 +432,25 @@ export default function PricingPage() {
       return;
     }
     
-    // Force state update - create completely new object to ensure React detects change
+    const key = addon.name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+    
+    // Use functional update and create new object reference
     setCart((prev) => {
-      const newCart = { ...prev };
+      // Create completely new object to force React re-render
+      const newCart = Object.assign({}, prev);
       newCart[key] = qty;
-      console.log('[Cart] Adding item:', { 
+      
+      console.log('[Cart] State update:', { 
         addonName: addon.name, 
         key, 
-        qty, 
-        prevCart: prev, 
-        newCart,
-        prevKeys: Object.keys(prev), 
-        newKeys: Object.keys(newCart),
-        prevValues: Object.values(prev),
-        newValues: Object.values(newCart)
+        qty,
+        prevCartKeys: Object.keys(prev),
+        prevCartValues: Object.values(prev),
+        newCartKeys: Object.keys(newCart),
+        newCartValues: Object.values(newCart),
+        isNewObject: newCart !== prev
       });
+      
       return newCart;
     });
     
@@ -458,7 +461,7 @@ export default function PricingPage() {
         updated[key] = '';
         return updated;
       });
-    }, 100);
+    }, 50);
   }
 
   function removeFromCart(key: string) {
