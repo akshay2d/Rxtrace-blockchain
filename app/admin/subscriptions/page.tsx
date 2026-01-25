@@ -27,6 +27,8 @@ type PlanItem = {
   value: string | null;
   is_visible: boolean;
   display_order: number;
+  limit_value: number | null;
+  limit_type: 'HARD' | 'SOFT' | 'NONE' | null;
 };
 
 export default function AdminSubscriptionsPage() {
@@ -202,10 +204,16 @@ function PlanForm({ plan, onSave, onCancel }: { plan: Plan | null; onSave: (p: P
   const [billingCycle, setBillingCycle] = useState(plan?.billing_cycle || 'monthly');
   const [basePrice, setBasePrice] = useState(plan?.base_price?.toString() || '');
   const [displayOrder, setDisplayOrder] = useState(plan?.display_order?.toString() || '0');
-  const [items, setItems] = useState<PlanItem[]>(plan?.items || []);
+  const [items, setItems] = useState<PlanItem[]>(
+    plan?.items?.map(item => ({
+      ...item,
+      limit_value: item.limit_value ?? null,
+      limit_type: item.limit_type ?? 'NONE'
+    })) || []
+  );
 
   function addItem() {
-    setItems([...items, { label: '', value: '', is_visible: true, display_order: items.length }]);
+    setItems([...items, { label: '', value: '', is_visible: true, display_order: items.length, limit_value: null, limit_type: 'NONE' }]);
   }
 
   function updateItem(index: number, field: keyof PlanItem, value: any) {
@@ -290,35 +298,56 @@ function PlanForm({ plan, onSave, onCancel }: { plan: Plan | null; onSave: (p: P
             </div>
             <div className="space-y-2">
               {items.map((item, idx) => (
-                <div key={idx} className="flex gap-2 items-center">
-                  <Input
-                    placeholder="Feature label"
-                    value={item.label}
-                    onChange={(e) => updateItem(idx, 'label', e.target.value)}
-                    className="flex-1"
-                  />
-                  <Input
-                    placeholder="Value (optional)"
-                    value={item.value || ''}
-                    onChange={(e) => updateItem(idx, 'value', e.target.value)}
-                    className="flex-1"
-                  />
-                  <label className="flex items-center gap-1 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={item.is_visible}
-                      onChange={(e) => updateItem(idx, 'is_visible', e.target.checked)}
+                <div key={idx} className="border rounded-lg p-3 space-y-2">
+                  <div className="flex gap-2 items-center">
+                    <Input
+                      placeholder="Feature label"
+                      value={item.label}
+                      onChange={(e) => updateItem(idx, 'label', e.target.value)}
+                      className="flex-1"
                     />
-                    Visible
-                  </label>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => removeItem(idx)}
-                  >
-                    <X className="w-4 h-4" />
-                  </Button>
+                    <Input
+                      placeholder="Value (optional)"
+                      value={item.value || ''}
+                      onChange={(e) => updateItem(idx, 'value', e.target.value)}
+                      className="flex-1"
+                    />
+                    <label className="flex items-center gap-1 text-sm whitespace-nowrap">
+                      <input
+                        type="checkbox"
+                        checked={item.is_visible}
+                        onChange={(e) => updateItem(idx, 'is_visible', e.target.checked)}
+                      />
+                      Visible
+                    </label>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => removeItem(idx)}
+                    >
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
+                  <div className="flex gap-2 items-center text-sm">
+                    <Label className="text-xs whitespace-nowrap">Quota Limit:</Label>
+                    <Input
+                      type="number"
+                      placeholder="Limit value"
+                      value={item.limit_value ?? ''}
+                      onChange={(e) => updateItem(idx, 'limit_value', e.target.value ? parseInt(e.target.value) : null)}
+                      className="w-24"
+                    />
+                    <select
+                      value={item.limit_type || 'NONE'}
+                      onChange={(e) => updateItem(idx, 'limit_type', e.target.value as 'HARD' | 'SOFT' | 'NONE')}
+                      className="border rounded-md p-1 text-sm"
+                    >
+                      <option value="NONE">No Limit</option>
+                      <option value="SOFT">Soft Limit</option>
+                      <option value="HARD">Hard Limit</option>
+                    </select>
+                  </div>
                 </div>
               ))}
             </div>

@@ -29,7 +29,7 @@ export async function GET() {
       (data || []).map(async (plan) => {
         const { data: items } = await supabase
           .from("plan_items")
-          .select("*")
+          .select("id, label, value, is_visible, display_order, limit_value, limit_type")
           .eq("plan_id", plan.id)
           .order("display_order", { ascending: true });
         return { ...plan, items: items || [] };
@@ -104,6 +104,8 @@ export async function POST(req: Request) {
           value: item.value,
           is_visible: item.is_visible !== false,
           display_order: item.display_order ?? 0,
+          limit_value: item.limit_value ?? null,
+          limit_type: item.limit_type ?? 'NONE',
         });
       }
     }
@@ -174,6 +176,8 @@ export async function PUT(req: Request) {
           value: item.value,
           is_visible: item.is_visible !== false,
           display_order: item.display_order ?? 0,
+          limit_value: item.limit_value ?? null,
+          limit_type: item.limit_type ?? 'NONE',
         });
       }
     }
