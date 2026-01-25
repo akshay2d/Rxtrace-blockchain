@@ -527,18 +527,7 @@ export default function PricingPage() {
                   items={items}
                   highlight={plan.name.toLowerCase().includes('growth') || plan.name.toLowerCase().includes('popular')}
                   actionLabel={company?.subscription_status ? "Go to Billing" : "Start Free Trial"}
-                  onAction={company?.subscription_status ? () => {
-                    console.log('[Pricing] Navigating to billing');
-                    try {
-                      router.push('/dashboard/billing');
-                    } catch (error) {
-                      console.error('[Pricing] Router push error:', error);
-                      window.location.href = '/dashboard/billing';
-                    }
-                  } : () => {
-                    console.log('[Pricing] Starting free trial');
-                    startFreeTrial();
-                  }}
+                  onAction={company?.subscription_status ? () => router.push('/dashboard/billing') : startFreeTrial}
                   disabled={!trialEligible}
                   disabledReason={trialDisabledReason}
                 />
@@ -893,20 +882,7 @@ function PlanCard({
       </div>
 
       <button
-        onClick={(e) => {
-          e.preventDefault();
-          try {
-            console.log('[Pricing] Button clicked:', { actionLabel, disabled, onAction: typeof onAction });
-            if (!disabled && onAction) {
-              onAction();
-            } else {
-              console.warn('[Pricing] Action disabled or missing:', { disabled, hasOnAction: !!onAction });
-            }
-          } catch (error) {
-            console.error('[Pricing] Error in button click:', error);
-            alert('Navigation error: ' + (error as Error).message);
-          }
-        }}
+        onClick={onAction}
         disabled={disabled}
         className={`mt-8 w-full py-3 rounded-lg font-semibold transition ${
           disabled
