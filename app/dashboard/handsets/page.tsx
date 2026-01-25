@@ -5,7 +5,17 @@ import { supabaseClient } from '@/lib/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Copy, Check, Smartphone, AlertCircle } from 'lucide-react';
+import { Copy, Check, Smartphone, AlertCircle, RefreshCw, XCircle, Clock } from 'lucide-react';
+
+type Handset = {
+  id: string;
+  handset_id: string;
+  active: boolean;
+  high_scan_enabled: boolean;
+  activated_at: string | null;
+  deactivated_at: string | null;
+  last_seen?: string | null;
+};
 
 export default function HandsetsPage() {
   const [companyId, setCompanyId] = useState<string>('');
@@ -13,6 +23,9 @@ export default function HandsetsPage() {
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [handsets, setHandsets] = useState<Handset[]>([]);
+  const [handsetsLoading, setHandsetsLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
 
   useEffect(() => {
     async function loadCompanyId() {
@@ -44,6 +57,10 @@ export default function HandsetsPage() {
 
         setCompanyId(company.id);
         setCompanyName(company.company_name || '');
+        // Load handsets after company ID is set
+        if (company.id) {
+          loadHandsetsForCompany(company.id);
+        }
       } catch (err: any) {
         setError(err.message || 'Failed to load Company ID');
       } finally {
@@ -51,8 +68,81 @@ export default function HandsetsPage() {
       }
     }
 
+    async function loadHandsetsForCompany(companyId: string) {
+      setHandsetsLoading(true);
+      try {
+        const supabase = supabaseClient();
+        const { data, error } = await supabase
+          .from('handsets')
+          .select('id, handset_id, active, high_scan_enabled, activated_at, deactivated_at, last_seen')
+          .eq('company_id', companyId)
+          .order('activated_at', { ascending: false });
+
+        if (error) {
+          console.error('Failed to load handsets:', error);
+          return;
+        }
+
+        setHandsets(data || []);
+      } catch (err: any) {
+        console.error('Failed to load handsets:', err);
+      } finally {
+        setHandsetsLoading(false);
+      }
+    }
+
     loadCompanyId();
   }, []);
+
+  async function loadHandsets() {
+    if (!companyId) return;
+    
+    setHandsetsLoading(true);
+    try {
+      const supabase = supabaseClient();
+      const { data, error } = await supabase
+        .from('handsets')
+        .select('id, handset_id, active, high_scan_enabled, activated_at, deactivated_at, last_seen')
+        .eq('company_id', companyId)
+        .order('activated_at', { ascending: false });
+
+      if (error) {
+        console.error('Failed to load handsets:', error);
+        return;
+      }
+
+      setHandsets(data || []);
+    } catch (err: any) {
+      console.error('Failed to load handsets:', err);
+    } finally {
+      setHandsetsLoading(false);
+    }
+  }
+
+  async function deactivateHandset(handsetId: string) {
+    if (!confirm(`Are you sure you want to deactivate this handset? This will disable SSCC scanning on this device.`)) return;
+
+    setActionLoading(true);
+    try {
+      const res = await fetch('/api/handset/deactivate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ handset_id: handsetId }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to deactivate handset');
+      }
+
+      alert('Handset deactivated successfully.');
+      await loadHandsets();
+    } catch (err: any) {
+      alert(err.message || 'Failed to deactivate handset');
+    } finally {
+      setActionLoading(false);
+    }
+  }
 
   async function copyCompanyId() {
     if (!companyId) return;
@@ -199,6 +289,87 @@ export default function HandsetsPage() {
               <strong>Need help?</strong> Visit <a href="/dashboard/help" className="text-blue-600 hover:underline">Help & Support</a> for detailed instructions.
             </p>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Active Handsets List */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <Smartphone className="h-5 w-5" />
+              Active Handsets ({handsets.filter(h => h.active).length})
+            </CardTitle>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={loadHandsets}
+              disabled={handsetsLoading}
+            >
+              <RefreshCw className={`h-4 w-4 mr-2 ${handsetsLoading ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {handsetsLoading && handsets.length === 0 ? (
+            <div className="text-center py-8 text-gray-500">
+              Loading handsets...
+            </div>
+          ) : handsets.length === 0 ? (
+            <div className="text-center py-8 text-gray-500">
+              <Smartphone className="h-16 w-16 mx-auto mb-3 opacity-20" />
+              <p>No handsets registered yet</p>
+              <p className="text-xs mt-1">Activate a handset using your Company ID in the scanner app</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {handsets.map((handset) => (
+                <div
+                  key={handset.id}
+                  className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 transition"
+                >
+                  <div className="flex-1">
+                    <div className="flex items-center gap-3">
+                      <Smartphone className="h-5 w-5 text-blue-600" />
+                      <div>
+                        <div className="font-mono font-medium text-sm">{handset.handset_id}</div>
+                        {handset.activated_at && (
+                          <div className="text-xs text-gray-500 flex items-center gap-1 mt-1">
+                            <Clock className="h-3 w-3" />
+                            Activated: {new Date(handset.activated_at).toLocaleString('en-IN')}
+                          </div>
+                        )}
+                        {handset.last_seen && (
+                          <div className="text-xs text-gray-500 flex items-center gap-1 mt-1">
+                            <Clock className="h-3 w-3" />
+                            Last seen: {new Date(handset.last_seen).toLocaleString('en-IN')}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Badge variant={handset.active ? "default" : "secondary"}>
+                      {handset.active ? "Active" : "Inactive"}
+                    </Badge>
+                    {handset.active && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => deactivateHandset(handset.handset_id)}
+                        disabled={actionLoading}
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                      >
+                        <XCircle className="h-4 w-4 mr-1" />
+                        Deactivate
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
