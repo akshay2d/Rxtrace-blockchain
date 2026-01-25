@@ -559,6 +559,47 @@ export async function POST(req: NextRequest) {
       // Continue - quota can be initialized later
     }
 
+    // FIX: Create company_subscriptions record so billing page can show trial details
+    // Get plan ID for the selected plan
+    const { data: selectedPlan, error: planError } = await supabase
+      .from('subscription_plans')
+      .select('id')
+      .eq('name', planType === 'starter' ? 'Starter' : planType === 'growth' ? 'Growth' : 'Enterprise')
+      .eq('billing_cycle', 'monthly')
+      .maybeSingle();
+
+    if (planError) {
+      console.error('Failed to find plan:', planError);
+    } else if (selectedPlan) {
+      // Check if subscription already exists (idempotency)
+      const { data: existingSubscription } = await supabase
+        .from('company_subscriptions')
+        .select('id')
+        .eq('company_id', company.id)
+        .maybeSingle();
+
+      if (!existingSubscription && selectedPlan.id) {
+        // Create subscription record
+        const { error: subError } = await supabase
+          .from('company_subscriptions')
+          .insert({
+            company_id: company.id,
+            plan_id: selectedPlan.id,
+            status: 'TRIAL',
+            trial_end: trialEndDate.toISOString(),
+            current_period_end: trialEndDate.toISOString(),
+            razorpay_subscription_id: subscription?.id || null,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          });
+
+        if (subError) {
+          console.error('Failed to create subscription record:', subError);
+          // Continue - trial activated, subscription can be created manually if needed
+        }
+      }
+    }
+
     // Log activation event in audit table
     try {
       await supabase
@@ -573,7 +614,7 @@ export async function POST(req: NextRequest) {
             payment_id,
             order_id,
             trial_end_date: trialEndDate.toISOString(),
-            plan: 'starter',
+            plan: planKey,
             company_name: company.company_name,
             description: `15-day free trial activated for ${company.company_name}`,
           },
