@@ -282,18 +282,21 @@ export default function PricingPage() {
   const cartItems = React.useMemo(() => {
     const items = Object.entries(cart)
       .map(([key, qty]) => {
-        const addon = ADDONS.find((a) => a.key === key);
+        const addon = addOns.find((a) => {
+          const addonKey = a.name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+          return addonKey === key;
+        });
         if (!addon) return null;
         const quantity = Number(qty);
         if (!Number.isInteger(quantity) || quantity <= 0) return null;
-        const totalPaise = quantity * addon.unitPricePaise;
+        const totalPaise = quantity * Math.round(addon.price * 100);
         return { addon, qty: quantity, totalPaise };
       })
-      .filter(Boolean) as Array<{ addon: AddOn; qty: number; totalPaise: number }>;
+      .filter(Boolean) as Array<{ addon: AddOnAPI; qty: number; totalPaise: number }>;
 
     items.sort((a, b) => a.addon.name.localeCompare(b.addon.name));
     return items;
-  }, [cart]);
+  }, [cart, addOns]);
 
   const cartTotalPaise = React.useMemo(() => {
     return cartItems.reduce((sum, item) => sum + item.totalPaise, 0);
