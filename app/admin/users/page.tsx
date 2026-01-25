@@ -9,12 +9,15 @@ import { Badge } from '@/components/ui/badge';
 import { supabaseClient } from '@/lib/supabase/client';
 import { User, Plus, Edit2, Trash2, Search, RefreshCw, X, Building2 } from 'lucide-react';
 
-// User type based on Supabase users table and company linkage
+// User type based on auth.users and company linkage
 interface UserRow {
   id: string;
   email: string;
-  company_id?: string;
+  company_id?: string | null;
+  company_name?: string | null;
   created_at: string;
+  last_sign_in_at?: string | null;
+  email_confirmed_at?: string | null;
 }
 
 interface CompanyRow {
@@ -42,13 +45,16 @@ export default function UsersManagement() {
   async function fetchUsers() {
     setLoading(true);
     try {
-      const supabase = supabaseClient();
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .order('created_at', { ascending: false });
-      if (error) throw error;
-      if (data) setUsers(data);
+      const res = await fetch('/api/admin/users', { cache: 'no-store' });
+      const data = await res.json();
+      
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to fetch users');
+      }
+      
+      if (data.success && data.users) {
+        setUsers(data.users);
+      }
     } catch (error: any) {
       alert('Failed to fetch users: ' + error.message);
     } finally {
@@ -96,14 +102,20 @@ export default function UsersManagement() {
   }
 
   async function handleDelete(user: UserRow) {
-    if (!confirm(`Are you sure you want to delete user ${user.email}?`)) return;
+    if (!confirm(`Are you sure you want to delete user ${user.email}? This will permanently delete the user account.`)) return;
     try {
-      const supabase = supabaseClient();
-      const { error } = await supabase
-        .from('users')
-        .delete()
-        .eq('id', user.id);
-      if (error) throw error;
+      const res = await fetch('/api/admin/users', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: user.id }),
+      });
+      
+      const data = await res.json();
+      
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to delete user');
+      }
+      
       alert('User deleted successfully!');
       fetchUsers();
     } catch (error: any) {
@@ -177,7 +189,7 @@ export default function UsersManagement() {
               <div className="text-sm">
                 <span className="text-gray-500">🏢 Company:</span>
                 <div className="font-medium">
-                  {companies.find(c => c.id === user.company_id)?.company_name || 'N/A'}
+                  {user.company_name || companies.find(c => c.id === user.company_id)?.company_name || 'N/A'}
                 </div>
               </div>
               <div className="text-xs text-gray-400 pt-2 border-t">
