@@ -74,7 +74,7 @@ export default function HandsetsPage() {
         const supabase = supabaseClient();
         const { data, error } = await supabase
           .from('handsets')
-          .select('id, handset_id, active, high_scan_enabled, activated_at, deactivated_at, last_seen')
+          .select('id, device_fingerprint, status, high_scan_enabled, activated_at, deactivated_at, last_seen')
           .eq('company_id', companyId)
           .order('activated_at', { ascending: false });
 
@@ -83,7 +83,18 @@ export default function HandsetsPage() {
           return;
         }
 
-        setHandsets(data || []);
+        // Transform to match frontend expectations
+        const transformedHandsets = (data || []).map(h => ({
+          id: h.id,
+          handset_id: h.device_fingerprint || h.id,
+          active: h.status === 'ACTIVE',
+          high_scan_enabled: !!h.high_scan_enabled,
+          activated_at: h.activated_at || null,
+          deactivated_at: h.deactivated_at || null,
+          last_seen: h.last_seen || h.activated_at || null,
+        }));
+
+        setHandsets(transformedHandsets);
       } catch (err: any) {
         console.error('Failed to load handsets:', err);
       } finally {
@@ -102,7 +113,7 @@ export default function HandsetsPage() {
       const supabase = supabaseClient();
       const { data, error } = await supabase
         .from('handsets')
-        .select('id, handset_id, active, high_scan_enabled, activated_at, deactivated_at, last_seen')
+        .select('id, device_fingerprint, status, high_scan_enabled, activated_at, deactivated_at, last_seen')
         .eq('company_id', companyId)
         .order('activated_at', { ascending: false });
 
@@ -111,7 +122,18 @@ export default function HandsetsPage() {
         return;
       }
 
-      setHandsets(data || []);
+      // Transform to match frontend expectations
+      const transformedHandsets = (data || []).map(h => ({
+        id: h.id,
+        handset_id: h.device_fingerprint || h.id,
+        active: h.status === 'ACTIVE',
+        high_scan_enabled: !!h.high_scan_enabled,
+        activated_at: h.activated_at || null,
+        deactivated_at: h.deactivated_at || null,
+        last_seen: h.last_seen || h.activated_at || null,
+      }));
+
+      setHandsets(transformedHandsets);
     } catch (err: any) {
       console.error('Failed to load handsets:', err);
     } finally {
@@ -357,7 +379,7 @@ export default function HandsetsPage() {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => deactivateHandset(handset.handset_id)}
+                        onClick={() => deactivateHandset(handset.id)}
                         disabled={actionLoading}
                         className="text-red-600 hover:text-red-700 hover:bg-red-50"
                       >
