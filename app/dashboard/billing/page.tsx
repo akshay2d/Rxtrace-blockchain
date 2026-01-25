@@ -201,7 +201,7 @@ export default function BillingPage() {
                 <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
                   <span className="text-gray-600 font-medium">Plan:</span>
                   <span className="font-bold text-lg text-blue-900">
-                    {subscription.plan?.name || 'N/A'} ({subscription.plan?.billing_cycle || 'N/A'})
+                    {subscription.plan?.name ? `${subscription.plan.name} (${subscription.plan.billing_cycle})` : 'Plan details loading...'}
                   </span>
                 </div>
                 
@@ -259,11 +259,17 @@ export default function BillingPage() {
               <div className="p-4 bg-gray-50 rounded-lg">
                 <h4 className="font-semibold text-gray-800 mb-3">Plan Details:</h4>
                 <ul className="text-sm text-gray-700 space-y-1">
-                  <li className="font-semibold text-blue-700">
-                    {subscription.plan?.base_price ? `₹${subscription.plan.base_price.toLocaleString('en-IN')} / ${subscription.plan.billing_cycle}` : 'Plan details not available'}
-                  </li>
-                  {subscription.plan?.description && (
-                    <li className="text-gray-600 mt-2">{subscription.plan.description}</li>
+                  {subscription.plan ? (
+                    <>
+                      <li className="font-semibold text-blue-700">
+                        ₹{subscription.plan.base_price.toLocaleString('en-IN')} / {subscription.plan.billing_cycle}
+                      </li>
+                      {subscription.plan.description && (
+                        <li className="text-gray-600 mt-2">{subscription.plan.description}</li>
+                      )}
+                    </>
+                  ) : (
+                    <li className="text-gray-500">Plan details loading...</li>
                   )}
                 </ul>
               </div>

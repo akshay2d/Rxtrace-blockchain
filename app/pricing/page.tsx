@@ -537,7 +537,7 @@ export default function PricingPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           company_id: companyId,
-          items: apiItems.map((i) => {
+          items: currentCartItems.map((i) => {
             const key = i.addon.name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
             return { kind: key, qty: i.qty };
           }),
