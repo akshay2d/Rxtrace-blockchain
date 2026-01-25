@@ -115,6 +115,20 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const isFeatureEnabled = (feature: string): boolean => {
+    // Allow code generation without subscription (pre-Phase 1 behavior)
+    if (feature === 'code_generation') {
+      // If no subscription, allow access (legacy behavior - code generation was always available)
+      if (!subscription) return true;
+      
+      // If subscription exists, check status
+      const status = subscription.status;
+      if (status === 'PAUSED' || status === 'CANCELLED' || status === 'EXPIRED') {
+        return false;
+      }
+      return status === 'TRIAL' || status === 'ACTIVE';
+    }
+    
+    // For other features, require subscription
     if (!subscription) return false;
     
     const status = subscription.status;

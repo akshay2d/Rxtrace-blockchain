@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import Link from 'next/link';
 import Papa from 'papaparse';
 import { saveAs } from 'file-saver';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -555,7 +556,7 @@ export default function SSCCCodeGenerationPage() {
             Code generation is disabled. Your subscription is {subscription?.status || 'inactive'}. 
             Please activate a subscription to use this feature.
             <Button asChild variant="link" className="p-0 ml-2 h-auto">
-              <a href="/pricing">View Plans →</a>
+              <Link href="/pricing">View Plans →</Link>
             </Button>
           </AlertDescription>
         </Alert>
