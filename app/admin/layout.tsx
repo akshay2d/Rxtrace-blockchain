@@ -27,7 +27,7 @@ export default function AdminLayout({
         // For super-admin features, add additional role verification in specific pages
         // In production, check if user has admin role
       } else {
-        router.push('/admin/signin');
+        router.push('/auth/signin?redirect=/admin');
       }
     }
     checkAdmin();
@@ -35,7 +35,7 @@ export default function AdminLayout({
 
   const handleSignOut = async () => {
     await supabaseClient().auth.signOut();
-    router.push('/admin/signin');
+    router.push('/auth/signin?redirect=/admin');
   };
 
   return (
