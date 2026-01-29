@@ -316,7 +316,7 @@ function CompanyDiscountManager({ company, onUpdate }: { company: Company; onUpd
       } else {
         const msg = res.status === 403 || data.error === 'Forbidden'
           ? 'Admin access required. If you were just granted admin rights, sign out and sign in again. See docs/ADMIN_ACCESS_FIX.md for how to grant admin.'
-          : data.error;
+          : (data.error || data.message || `Request failed (${res.status})`);
         alert('Failed to update: ' + msg);
       }
     } catch (err: any) {
@@ -349,7 +349,7 @@ function CompanyDiscountManager({ company, onUpdate }: { company: Company; onUpd
       } else {
         const msg = res.status === 403 || data.error === 'Forbidden'
           ? 'Admin access required. If you were just granted admin rights, sign out and sign in again. See docs/ADMIN_ACCESS_FIX.md for how to grant admin.'
-          : data.error;
+          : (data.error || data.message || `Request failed (${res.status})`);
         alert('Failed to remove: ' + msg);
       }
     } catch (err: any) {

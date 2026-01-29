@@ -105,6 +105,43 @@ WHERE id = 'YOUR_USER_ID';
 
 ---
 
+## If metadata didn’t work: use admin_users table
+
+The server checks **both** metadata and the **admin_users** table. If you already ran the metadata UPDATE and signed out/in but still see "Admin access required", grant admin via the table (same project as your app):
+
+**1. In Supabase SQL Editor, run this** (replace `YOUR_USER_ID` with your UID from Authentication → Users, e.g. `ab400114-93db-43ea-b943-116a3f67425b`):
+
+```sql
+-- Create table if it doesn't exist
+CREATE TABLE IF NOT EXISTS admin_users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id)
+);
+
+-- Grant your user admin (use your UID)
+INSERT INTO admin_users (user_id, is_active)
+VALUES ('YOUR_USER_ID', true)
+ON CONFLICT (user_id) DO UPDATE SET is_active = true;
+```
+
+**2. Sign out and sign in again** in the app, then try the admin action (update/remove discount) or open `/api/admin/check`.
+
+**Optional: verify metadata in DB**  
+To confirm whether `is_admin` is in the database for your user, run:
+
+```sql
+SELECT id, email, raw_user_meta_data
+FROM auth.users
+WHERE id = 'YOUR_USER_ID';
+```
+
+Check that `raw_user_meta_data` contains `"is_admin": true`. If not, run the metadata UPDATE again and ensure you’re in the **same Supabase project** your app uses.
+
+---
+
 ## After the fix
 
 - **Users** page should load without "Failed to fetch users: Forbidden".
