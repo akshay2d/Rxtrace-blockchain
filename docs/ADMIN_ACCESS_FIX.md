@@ -7,6 +7,8 @@ When you see:
 
 **Cause:** The logged-in user is not marked as an admin. Admin APIs use `requireAdmin()` and return 403 if the user is not an admin.
 
+**Same credentials:** User and admin use the same sign-in page (`/auth/signin`) and the same email/password. Admin is just a flag on your account. After you set `is_admin` in Supabase, you **must sign out and sign in again** so the app sees your admin status.
+
 ---
 
 ## How admin is checked

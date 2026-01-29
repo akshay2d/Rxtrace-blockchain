@@ -53,6 +53,20 @@ export default function SignIn() {
       }
       
       if (data?.user) {
+        // Honor ?redirect= (e.g. /admin) so same credentials work for admin sign-in
+        const redirectPath = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('redirect') : null;
+        if (redirectPath && redirectPath.startsWith('/') && !redirectPath.startsWith('//')) {
+          router.push(redirectPath);
+          return;
+        }
+
+        // If user is admin (by metadata), they can go to /admin; admin layout will enforce
+        const isAdmin = data.user.user_metadata?.is_admin === true;
+        if (isAdmin) {
+          router.push('/admin');
+          return;
+        }
+
         // Check if company exists and has subscription
         const { data: companyData, error: companyError } = await supabaseClient()
           .from('companies')
