@@ -298,6 +298,7 @@ function CompanyDiscountManager({ company, onUpdate }: { company: Company; onUpd
     try {
       const res = await fetch('/api/admin/companies/discount', {
         method: 'PUT',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           company_id: company.id,
@@ -313,7 +314,10 @@ function CompanyDiscountManager({ company, onUpdate }: { company: Company; onUpd
         alert('Discount updated successfully');
         onUpdate();
       } else {
-        alert('Failed to update: ' + data.error);
+        const msg = res.status === 403 || data.error === 'Forbidden'
+          ? 'Admin access required. If you were just granted admin rights, sign out and sign in again. See docs/ADMIN_ACCESS_FIX.md for how to grant admin.'
+          : data.error;
+        alert('Failed to update: ' + msg);
       }
     } catch (err: any) {
       alert('Error: ' + err.message);
@@ -331,6 +335,7 @@ function CompanyDiscountManager({ company, onUpdate }: { company: Company; onUpd
     try {
       const res = await fetch(`/api/admin/companies/discount?company_id=${company.id}`, {
         method: 'DELETE',
+        credentials: 'include',
       });
 
       const data = await res.json();
@@ -342,7 +347,10 @@ function CompanyDiscountManager({ company, onUpdate }: { company: Company; onUpd
         setDiscountNotes('');
         onUpdate();
       } else {
-        alert('Failed to remove: ' + data.error);
+        const msg = res.status === 403 || data.error === 'Forbidden'
+          ? 'Admin access required. If you were just granted admin rights, sign out and sign in again. See docs/ADMIN_ACCESS_FIX.md for how to grant admin.'
+          : data.error;
+        alert('Failed to remove: ' + msg);
       }
     } catch (err: any) {
       alert('Error: ' + err.message);

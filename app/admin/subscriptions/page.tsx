@@ -34,6 +34,7 @@ type PlanItem = {
 export default function AdminSubscriptionsPage() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [editingPlan, setEditingPlan] = useState<Plan | null>(null);
   const [showForm, setShowForm] = useState(false);
 
@@ -44,7 +45,7 @@ export default function AdminSubscriptionsPage() {
   async function fetchPlans() {
     setLoading(true);
     try {
-      const res = await fetch('/api/admin/subscription-plans');
+      const res = await fetch('/api/admin/subscription-plans', { credentials: 'include' });
       const data = await res.json();
       if (data.success) {
         setPlans(data.plans || []);
@@ -57,14 +58,16 @@ export default function AdminSubscriptionsPage() {
   }
 
   async function handleSave(plan: Partial<Plan>) {
+    setSaving(true);
     try {
-      const url = editingPlan ? '/api/admin/subscription-plans' : '/api/admin/subscription-plans';
+      const url = '/api/admin/subscription-plans';
       const method = editingPlan ? 'PUT' : 'POST';
-      
+
       const res = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(editingPlan ? { ...plan, id: editingPlan.id } : plan),
+        credentials: 'include',
       });
 
       const data = await res.json();
@@ -73,10 +76,12 @@ export default function AdminSubscriptionsPage() {
         setShowForm(false);
         setEditingPlan(null);
       } else {
-        alert('Failed to save: ' + data.error);
+        alert('Failed to save: ' + (data.error || 'Unknown error'));
       }
     } catch (err: any) {
       alert('Error: ' + err.message);
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -90,6 +95,7 @@ export default function AdminSubscriptionsPage() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: plan.id, is_active: !plan.is_active }),
+        credentials: 'include',
       });
 
       const data = await res.json();
@@ -125,9 +131,24 @@ export default function AdminSubscriptionsPage() {
       {showForm && (
         <PlanForm
           plan={editingPlan}
+          saving={saving}
           onSave={handleSave}
           onCancel={() => { setShowForm(false); setEditingPlan(null); }}
         />
+      )}
+
+      {/* Empty state: no plans yet */}
+      {plans.length === 0 && !loading && !showForm && (
+        <Card className="border-dashed border-2 border-[#0052CC]/30 bg-[#0052CC]/5">
+          <CardContent className="flex flex-col items-center justify-center py-12">
+            <p className="text-lg font-medium text-gray-700 mb-1">No subscription plans yet</p>
+            <p className="text-sm text-gray-500 mb-4">Create your first plan to start offering subscriptions to companies.</p>
+            <Button onClick={() => { setEditingPlan(null); setShowForm(true); }}>
+              <Plus className="w-4 h-4 mr-2" />
+              Create your first subscription plan
+            </Button>
+          </CardContent>
+        </Card>
       )}
 
       <div className="grid gap-4">
@@ -198,7 +219,7 @@ export default function AdminSubscriptionsPage() {
   );
 }
 
-function PlanForm({ plan, onSave, onCancel }: { plan: Plan | null; onSave: (p: Partial<Plan>) => void; onCancel: () => void }) {
+function PlanForm({ plan, saving, onSave, onCancel }: { plan: Plan | null; saving?: boolean; onSave: (p: Partial<Plan>) => void; onCancel: () => void }) {
   const [name, setName] = useState(plan?.name || '');
   const [description, setDescription] = useState(plan?.description || '');
   const [billingCycle, setBillingCycle] = useState(plan?.billing_cycle || 'monthly');
@@ -354,11 +375,11 @@ function PlanForm({ plan, onSave, onCancel }: { plan: Plan | null; onSave: (p: P
           </div>
 
           <div className="flex gap-2">
-            <Button type="submit">
+            <Button type="submit" disabled={saving}>
               <Save className="w-4 h-4 mr-2" />
-              Save
+              {saving ? 'Saving...' : 'Save'}
             </Button>
-            <Button type="button" variant="outline" onClick={onCancel}>
+            <Button type="button" variant="outline" onClick={onCancel} disabled={saving}>
               Cancel
             </Button>
           </div>
