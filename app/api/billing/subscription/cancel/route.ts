@@ -32,13 +32,47 @@ export async function POST(req: Request) {
     }
 
     const companyId = (company as any)?.id as string | undefined;
-    const subscriptionId = (company as any)?.razorpay_subscription_id as string | undefined;
 
     if (!companyId) {
       return NextResponse.json({ error: 'Company not found' }, { status: 404 });
     }
-    if (!subscriptionId) {
+
+    // Get subscription from company_subscriptions (single source of truth)
+    const { data: subscription, error: subError } = await supabase
+      .from('company_subscriptions')
+      .select('id, status, razorpay_subscription_id')
+      .eq('company_id', companyId)
+      .maybeSingle();
+
+    if (subError) {
+      return NextResponse.json({ error: subError.message }, { status: 500 });
+    }
+
+    if (!subscription) {
       return NextResponse.json({ error: 'Subscription not found' }, { status: 404 });
+    }
+
+    // Handle TRIAL cancellation (no Razorpay subscription)
+    if (subscription.status === 'TRIAL') {
+      const { error: updateError } = await supabase
+        .from('company_subscriptions')
+        .update({
+          status: 'CANCELLED',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', subscription.id);
+
+      if (updateError) {
+        return NextResponse.json({ error: updateError.message }, { status: 500 });
+      }
+
+      return NextResponse.json({ ok: true, status: 'CANCELLED' });
+    }
+
+    // Handle ACTIVE subscription cancellation (requires Razorpay)
+    const subscriptionId = subscription.razorpay_subscription_id;
+    if (!subscriptionId) {
+      return NextResponse.json({ error: 'Razorpay subscription not found' }, { status: 404 });
     }
 
     const razorpay = createRazorpayClient();
@@ -49,6 +83,20 @@ export async function POST(req: Request) {
       atPeriodEnd ? { cancel_at_cycle_end: 1 } : undefined
     );
 
+    // Update company_subscriptions (single source of truth)
+    const { error: updateError } = await supabase
+      .from('company_subscriptions')
+      .update({
+        status: atPeriodEnd ? 'ACTIVE' : 'CANCELLED',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', subscription.id);
+
+    if (updateError) {
+      return NextResponse.json({ error: updateError.message }, { status: 500 });
+    }
+
+    // Also update companies table for backward compatibility (but don't rely on it)
     await supabase
       .from('companies')
       .update({

@@ -3,9 +3,12 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { supabaseServer } from "@/lib/supabase/server";
 import { canCreateSeat } from "@/lib/usage/seats";
 import { sendInvitationEmail } from "@/lib/email";
+import { requireAdmin } from "@/lib/auth/admin";
 
 export async function POST(req: Request) {
   try {
+    const { error: adminError } = await requireAdmin();
+    if (adminError) return adminError;
     // Authenticate user
     const { data: { user }, error: authErr } = await (await supabaseServer()).auth.getUser();
     if (!user || authErr) {

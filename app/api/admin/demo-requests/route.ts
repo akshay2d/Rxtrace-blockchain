@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
 import { supabaseServer } from '@/lib/supabase/server';
+import { requireAdmin } from '@/lib/auth/admin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
+    const { error: adminError } = await requireAdmin();
+    if (adminError) return adminError;
     // Authenticate user
     const supabase = await supabaseServer();
     const { data: { user }, error: authError } = await supabase.auth.getUser();

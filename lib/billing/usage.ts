@@ -128,6 +128,60 @@ export async function ensureActiveBillingUsage(opts: {
   return created as any;
 }
 
+/** PHASE-3: Dashboard usage shape from billing_usage row */
+export type BillingUsageMetric = {
+  used: number;
+  limit_value: number | null;
+  limit_type: 'HARD' | 'SOFT' | 'NONE';
+  exceeded: boolean;
+  percentage: number;
+};
+
+export type BillingUsageDashboard = Record<string, BillingUsageMetric>;
+
+const toNum = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+
+/**
+ * PHASE-3: Build user-facing usage+limits from an active billing_usage row.
+ * limit_type comes from plan_items (passed in); used/limit from the row.
+ */
+export function billingUsageToDashboard(
+  row: ActiveUsageRow,
+  limits: Record<string, { limit_value: number | null; limit_type: 'HARD' | 'SOFT' | 'NONE' }>
+): BillingUsageDashboard {
+  const unitUsed = toNum((row as any).unit_labels_used);
+  const boxUsed = toNum((row as any).box_labels_used);
+  const cartonUsed = toNum((row as any).carton_labels_used);
+  const palletUsed = toNum((row as any).pallet_labels_used);
+  const ssccUsed = toNum((row as any).sscc_labels_used) || boxUsed + cartonUsed + palletUsed;
+  const unitQuota = toNum((row as any).unit_labels_quota);
+  const boxQuota = toNum((row as any).box_labels_quota);
+  const cartonQuota = toNum((row as any).carton_labels_quota);
+  const palletQuota = toNum((row as any).pallet_labels_quota);
+  const ssccQuota = toNum((row as any).sscc_labels_quota) || boxQuota + cartonQuota + palletQuota;
+
+  const quota = (n: number): number | null => (n > 0 ? n : null);
+
+  const mk = (used: number, limit: number | null, key: string): BillingUsageMetric => {
+    const limitType = limits[key]?.limit_type ?? 'HARD';
+    const limitVal = limit ?? limits[key]?.limit_value ?? null;
+    return {
+      used,
+      limit_value: limitVal,
+      limit_type: limitType,
+      exceeded: limitVal != null ? used > limitVal : false,
+      percentage: limitVal != null && limitVal > 0 ? Math.min(100, Math.round((used / limitVal) * 100)) : 0,
+    };
+  };
+
+  return {
+    UNIT: mk(unitUsed, quota(unitQuota), 'UNIT'),
+    BOX: mk(boxUsed, quota(boxQuota), 'BOX'),
+    CARTON: mk(cartonUsed, quota(cartonQuota), 'CARTON'),
+    SSCC: mk(ssccUsed, quota(ssccQuota), 'SSCC'),
+  };
+}
+
 export async function assertCompanyCanOperate(opts: {
   supabase: ReturnType<typeof getSupabaseAdmin>;
   companyId: string;

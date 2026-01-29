@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
+import { requireAdmin } from '@/lib/auth/admin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -7,6 +8,8 @@ export const dynamic = 'force-dynamic';
 // GET: Subscription analytics
 export async function GET(req: Request) {
   try {
+    const { error: adminError } = await requireAdmin();
+    if (adminError) return adminError;
     const supabase = getSupabaseAdmin();
 
     // Get all subscriptions with status breakdown

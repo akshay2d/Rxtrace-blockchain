@@ -215,6 +215,11 @@ export async function POST(req: Request) {
       totalSSCCCount += number_of_pallets;
     }
 
+    // PRIORITY-2: Quota Type Mapping - SSCC (Consolidated)
+    // This API consumes SSCC quota for ALL levels (Box, Carton, Pallet combined)
+    // Quota source: plan_items.limit_value where label contains "pallet" or "sscc"
+    // Usage tracked in: billing_usage.sscc_labels_used (billing period) and usage_counters (monthly)
+    // Note: SSCC quota is consolidated - all levels consume the same quota pool
     // Check usage limits (HARD limit blocks, SOFT limit warns)
     const limitCheck = await checkUsageLimits(supabase, company_id, 'SSCC', totalSSCCCount);
     if (!limitCheck.allowed) {
@@ -230,6 +235,9 @@ export async function POST(req: Request) {
       );
     }
 
+    // PRIORITY-2: Consume SSCC quota from quota_balance system
+    // Quota consumed from: companies.sscc_quota_balance (via consume_quota_balance RPC)
+    // All SSCC levels (Box, Carton, Pallet) consume the same consolidated SSCC quota
     // Consume SSCC quota BEFORE generating labels
     // If quota is insufficient, abort generation
     // Call RPC directly with p_kind: 'sscc'

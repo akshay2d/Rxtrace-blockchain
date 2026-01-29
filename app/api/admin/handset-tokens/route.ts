@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { requireAdmin } from "@/lib/auth/admin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -8,6 +9,8 @@ export const revalidate = 0;
 
 export async function POST(req: Request) {
   try {
+    const { error: adminError } = await requireAdmin();
+    if (adminError) return adminError;
     const supabase = getSupabaseAdmin();
     const authHeader = req.headers.get("authorization");
     if (!authHeader) {

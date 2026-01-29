@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
 import { getCurrentUsage, getUsageLimits } from '@/lib/usage/tracking';
 import { getSeatLimits } from '@/lib/usage/seats';
+import { requireAdmin } from '@/lib/auth/admin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -12,6 +13,8 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
+    const { error: adminError } = await requireAdmin();
+    if (adminError) return adminError;
     const supabase = getSupabaseAdmin();
     const company_id = params.id;
 

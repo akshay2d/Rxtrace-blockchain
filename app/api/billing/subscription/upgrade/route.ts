@@ -35,7 +35,7 @@ export async function POST(req: Request) {
     const supabase = getSupabaseAdmin();
     const { data: company, error: companyErr } = await supabase
       .from('companies')
-      .select('*')
+      .select('*, discount_type, discount_value, discount_applies_to')
       .eq('user_id', user.id)
       .maybeSingle();
 
@@ -48,6 +48,33 @@ export async function POST(req: Request) {
 
     if (!companyId) {
       return NextResponse.json({ error: 'Company not found' }, { status: 404 });
+    }
+
+    // PRIORITY-2 FIX: Fetch and calculate discount
+    const discount = {
+      discount_type: (company as any)?.discount_type as 'percentage' | 'flat' | null,
+      discount_value: (company as any)?.discount_value as number | null,
+      discount_applies_to: (company as any)?.discount_applies_to as 'subscription' | 'addon' | 'both' | null,
+    };
+
+    // Helper function to calculate discounted price
+    function calculateDiscountedPrice(basePrice: number): { originalPrice: number; discountedPrice: number; discountAmount: number } {
+      if (!discount.discount_type || discount.discount_value === null) {
+        return { originalPrice: basePrice, discountedPrice: basePrice, discountAmount: 0 };
+      }
+      if (discount.discount_applies_to !== 'subscription' && discount.discount_applies_to !== 'both') {
+        return { originalPrice: basePrice, discountedPrice: basePrice, discountAmount: 0 };
+      }
+      
+      let discountAmount = 0;
+      if (discount.discount_type === 'percentage') {
+        discountAmount = (basePrice * discount.discount_value) / 100;
+      } else if (discount.discount_type === 'flat') {
+        discountAmount = discount.discount_value;
+      }
+      
+      const discountedPrice = Math.max(0, basePrice - discountAmount);
+      return { originalPrice: basePrice, discountedPrice, discountAmount };
     }
 
     const razorpay = createRazorpayClient();
@@ -77,6 +104,15 @@ export async function POST(req: Request) {
 
       subscriptionId = subscription.id;
     } else {
+      // PRIORITY-2: Store discount metadata in subscription notes
+      const discountMetadata = discount.discount_type && discount.discount_value !== null
+        ? {
+            discount_type: discount.discount_type,
+            discount_value: discount.discount_value,
+            discount_applies_to: discount.discount_applies_to,
+          }
+        : {};
+
       // Update existing subscription
       subscription = await (razorpay.subscriptions as any).update(subscriptionId, {
         plan_id: planId,
@@ -85,6 +121,7 @@ export async function POST(req: Request) {
           source: 'billing_upgrade',
           plan: requestedPlan,
           company_id: companyId,
+          ...discountMetadata,
         },
       });
     }

@@ -82,6 +82,31 @@ function formatINRFromPaise(paise: number): string {
   return `₹${inr.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+// Calculate discounted price from company discount
+function calculateDiscountedPrice(
+  basePrice: number,
+  discount: { discount_type: 'percentage' | 'flat' | null; discount_value: number | null; discount_applies_to: 'subscription' | 'addon' | 'both' | null } | null
+): { originalPrice: number; discountedPrice: number; discountAmount: number; hasDiscount: boolean } {
+  if (!discount || !discount.discount_type || discount.discount_value === null) {
+    return { originalPrice: basePrice, discountedPrice: basePrice, discountAmount: 0, hasDiscount: false };
+  }
+
+  // Check if discount applies to subscription
+  if (discount.discount_applies_to !== 'subscription' && discount.discount_applies_to !== 'both') {
+    return { originalPrice: basePrice, discountedPrice: basePrice, discountAmount: 0, hasDiscount: false };
+  }
+
+  let discountAmount = 0;
+  if (discount.discount_type === 'percentage') {
+    discountAmount = (basePrice * discount.discount_value) / 100;
+  } else if (discount.discount_type === 'flat') {
+    discountAmount = discount.discount_value;
+  }
+
+  const discountedPrice = Math.max(0, basePrice - discountAmount);
+  return { originalPrice: basePrice, discountedPrice, discountAmount, hasDiscount: true };
+}
+
 /* ================================================== */
 /* ===================== PAGE ======================= */
 /* ================================================== */
@@ -116,6 +141,11 @@ export default function PricingPage() {
   const [plans, setPlans] = React.useState<Plan[]>([]);
   const [addOns, setAddOns] = React.useState<AddOnAPI[]>([]);
   const [loadingPlans, setLoadingPlans] = React.useState(true);
+  const [companyDiscount, setCompanyDiscount] = React.useState<{
+    discount_type: 'percentage' | 'flat' | null;
+    discount_value: number | null;
+    discount_applies_to: 'subscription' | 'addon' | 'both' | null;
+  } | null>(null);
 
   const [qtyByKey, setQtyByKey] = React.useState<Record<string, string>>({});
 
@@ -164,9 +194,25 @@ export default function PricingPage() {
         // Fetch company data
         const { data: company } = await supabase
           .from("companies")
-          .select("id, subscription_status, trial_start_date, trial_end_date, trial_activated_at")
+          .select("id, subscription_status, trial_start_date, trial_end_date, trial_activated_at, discount_type, discount_value, discount_applies_to")
           .eq("user_id", user.id)
           .maybeSingle();
+        
+        // Fetch company discount if company exists
+        let discountData = null;
+        if (company?.id) {
+          try {
+            const discountRes = await fetch(`/api/admin/companies/discount?company_id=${company.id}`);
+            if (discountRes.ok) {
+              const discountBody = await discountRes.json();
+              if (discountBody.success && discountBody.discount) {
+                discountData = discountBody.discount;
+              }
+            }
+          } catch (err) {
+            console.error('Failed to fetch company discount:', err);
+          }
+        }
 
         // Fetch subscription data from API (same source as billing page)
         let subscriptionData = null;
@@ -187,6 +233,7 @@ export default function PricingPage() {
           setCompany(company ?? null);
           setCompanyId((company as any)?.id ?? null);
           setSubscription(subscriptionData);
+          setCompanyDiscount(discountData);
         }
       } catch {
         // ignore
@@ -654,8 +701,41 @@ export default function PricingPage() {
               const displayPlan = plan.billing_cycle === 'monthly' ? plan : monthlyPlan || plan;
               const yearly = yearlyPlan;
               
-              const price = `₹${displayPlan.base_price.toLocaleString('en-IN')} / month`;
-              const yearlyPrice = yearly ? `₹${yearly.base_price.toLocaleString('en-IN')} / year` : '';
+              // Calculate discounted prices
+              const monthlyDiscount = calculateDiscountedPrice(displayPlan.base_price, companyDiscount);
+              const yearlyDiscount = yearly ? calculateDiscountedPrice(yearly.base_price, companyDiscount) : null;
+              
+              // Format prices with discount display
+              let price = `₹${displayPlan.base_price.toLocaleString('en-IN')} / month`;
+              if (monthlyDiscount.hasDiscount) {
+                price = (
+                  <span>
+                    <span className="line-through text-gray-500 mr-2">
+                      ₹{displayPlan.base_price.toLocaleString('en-IN')}
+                    </span>
+                    <span className="text-green-600 font-bold">
+                      ₹{monthlyDiscount.discountedPrice.toLocaleString('en-IN')}
+                    </span>
+                    <span className="text-gray-600"> / month</span>
+                  </span>
+                );
+              }
+              
+              let yearlyPrice = yearly ? `₹${yearly.base_price.toLocaleString('en-IN')} / year` : '';
+              if (yearlyDiscount?.hasDiscount) {
+                yearlyPrice = (
+                  <span>
+                    <span className="line-through text-gray-500 mr-2">
+                      ₹{yearly.base_price.toLocaleString('en-IN')}
+                    </span>
+                    <span className="text-green-600 font-bold">
+                      ₹{yearlyDiscount.discountedPrice.toLocaleString('en-IN')}
+                    </span>
+                    <span className="text-gray-600"> / year</span>
+                  </span>
+                ) as any;
+              }
+              
               const savings = yearly && monthlyPlan 
                 ? `Save ₹${((monthlyPlan.base_price * 12) - yearly.base_price).toLocaleString('en-IN')} / year`
                 : '';
@@ -996,8 +1076,8 @@ function PlanCard({
   highlight = false,
 }: {
   title: string;
-  price: string;
-  yearly: string;
+  price: string | React.ReactNode;
+  yearly: string | React.ReactNode;
   items: string[];
   savings: string;
   actionLabel: string;
@@ -1015,8 +1095,8 @@ function PlanCard({
       }`}
     >
       <h3 className="text-2xl font-bold">{title}</h3>
-      <p className="mt-4 text-3xl font-bold">{price}</p>
-      <p className="text-slate-600">{yearly}</p>
+      <div className="mt-4 text-3xl font-bold">{price}</div>
+      <div className="text-slate-600">{yearly}</div>
 
       <ul className="mt-6 space-y-2 text-slate-600">
         {items.map((item) => (

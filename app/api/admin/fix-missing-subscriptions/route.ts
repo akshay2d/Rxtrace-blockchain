@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { requireAdmin } from "@/lib/auth/admin";
 
 export const runtime = "nodejs";
 
@@ -8,6 +9,8 @@ export const runtime = "nodejs";
 // but don't have a subscription record (from before the fix)
 export async function POST(req: Request) {
   try {
+    const { error: adminError } = await requireAdmin();
+    if (adminError) return adminError;
     const supabase = getSupabaseAdmin();
     
     // Get all companies with trial status but no subscription record

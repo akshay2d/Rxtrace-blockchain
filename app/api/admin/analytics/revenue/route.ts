@@ -1,13 +1,46 @@
 import { NextResponse } from 'next/server';
+import { headers } from 'next/headers';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
+import { requireAdmin } from '@/lib/auth/admin';
+import {
+  getOrGenerateCorrelationId,
+  logWithContext,
+  recordRouteMetric,
+} from '@/lib/observability';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 // GET: Revenue analytics
 export async function GET(req: Request) {
+  const startTime = Date.now();
+  let correlationId: string | null = null;
+  let userId: string | null = null;
+
   try {
+    const headersList = await headers();
+    correlationId = getOrGenerateCorrelationId(headersList, 'admin');
+
+    const adminResult = await requireAdmin();
+    userId = adminResult.userId || null;
+    if (adminResult.error) {
+      logWithContext('warn', 'Admin analytics revenue access denied', {
+        correlationId,
+        route: '/api/admin/analytics/revenue',
+        method: 'GET',
+      });
+      recordRouteMetric('/api/admin/analytics/revenue', 'GET', false, Date.now() - startTime);
+      return adminResult.error;
+    }
+
     const supabase = getSupabaseAdmin();
+
+    logWithContext('info', 'Admin analytics revenue request', {
+      correlationId,
+      route: '/api/admin/analytics/revenue',
+      method: 'GET',
+      userId,
+    });
 
     // Get active subscriptions
     const { data: subscriptions, error: subError } = await supabase
@@ -49,7 +82,7 @@ export async function GET(req: Request) {
       revenueByPlan[planKey] = (revenueByPlan[planKey] || 0) + price;
     });
 
-    // Get add-on revenue (recurring add-ons)
+    // PRIORITY-2 FIX: Get add-on revenue with company discount
     const { data: addOns, error: addOnError } = await supabase
       .from('company_add_ons')
       .select(`
@@ -58,6 +91,11 @@ export async function GET(req: Request) {
           name,
           price,
           recurring
+        ),
+        companies!inner(
+          discount_type,
+          discount_value,
+          discount_applies_to
         )
       `)
       .eq('status', 'ACTIVE');
@@ -71,10 +109,34 @@ export async function GET(req: Request) {
       const addOnData = addOn.add_ons;
       if (!addOnData || !addOnData.recurring) return;
 
-      const monthlyRevenue = (Number(addOnData.price || 0) * (addOn.quantity || 1)) / 12;
-      addOnRevenue += monthlyRevenue;
-
-      revenueByAddOn[addOnData.name] = (revenueByAddOn[addOnData.name] || 0) + monthlyRevenue;
+      const baseMonthlyRevenue = (Number(addOnData.price || 0) * (addOn.quantity || 1)) / 12;
+      
+      // PRIORITY-2: Apply company discount if applicable
+      const company = Array.isArray(addOn.companies) ? addOn.companies[0] : addOn.companies;
+      let finalRevenue = baseMonthlyRevenue;
+      
+      if (company) {
+        const discount = {
+          discount_type: company.discount_type,
+          discount_value: company.discount_value,
+          discount_applies_to: company.discount_applies_to,
+        };
+        
+        if (discount.discount_type && discount.discount_value !== null) {
+          if (discount.discount_applies_to === 'addon' || discount.discount_applies_to === 'both') {
+            let discountAmount = 0;
+            if (discount.discount_type === 'percentage') {
+              discountAmount = (baseMonthlyRevenue * discount.discount_value) / 100;
+            } else if (discount.discount_type === 'flat') {
+              discountAmount = discount.discount_value / 12; // Monthly discount for yearly add-on
+            }
+            finalRevenue = Math.max(0, baseMonthlyRevenue - discountAmount);
+          }
+        }
+      }
+      
+      addOnRevenue += finalRevenue;
+      revenueByAddOn[addOnData.name] = (revenueByAddOn[addOnData.name] || 0) + finalRevenue;
     });
 
     // Get refund totals
@@ -86,6 +148,16 @@ export async function GET(req: Request) {
     if (refundError) throw refundError;
 
     const totalRefunds = (refunds || []).reduce((sum: number, r: any) => sum + Number(r.amount || 0), 0);
+
+    const duration = Date.now() - startTime;
+    logWithContext('info', 'Admin analytics revenue completed', {
+      correlationId,
+      route: '/api/admin/analytics/revenue',
+      method: 'GET',
+      userId,
+      duration,
+    });
+    recordRouteMetric('/api/admin/analytics/revenue', 'GET', true, duration);
 
     return NextResponse.json({
       success: true,
@@ -99,6 +171,16 @@ export async function GET(req: Request) {
       active_subscriptions: subscriptions?.length || 0,
     });
   } catch (err: any) {
+    const duration = Date.now() - startTime;
+    logWithContext('error', 'Admin analytics revenue failed', {
+      correlationId,
+      route: '/api/admin/analytics/revenue',
+      method: 'GET',
+      userId,
+      error: err.message || String(err),
+      duration,
+    });
+    recordRouteMetric('/api/admin/analytics/revenue', 'GET', false, duration);
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
 }

@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { billingConfig } from "@/app/lib/billingConfig";
 
+/**
+ * Legacy wallet charge API. Generation flows use subscription-based quota (see Phase 4).
+ * Use this only for non-generation charges or until fully deprecated.
+ */
 export async function POST(req: Request) {
   try {
     const body = await req.json();

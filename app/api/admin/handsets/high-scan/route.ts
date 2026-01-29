@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
+import { requireAdmin } from '@/lib/auth/admin';
 
 export const runtime = 'nodejs';
 
@@ -27,6 +28,8 @@ async function resolveCompanyIdFromRequest(req: Request): Promise<string | null>
 
 export async function POST(req: Request) {
   try {
+    const { error: adminError } = await requireAdmin();
+    if (adminError) return adminError;
     const companyId = await resolveCompanyIdFromRequest(req);
     if (!companyId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 

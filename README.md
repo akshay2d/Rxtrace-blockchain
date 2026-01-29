@@ -115,15 +115,19 @@ Open [http://localhost:3000](http://localhost:3000)
 
 ## 📦 Production Deployment
 
-### Vercel (Recommended)
+**Status:** ✅ **PRODUCTION READY** - See [Production Readiness Guide](./docs/PRODUCTION_READINESS.md)
+
+### Quick Start
 
 1. **Push to GitHub**
 2. **Import in Vercel**
 3. **Add Environment Variables** - Copy all from `.env.local`
-4. **Deploy**
+4. **Run Database Migrations** - See [Deployment Checklist](./docs/DEPLOYMENT_CHECKLIST.md)
+5. **Deploy**
 
 ### Environment Variables Checklist
 
+#### Core (Required)
 ```bash
 ✅ NEXT_PUBLIC_SUPABASE_URL
 ✅ NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -136,17 +140,59 @@ Open [http://localhost:3000](http://localhost:3000)
 ✅ CRON_SECRET
 ```
 
+#### Observability (Recommended)
+```bash
+# Alerting (Phase 14)
+✅ ALERTING_ENABLED=true
+✅ ALERT_EMAIL_FROM=noreply@yourdomain.com
+✅ ALERT_EMAIL_TO=admin@yourdomain.com
+✅ SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD
+✅ SLACK_WEBHOOK_URL (optional)
+
+# Distributed Tracing (Phase 15)
+✅ OTEL_SERVICE_NAME=rxtrace-admin-api
+✅ OTEL_EXPORTER_OTLP_ENDPOINT=https://...
+✅ OTEL_EXPORTER_OTLP_HEADERS=...
+```
+
+### Database Migrations (Required)
+
+Run these migrations in Supabase SQL Editor **in order**:
+
+1. `20260129_audit_logs_immutability.sql` - Immutable audit logs
+2. `20260129_create_metrics_tables.sql` - Metrics storage
+3. `20260129_create_audit_logs_archive.sql` - Audit archival
+4. `20260130_create_alerting_tables.sql` - Alert system
+
 ### Post-Deployment Steps
 
 1. **Update Razorpay Webhook URL** to production domain
-2. **Set up Cron Job** for billing:
-   ```bash
-   POST https://yourdomain.com/api/cron/billing/run
-   Header: x-cron-secret: <CRON_SECRET>
-   Schedule: Daily at 02:00 IST
-   ```
-3. **Test Payment Flow** with Razorpay test cards
-4. **Enable Row Level Security** in Supabase for all tables
+2. **Set up Cron Jobs:**
+   - **Billing:** Daily at 02:00 IST
+     ```bash
+     POST https://yourdomain.com/api/cron/billing/run
+     Header: x-cron-secret: <CRON_SECRET>
+     ```
+   - **Alert Evaluation:** Every 5 minutes
+     ```bash
+     npm run alerts:evaluate
+     ```
+3. **Create Initial Alert Rules** via `/api/admin/alerts/rules`
+4. **Test Payment Flow** with Razorpay test cards
+5. **Verify Observability:**
+   - Check `/api/admin/health`
+   - Check `/api/admin/metrics`
+   - Verify traces in observability platform (if configured)
+6. **Enable Row Level Security** in Supabase for all tables
+
+### Production Monitoring
+
+- **Health Check:** `/api/admin/health`
+- **Metrics:** `/api/admin/metrics`
+- **Alerts:** `/api/admin/alerts/history`
+- **Stats:** `/api/admin/stats`
+
+See [Production Readiness Guide](./docs/PRODUCTION_READINESS.md) for complete details.
 
 ## 🏗️ Project Structure
 
@@ -193,7 +239,15 @@ Open [http://localhost:3000](http://localhost:3000)
 
 - [Features Documentation](./FEATURES.md) - Comprehensive feature breakdown
 - [Billing Setup](./docs/BILLING_SETUP.md) - Invoice and auto-billing configuration
+- [Production Readiness](./docs/PRODUCTION_READINESS.md) - ✅ Production readiness summary and capabilities
+- [Deployment Checklist](./docs/DEPLOYMENT_CHECKLIST.md) - Step-by-step deployment guide
 - [Copilot Instructions](./.github/copilot-instructions.md) - Development guidelines
+
+### Observability & Monitoring
+- [Phase 7: Observability Foundation](./docs/PHASE7_IMPLEMENTATION.md) - Correlation IDs, logging, metrics
+- [Phase 12: Production Metrics Storage](./docs/PHASE12_IMPLEMENTATION.md) - Persistent metrics in PostgreSQL
+- [Phase 14: Real-Time Alerting](./docs/PHASE14_IMPLEMENTATION.md) - Alert rules and notifications
+- [Phase 15: Distributed Tracing](./docs/PHASE15_IMPLEMENTATION.md) - OpenTelemetry integration
 
 ## 🧪 Testing
 

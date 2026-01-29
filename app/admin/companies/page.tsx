@@ -8,6 +8,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Building2, Edit2, Trash2, Search, RefreshCw, X, Ban, CheckCircle, FileText } from 'lucide-react';
+import { AdminConfirmDialog } from '@/components/admin/AdminConfirmDialog';
+import { useDestructiveAction } from '@/lib/admin/useDestructiveAction';
 
 type Company = {
   id: string;
@@ -33,6 +35,10 @@ export default function CompaniesManagement() {
     contact_phone: '',
     address: ''
   });
+
+  // PHASE-2: Two-step confirmation for freeze/unfreeze
+  const [freezeConfirming, setFreezeConfirming] = useState(false);
+  const destructive = useDestructiveAction<{ company: Company; newStatus: string }>();
 
   const fetchCompanies = useCallback(async () => {
     setLoading(true);
@@ -129,7 +135,6 @@ export default function CompaniesManagement() {
   }
 
   async function handleToggleFreeze(company: Company) {
-    // Get current status from company_wallets (for freeze/unfreeze only, not balance-based)
     const supabase = supabaseClient();
     const { data: wallet } = await supabase
       .from('company_wallets')
@@ -139,10 +144,6 @@ export default function CompaniesManagement() {
     
     const currentStatus = wallet?.status || 'ACTIVE';
     const newStatus = currentStatus === 'ACTIVE' ? 'FROZEN' : 'ACTIVE';
-
-    if (!confirm(`Are you sure you want to ${newStatus === 'FROZEN' ? 'FREEZE' : 'UNFREEZE'} ${company.company_name}'s account?`)) {
-      return;
-    }
 
     try {
       const response = await fetch('/api/admin/freeze', {
@@ -155,13 +156,53 @@ export default function CompaniesManagement() {
       });
 
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error);
+
+      if (result.requires_confirmation && result.confirmation_token) {
+        destructive.requestConfirmation({
+          title: newStatus === 'FROZEN' ? 'Freeze company account' : 'Unfreeze company account',
+          description: `Are you sure you want to ${newStatus === 'FROZEN' ? 'FREEZE' : 'UNFREEZE'} "${company.company_name}"? This affects the company's ability to use the platform.`,
+          confirmationToken: result.confirmation_token,
+          context: { company, newStatus }
+        });
+        return;
+      }
+
+      if (!response.ok) throw new Error(result.error || result.message);
 
       alert(`Account ${newStatus === 'FROZEN' ? 'frozen' : 'unfrozen'} successfully!`);
-      fetchCompanies(); // Refresh companies list
+      fetchCompanies();
     } catch (error: any) {
       console.error('Error toggling freeze:', error);
       alert('Failed to update account status: ' + error.message);
+    }
+  }
+
+  async function handleConfirmFreeze() {
+    const { token, context: ctx } = destructive.consumeToken();
+    if (!token || !ctx) return;
+
+    setFreezeConfirming(true);
+    try {
+      const response = await fetch('/api/admin/freeze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          company_id: ctx.company.id,
+          status: ctx.newStatus,
+          confirmation_token: token
+        })
+      });
+
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || result.message);
+
+      alert(`Account ${ctx.newStatus === 'FROZEN' ? 'frozen' : 'unfrozen'} successfully!`);
+      fetchCompanies();
+    } catch (error: any) {
+      console.error('Error confirming freeze:', error);
+      alert('Failed to update account status: ' + error.message);
+    } finally {
+      setFreezeConfirming(false);
     }
   }
 
@@ -221,6 +262,19 @@ export default function CompaniesManagement() {
           </div>
         )}
       </div>
+
+      {/* PHASE-2: Confirmation dialog for freeze/unfreeze */}
+      <AdminConfirmDialog
+        open={destructive.dialogOpen}
+        onOpenChange={destructive.closeDialog}
+        title={destructive.dialogTitle}
+        description={destructive.dialogDescription}
+        confirmLabel={destructive.pendingContext?.newStatus === 'FROZEN' ? 'Freeze account' : 'Unfreeze account'}
+        cancelLabel="Cancel"
+        variant="danger"
+        loading={freezeConfirming}
+        onConfirm={handleConfirmFreeze}
+      />
 
       {/* Edit Form Modal */}
       {showForm && (

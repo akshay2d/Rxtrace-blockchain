@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { requireAdmin } from "@/lib/auth/admin";
 
 export const runtime = "nodejs";
 
 // GET: List all add-ons
 export async function GET() {
   try {
+    const { error: adminError } = await requireAdmin();
+    if (adminError) return adminError;
     const supabase = getSupabaseAdmin();
     const { data, error } = await supabase
       .from("add_ons")
@@ -22,6 +25,8 @@ export async function GET() {
 // POST: Create new add-on
 export async function POST(req: Request) {
   try {
+    const { error: adminError } = await requireAdmin();
+    if (adminError) return adminError;
     const supabase = getSupabaseAdmin();
     const body = await req.json();
     const { name, description, price, unit, recurring, display_order } = body;
@@ -64,6 +69,8 @@ export async function POST(req: Request) {
 // PUT: Update add-on
 export async function PUT(req: Request) {
   try {
+    const { error: adminError } = await requireAdmin();
+    if (adminError) return adminError;
     const supabase = getSupabaseAdmin();
     const body = await req.json();
     const { id, name, description, price, unit, recurring, display_order, is_active } = body;

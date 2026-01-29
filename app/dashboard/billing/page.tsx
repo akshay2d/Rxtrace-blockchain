@@ -11,6 +11,48 @@ import { useSubscription } from '@/lib/hooks/useSubscription';
 import { Badge } from '@/components/ui/badge';
 import { supabaseClient } from '@/lib/supabase/client';
 
+// PRIORITY-3: Usage Quota Row Component (Read-Only)
+function UsageQuotaRow({ codeType, planItems }: { codeType: string; planItems: any[] }) {
+  // Map code type to plan item label pattern
+  const findQuotaItem = (codeType: string) => {
+    const normalized = codeType.toLowerCase();
+    return planItems.find((item: any) => {
+      const label = (item.label || '').toLowerCase();
+      if (normalized.includes('unit')) return label.includes('unit');
+      if (normalized.includes('box') && !normalized.includes('carton') && !normalized.includes('pallet')) {
+        return label.includes('box') && !label.includes('carton') && !label.includes('pallet');
+      }
+      if (normalized.includes('carton')) return label.includes('carton');
+      if (normalized.includes('pallet') || normalized.includes('sscc')) {
+        return label.includes('pallet') || label.includes('sscc');
+      }
+      return false;
+    });
+  };
+  
+  const quotaItem = findQuotaItem(codeType);
+  const quota = quotaItem?.limit_value ?? null;
+  const limitType = quotaItem?.limit_type || 'NONE';
+  
+  return (
+    <tr>
+      <td className="border border-gray-300 px-4 py-2 font-medium">{codeType}</td>
+      <td className="border border-gray-300 px-4 py-2 text-right">
+        {quota === null ? 'Unlimited' : quota.toLocaleString('en-IN')}
+      </td>
+      <td className="border border-gray-300 px-4 py-2">
+        <span className={`px-2 py-1 rounded text-xs ${
+          limitType === 'HARD' ? 'bg-red-100 text-red-800' :
+          limitType === 'SOFT' ? 'bg-yellow-100 text-yellow-800' :
+          'bg-gray-100 text-gray-800'
+        }`}>
+          {limitType}
+        </span>
+      </td>
+    </tr>
+  );
+}
+
 // Seat summary component (inline for billing page)
 function SeatSummaryDisplay({ company }: { company: any }) {
   const [seatLimits, setSeatLimits] = useState<{
@@ -108,6 +150,7 @@ export default function BillingPage() {
   const [company, setCompany] = useState<any>(null);
   const [trialUsed, setTrialUsed] = useState<boolean | null>(null);
   const [usageData, setUsageData] = useState<any>(null);
+  const [planItems, setPlanItems] = useState<any[]>([]);
   const [cancelLoading, setCancelLoading] = useState(false);
   const [resumeLoading, setResumeLoading] = useState(false);
 
@@ -156,18 +199,7 @@ export default function BillingPage() {
           setUsageData(data);
         }
 
-        // Check if company has used trial before
-        const supabase = supabaseClient();
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          const { data: companyData } = await supabase
-            .from('companies')
-            .select('trial_activated_at')
-            .eq('user_id', user.id)
-            .maybeSingle();
-          
-          setTrialUsed(!!companyData?.trial_activated_at);
-        }
+        // No need to check trial_activated_at - trial state is ONLY in company_subscriptions
       } catch (err) {
         console.error('Failed to fetch company:', err);
       }
@@ -175,6 +207,28 @@ export default function BillingPage() {
     fetchCompany();
     fetchInvoices();
   }, [fetchInvoices]);
+
+  // PRIORITY-3: Fetch plan items for quota display (read-only)
+  useEffect(() => {
+    if (subscription?.plan_id) {
+      fetch(`/api/admin/subscription-plans`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.success && data.plans) {
+            const currentPlan = data.plans.find((p: any) => p.id === subscription.plan_id);
+            if (currentPlan?.items) {
+              setPlanItems(currentPlan.items);
+            }
+          }
+        })
+        .catch(err => {
+          console.error('Failed to fetch plan items:', err);
+        });
+    } else {
+      // TRIAL or no plan - no quota limits
+      setPlanItems([]);
+    }
+  }, [subscription?.plan_id]);
 
   const handleCancelSubscription = async () => {
     const confirmed = window.confirm(
@@ -436,15 +490,17 @@ export default function BillingPage() {
           <CardContent className="pt-6">
             <div className="text-center py-8">
               <p className="text-gray-600 mb-4">No active subscription</p>
-              {trialUsed === false ? (
-                <Button asChild className="bg-green-600 hover:bg-green-700">
-                  <Link href="/pricing">Start Free Trial</Link>
+              <p className="text-sm text-gray-500 mb-4">
+                Start your trial from the Settings page, or choose a plan to subscribe.
+              </p>
+              <div className="flex gap-3 justify-center">
+                <Button asChild variant="outline">
+                  <Link href="/dashboard/settings">Go to Settings</Link>
                 </Button>
-              ) : (
                 <Button asChild>
                   <Link href="/pricing">Choose a Plan</Link>
                 </Button>
-              )}
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -492,42 +548,131 @@ export default function BillingPage() {
         </CardContent>
       </Card>
 
-      {/* Quota Usage Summary */}
+      {/* PRIORITY-3: Usage & Cost Breakdown (Read-Only) */}
       {subscription && usageData && (
         <Card className="border-gray-200">
           <CardHeader>
-            <CardTitle className="text-lg font-semibold text-gray-900">Quota Usage (Current Period)</CardTitle>
+            <CardTitle className="text-lg font-semibold text-gray-900">Usage & Cost Breakdown (Read-Only)</CardTitle>
+            <p className="text-sm text-gray-500 mt-1">
+              Transparent view of your usage, quotas, and indicative costs. This is for reference only and does not affect billing.
+            </p>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              {usageData.label_generation && (
-                <div className="grid md:grid-cols-2 gap-4">
-                  <div className="p-3 bg-gray-50 rounded-lg">
-                    <div className="text-sm text-gray-600 mb-1">Unit Labels</div>
-                    <div className="text-lg font-semibold text-gray-900">
-                      {usageData.label_generation.unit || 0} used
-                    </div>
-                  </div>
-                  <div className="p-3 bg-gray-50 rounded-lg">
-                    <div className="text-sm text-gray-600 mb-1">Box Labels</div>
-                    <div className="text-lg font-semibold text-gray-900">
-                      {usageData.label_generation.box || 0} used
-                    </div>
-                  </div>
-                  <div className="p-3 bg-gray-50 rounded-lg">
-                    <div className="text-sm text-gray-600 mb-1">Carton Labels</div>
-                    <div className="text-lg font-semibold text-gray-900">
-                      {usageData.label_generation.carton || 0} used
-                    </div>
-                  </div>
-                  <div className="p-3 bg-gray-50 rounded-lg">
-                    <div className="text-sm text-gray-600 mb-1">Pallet Labels (SSCC)</div>
-                    <div className="text-lg font-semibold text-gray-900">
-                      {usageData.label_generation.pallet || 0} used
-                    </div>
-                  </div>
+            <div className="space-y-6">
+              {/* A. Usage by Code Type */}
+              <div>
+                <h3 className="text-md font-semibold text-gray-800 mb-3">A. Usage by Code Type</h3>
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse border border-gray-300 text-sm">
+                    <thead>
+                      <tr className="bg-gray-100">
+                        <th className="border border-gray-300 px-4 py-2 text-left">Code Type</th>
+                        <th className="border border-gray-300 px-4 py-2 text-right">Used</th>
+                        <th className="border border-gray-300 px-4 py-2 text-left">Period</th>
+                        <th className="border border-gray-300 px-4 py-2 text-left">Source</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td className="border border-gray-300 px-4 py-2 font-medium">Unit</td>
+                        <td className="border border-gray-300 px-4 py-2 text-right">{usageData.label_generation?.unit || 0}</td>
+                        <td className="border border-gray-300 px-4 py-2">Billing Period</td>
+                        <td className="border border-gray-300 px-4 py-2 text-xs text-gray-600">billing_usage</td>
+                      </tr>
+                      <tr>
+                        <td className="border border-gray-300 px-4 py-2 font-medium">Box</td>
+                        <td className="border border-gray-300 px-4 py-2 text-right">{usageData.label_generation?.box || 0}</td>
+                        <td className="border border-gray-300 px-4 py-2">Billing Period</td>
+                        <td className="border border-gray-300 px-4 py-2 text-xs text-gray-600">billing_usage</td>
+                      </tr>
+                      <tr>
+                        <td className="border border-gray-300 px-4 py-2 font-medium">Carton</td>
+                        <td className="border border-gray-300 px-4 py-2 text-right">{usageData.label_generation?.carton || 0}</td>
+                        <td className="border border-gray-300 px-4 py-2">Billing Period</td>
+                        <td className="border border-gray-300 px-4 py-2 text-xs text-gray-600">billing_usage</td>
+                      </tr>
+                      <tr>
+                        <td className="border border-gray-300 px-4 py-2 font-medium">Pallet / SSCC</td>
+                        <td className="border border-gray-300 px-4 py-2 text-right">{usageData.label_generation?.pallet || 0}</td>
+                        <td className="border border-gray-300 px-4 py-2">Billing Period</td>
+                        <td className="border border-gray-300 px-4 py-2 text-xs text-gray-600">billing_usage</td>
+                      </tr>
+                    </tbody>
+                  </table>
                 </div>
-              )}
+                <p className="text-xs text-gray-500 mt-2 flex items-start gap-1">
+                  <span>ℹ️</span>
+                  <span>Billing usage is calculated per billing period, not calendar month.</span>
+                </p>
+              </div>
+
+              {/* B. Applicable Quotas (Plan-Level) */}
+              <div>
+                <h3 className="text-md font-semibold text-gray-800 mb-3">B. Applicable Quotas (Plan-Level)</h3>
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse border border-gray-300 text-sm">
+                    <thead>
+                      <tr className="bg-gray-100">
+                        <th className="border border-gray-300 px-4 py-2 text-left">Code Type</th>
+                        <th className="border border-gray-300 px-4 py-2 text-right">Quota</th>
+                        <th className="border border-gray-300 px-4 py-2 text-left">Limit Type</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <UsageQuotaRow 
+                        codeType="Unit" 
+                        planItems={planItems}
+                      />
+                      <UsageQuotaRow 
+                        codeType="Box" 
+                        planItems={planItems}
+                      />
+                      <UsageQuotaRow 
+                        codeType="Carton" 
+                        planItems={planItems}
+                      />
+                      <UsageQuotaRow 
+                        codeType="Pallet / SSCC" 
+                        planItems={planItems}
+                      />
+                    </tbody>
+                  </table>
+                </div>
+                <p className="text-xs text-gray-500 mt-2 flex items-start gap-1">
+                  <span>ℹ️</span>
+                  <span>Quota limits are defined by your subscription plan.</span>
+                </p>
+              </div>
+
+              {/* C. Indicative Cost (Audit-Only) */}
+              <div>
+                <h3 className="text-md font-semibold text-gray-800 mb-3">C. Indicative Cost (Audit-Only)</h3>
+                {subscription.status === 'TRIAL' ? (
+                  <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                    <p className="text-sm text-yellow-800 font-medium mb-2">
+                      During trial, usage is unlimited. This cost is shown for reference only.
+                    </p>
+                    <p className="text-xs text-yellow-700">
+                      Indicative cost calculation: usage × plan unit price (not charged during trial)
+                    </p>
+                  </div>
+                ) : (
+                  <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                    <p className="text-sm text-blue-800 font-medium mb-2">
+                      Indicative cost — no charges applied
+                    </p>
+                    <p className="text-xs text-blue-700 mb-3">
+                      This is an estimated cost based on usage and plan pricing. Actual billing may differ.
+                    </p>
+                    <div className="text-sm text-gray-700">
+                      <p className="font-medium">Calculation: usage × plan unit price</p>
+                      <p className="text-xs text-gray-600 mt-1">
+                        Note: Actual charges are based on your subscription plan and billing cycle, not per-unit usage.
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </CardContent>
         </Card>

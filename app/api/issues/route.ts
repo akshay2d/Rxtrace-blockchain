@@ -114,6 +114,10 @@ export async function POST(req: Request) {
     await assertCompanyCanOperate({ supabase: admin, companyId });
     await ensureActiveBillingUsage({ supabase: admin, companyId });
 
+    // PRIORITY-2: Quota Type Mapping - UNIT
+    // This API consumes UNIT quota from plan_items (via checkUsageLimits)
+    // Quota source: plan_items.limit_value where label contains "unit"
+    // Usage tracked in: billing_usage.unit_labels_used (billing period) and usage_counters (monthly)
     // Check usage limits before generation
     const limitCheck = await checkUsageLimits(admin, companyId, 'UNIT', quantity);
     if (!limitCheck.allowed) {

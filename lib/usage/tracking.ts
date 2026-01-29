@@ -105,7 +105,21 @@ export async function getUsageLimits(
 }
 
 /**
- * Map plan item label to metric type
+ * PRIORITY-2: Quota Type → Code Generation Mapping
+ * 
+ * SINGLE SOURCE OF TRUTH:
+ * - Quota limits: plan_items table (admin-editable)
+ * - Quota usage (billing): billing_usage table (current billing period)
+ * - Quota usage (analytics): usage_counters table (monthly aggregates)
+ * 
+ * QUOTA TYPE MAPPING:
+ * - UNIT → Unit label generation API (/api/issues/route.ts)
+ * - BOX → Box-level SSCC generation (/api/sscc/generate/route.ts, when generate_box=true)
+ * - CARTON → Carton-level SSCC generation (/api/sscc/generate/route.ts, when generate_carton=true)
+ * - PALLET → Pallet-level SSCC generation (/api/sscc/generate/route.ts, when generate_pallet=true)
+ * - SSCC → Consolidated SSCC usage (all SSCC levels combined, consumed by /api/sscc/generate/route.ts)
+ * 
+ * Note: SSCC quota is consolidated - all levels (Box, Carton, Pallet) consume the same SSCC quota pool.
  */
 function mapLabelToMetricType(label: string): MetricType | null {
   const normalized = label.toLowerCase();

@@ -32,17 +32,40 @@ export async function middleware(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname;
 
-  // Exempt certain routes from all auth checks
-  if (pathname.startsWith('/api/auth') || 
-      pathname.startsWith('/api/setup') ||
-      pathname === '/pricing' ||
-      pathname.startsWith('/auth/verify') ||
-      pathname.startsWith('/auth/callback') ||
-      pathname.startsWith('/auth/signin') ||
-      pathname.startsWith('/auth/signup') ||
-      pathname === '/' ||
-      pathname.startsWith('/compliance') ||
-      pathname.startsWith('/contact')) {
+  // PHASE-1: Exempt certain routes from all auth checks
+  const publicRoutes = [
+    '/api/auth',
+    '/api/setup',
+    '/api/public',
+    '/api/health',
+    '/pricing',
+    '/auth/verify',
+    '/auth/callback',
+    '/auth/signin',
+    '/auth/signup',
+    '/',
+    '/compliance',
+    '/contact',
+  ];
+  
+  const isPublicRoute = publicRoutes.some(route => pathname.startsWith(route));
+  
+  if (isPublicRoute) {
+    return supabaseResponse;
+  }
+  
+  // PHASE-1: Protect API routes (except public ones)
+  if (pathname.startsWith('/api/')) {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    
+    // PHASE-1: Admin routes require admin check (will be done in route handler)
+    // Regular API routes just need authentication (checked above)
     return supabaseResponse;
   }
 

@@ -134,6 +134,18 @@ export default function AnalyticsPage() {
 
         {/* Overview Tab */}
         <TabsContent value="overview" className="space-y-4">
+          {/* PRIORITY-3: Context Labels */}
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <div className="flex items-start gap-2">
+              <span className="text-blue-600 font-semibold">ℹ️</span>
+              <div className="text-sm text-blue-800 space-y-1">
+                <p><strong>Revenue shown is NET</strong> (after discounts applied)</p>
+                <p><strong>Usage shown is calendar-month based</strong> (from usage_counters table)</p>
+                <p><strong>Billing quotas are not enforced from analytics data</strong> (analytics is read-only)</p>
+              </div>
+            </div>
+          </div>
+
           {overview ? (
             <>
               {/* KPI Cards */}
@@ -232,6 +244,18 @@ export default function AnalyticsPage() {
 
         {/* Usage Analytics Tab */}
         <TabsContent value="usage" className="space-y-4">
+          {/* PRIORITY-3: Context Labels */}
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <div className="flex items-start gap-2">
+              <span className="text-blue-600 font-semibold">ℹ️</span>
+              <div className="text-sm text-blue-800 space-y-1">
+                <p><strong>Usage shown is calendar-month based</strong> (from usage_counters table, aggregated monthly)</p>
+                <p><strong>This differs from billing usage</strong> which is based on billing period cycles</p>
+                <p><strong>Billing quotas are not enforced from analytics data</strong> (analytics is read-only)</p>
+              </div>
+            </div>
+          </div>
+
           {usage ? (
             <>
               <Card>

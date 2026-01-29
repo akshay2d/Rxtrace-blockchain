@@ -24,7 +24,7 @@ export async function GET() {
       return NextResponse.json({ success: true, subscription: null });
     }
 
-    // Get subscription with plan data
+    // Get subscription with plan data - use left join to include TRIAL (plan_id = NULL)
     const { data: subscriptionRaw } = await supabase
       .from("company_subscriptions")
       .select(`
@@ -36,6 +36,7 @@ export async function GET() {
 
     // Transform subscription to match expected structure
     // Supabase returns subscription_plans as an array, but we need a single plan object
+    // TRIAL subscriptions have plan_id = NULL, so plan will be null
     let subscription = null;
     if (subscriptionRaw) {
       // Handle both array and object formats from Supabase
@@ -46,14 +47,14 @@ export async function GET() {
       subscription = {
         id: subscriptionRaw.id,
         company_id: subscriptionRaw.company_id,
-        plan_id: subscriptionRaw.plan_id,
+        plan_id: subscriptionRaw.plan_id, // NULL for TRIAL
         status: subscriptionRaw.status,
         trial_end: subscriptionRaw.trial_end,
         current_period_end: subscriptionRaw.current_period_end,
         razorpay_subscription_id: subscriptionRaw.razorpay_subscription_id,
         created_at: subscriptionRaw.created_at,
         updated_at: subscriptionRaw.updated_at,
-        plan: planData || null, // Single plan object, not array
+        plan: planData || null, // null for TRIAL (plan_id = NULL), single plan object for ACTIVE
       };
     }
 

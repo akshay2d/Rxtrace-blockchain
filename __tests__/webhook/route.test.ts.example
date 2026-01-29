@@ -1,0 +1,234 @@
+// PHASE-8: Example test file for webhook handler
+// This is a template showing how to use the test utilities
+// To use: Copy this file, rename to route.test.ts, and install a testing framework (Jest, Vitest, etc.)
+
+/**
+ * Example test structure for Razorpay webhook handler
+ * 
+ * Prerequisites:
+ * - Install testing framework: npm install --save-dev jest @types/jest ts-jest
+ * - Or: npm install --save-dev vitest @vitest/ui
+ * 
+ * Test Coverage:
+ * - Signature verification
+ * - Event processing (invoice, subscription, payment)
+ * - Error handling
+ * - Retry mechanisms
+ * - Idempotency
+ * - Data validation
+ * - Security checks
+ */
+
+import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+// Or: import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+
+import {
+  createMockInvoiceEvent,
+  createMockSubscriptionEvent,
+  createMockPaymentEvent,
+  createTestWebhookRequest,
+  TEST_FIXTURES,
+  generateTestWebhookSignature,
+  expectValidUUID,
+  expectValidAmount,
+} from '@/lib/webhook/test-utils';
+
+import {
+  createEdgeCaseEvents,
+  createErrorScenarios,
+  generateLoadTestEvents,
+  simulateConcurrentWebhooks,
+  validateWebhookResponse,
+} from '@/lib/webhook/test-helpers';
+
+// PHASE-8: Example test suite structure
+describe('Razorpay Webhook Handler', () => {
+  beforeEach(() => {
+    // Setup test environment
+    process.env.RAZORPAY_WEBHOOK_SECRET = 'test_secret';
+    process.env.NODE_ENV = 'test';
+  });
+
+  afterEach(() => {
+    // Cleanup
+    delete process.env.RAZORPAY_WEBHOOK_SECRET;
+  });
+
+  describe('Signature Verification', () => {
+    it('should accept valid webhook signature', async () => {
+      const event = createMockInvoiceEvent({ amount: 1000 });
+      const { body, signature } = createTestWebhookRequest(event);
+      
+      // PHASE-8: Test signature verification
+      // In actual test, call the webhook handler with these values
+      expect(signature).toBeTruthy();
+      expect(signature.length).toBe(64); // SHA256 hex string
+    });
+
+    it('should reject invalid webhook signature', async () => {
+      const event = createMockInvoiceEvent({ amount: 1000 });
+      const { body } = createTestWebhookRequest(event);
+      const invalidSignature = 'invalid_signature';
+      
+      // PHASE-8: Test should fail with invalid signature
+      // In actual test, verify webhook handler rejects this
+    });
+
+    it('should reject missing signature', async () => {
+      const event = createMockInvoiceEvent({ amount: 1000 });
+      
+      // PHASE-8: Test should fail when signature is missing
+    });
+  });
+
+  describe('Invoice Event Processing', () => {
+    it('should process valid invoice.paid event', async () => {
+      const event = createMockInvoiceEvent({
+        amount: 1000,
+        status: 'paid',
+        companyId: TEST_FIXTURES.validCompanyId,
+      });
+      
+      // PHASE-8: Test invoice processing
+      // In actual test, call webhook handler and verify invoice is created
+    });
+
+    it('should handle zero amount invoice (free trial)', async () => {
+      const event = createMockInvoiceEvent({
+        amount: 0,
+        status: 'paid',
+      });
+      
+      // PHASE-8: Test zero amount handling
+    });
+
+    it('should handle very large amount invoice', async () => {
+      const event = createMockInvoiceEvent({
+        amount: 100_000_000,
+        status: 'paid',
+      });
+      
+      // PHASE-8: Test large amount handling
+    });
+
+    it('should reject invoice with missing company', async () => {
+      const event = createMockInvoiceEvent({
+        companyId: '00000000-0000-0000-0000-000000000000',
+        amount: 1000,
+      });
+      
+      // PHASE-8: Test should handle missing company gracefully
+    });
+  });
+
+  describe('Subscription Event Processing', () => {
+    it('should process subscription.activated event', async () => {
+      const event = createMockSubscriptionEvent({
+        status: 'active',
+      });
+      
+      // PHASE-8: Test subscription activation
+    });
+
+    it('should process subscription.cancelled event', async () => {
+      const event = createMockSubscriptionEvent({
+        status: 'cancelled',
+      });
+      
+      // PHASE-8: Test subscription cancellation
+    });
+  });
+
+  describe('Payment Event Processing', () => {
+    it('should process payment.captured event', async () => {
+      const event = createMockPaymentEvent({
+        orderId: TEST_FIXTURES.validOrderId,
+        amount: 1000,
+        status: 'captured',
+      });
+      
+      // PHASE-8: Test payment processing
+    });
+  });
+
+  describe('Idempotency', () => {
+    it('should handle duplicate events gracefully', async () => {
+      const event = createMockInvoiceEvent({
+        invoiceId: 'inv_duplicate_test',
+        amount: 1000,
+      });
+      
+      // PHASE-8: Test idempotency - same event processed twice should not create duplicate invoices
+    });
+  });
+
+  describe('Error Handling', () => {
+    it('should retry on transient errors', async () => {
+      // PHASE-8: Test retry mechanism for network errors
+    });
+
+    it('should not retry on validation errors', async () => {
+      // PHASE-8: Test that validation errors are not retried
+    });
+
+    it('should log to dead letter queue on permanent failures', async () => {
+      // PHASE-8: Test dead letter queue logging
+    });
+  });
+
+  describe('Data Validation', () => {
+    it('should validate UUID format', () => {
+      expectValidUUID(TEST_FIXTURES.validCompanyId);
+      expect(() => expectValidUUID('invalid')).toThrow();
+    });
+
+    it('should validate amount ranges', () => {
+      expectValidAmount(1000, 0, 1000000);
+      expect(() => expectValidAmount(-100)).toThrow();
+      expect(() => expectValidAmount(1000001, 0, 1000000)).toThrow();
+    });
+  });
+
+  describe('Edge Cases', () => {
+    it('should handle oversized payloads', async () => {
+      const scenarios = createErrorScenarios();
+      // PHASE-8: Test oversized payload rejection
+    });
+
+    it('should handle malformed JSON', async () => {
+      // PHASE-8: Test JSON parsing error handling
+    });
+
+    it('should handle missing required fields', async () => {
+      const edgeCases = createEdgeCaseEvents();
+      // PHASE-8: Test incomplete event handling
+    });
+  });
+
+  describe('Performance', () => {
+    it('should process webhooks within acceptable time', async () => {
+      const events = generateLoadTestEvents(100, 'invoice');
+      // PHASE-8: Test performance under load
+    });
+
+    it('should handle concurrent webhooks', async () => {
+      const events = generateLoadTestEvents(50, 'invoice');
+      const results = await simulateConcurrentWebhooks(events, 10);
+      // PHASE-8: Test concurrency handling
+    });
+  });
+
+  describe('Security', () => {
+    it('should sanitize input data', async () => {
+      // PHASE-8: Test input sanitization
+    });
+
+    it('should authorize webhook operations', async () => {
+      // PHASE-8: Test authorization checks
+    });
+
+    it('should log security events', async () => {
+      // PHASE-8: Test security audit logging
+    });
+  });
+});

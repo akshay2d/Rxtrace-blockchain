@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
+import { requireAdmin } from "@/lib/auth/admin";
 
 export async function POST(req: Request) {
   try {
+    const { error: adminError } = await requireAdmin();
+    if (adminError) return adminError;
     const body = await req.json();
     const { company_id, head, enabled } = body;
     if (!company_id) return NextResponse.json({ success: false, error: "company_id is required" }, { status: 400 });

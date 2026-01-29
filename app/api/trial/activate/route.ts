@@ -39,13 +39,13 @@ function razorpayPlanIdFor(plan: string): string {
   return planId;
 }
 
-async function handleSimpleTrialActivation(payment_id: string, company_id: string, user_id: string) {
+async function handleSimpleTrialActivation(company_id: string, user_id: string) {
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-  // BLOCKER 3: Idempotency check - Prevent duplicate trial activation
+  // Verify company exists
   const { data: existingCompany, error: companyCheckError } = await supabase
     .from('companies')
-    .select('id, subscription_status, trial_activated_at')
+    .select('id')
     .eq('id', company_id)
     .eq('user_id', user_id)
     .maybeSingle();
@@ -59,311 +59,80 @@ async function handleSimpleTrialActivation(payment_id: string, company_id: strin
     return NextResponse.json({ error: 'Company not found' }, { status: 404 });
   }
 
-  // Check if trial already activated
-  const isAlreadyTrial = existingCompany.subscription_status === 'trial' || existingCompany.trial_activated_at;
-  if (isAlreadyTrial) {
-    return NextResponse.json({
-      success: false,
-      message: 'Trial already activated for this company',
-      already_activated: true,
-    }, { status: 409 });
-  }
-
-  // BLOCKER 1: Verify Razorpay payment before activating trial
-  let payment: any;
-  try {
-    const { keyId, keySecret } = getRazorpayKeys();
-    const razorpay = new Razorpay({ key_id: keyId, key_secret: keySecret });
-    
-    // Fetch payment from Razorpay API
-    payment = await razorpay.payments.fetch(payment_id);
-    
-    // Verify payment status
-    if (payment.status !== 'captured') {
-      // Log failed verification attempt
-      try {
-        await writeAuditLog({
-          companyId: company_id,
-          actor: user_id || 'system',
-          action: 'TRIAL_ACTIVATION_PAYMENT_VERIFICATION_FAILED',
-          status: 'failed',
-          integrationSystem: 'razorpay',
-          metadata: {
-            payment_id,
-            payment_status: payment.status,
-            reason: 'Payment not captured',
-          },
-        });
-      } catch (auditErr) {
-        console.error('Failed to log audit for payment verification failure:', auditErr);
-      }
-      
-      return NextResponse.json({
-        error: `Payment not captured. Payment status: ${payment.status}`,
-        payment_status: payment.status,
-      }, { status: 400 });
-    }
-
-    // Verify payment amount (₹5 = 500 paise)
-    const amountPaise = typeof payment.amount === 'number' ? payment.amount : 0;
-    const amountInr = amountPaise / 100;
-    if (Math.abs(amountInr - 5.0) > 0.01) { // Allow small floating point differences
-      return NextResponse.json({
-        error: `Invalid payment amount. Expected ₹5, got ₹${amountInr}`,
-        expected_amount: 5.0,
-        actual_amount: amountInr,
-      }, { status: 400 });
-    }
-
-    // Verify currency
-    const currency = String(payment.currency || '').toUpperCase();
-    if (currency !== 'INR') {
-      return NextResponse.json({
-        error: `Invalid payment currency. Expected INR, got ${currency}`,
-        expected_currency: 'INR',
-        actual_currency: currency,
-      }, { status: 400 });
-    }
-  } catch (razorpayError: any) {
-    console.error('Razorpay payment verification error:', razorpayError);
-    
-    // Log failed verification attempt
-    try {
-      await writeAuditLog({
-        companyId: company_id,
-        actor: user_id || 'system',
-        action: 'TRIAL_ACTIVATION_PAYMENT_VERIFICATION_FAILED',
-        status: 'failed',
-        integrationSystem: 'razorpay',
-        metadata: {
-          payment_id,
-          error: razorpayError.message || String(razorpayError),
-        },
-      });
-    } catch (auditErr) {
-      console.error('Failed to log audit for payment verification failure:', auditErr);
-    }
-    
-    return NextResponse.json({
-      error: `Failed to verify payment: ${razorpayError.message || 'Payment not found'}`,
-    }, { status: 400 });
-  }
-
-  // Calculate trial end date (15 days from now)
-  const trialEndDate = new Date();
-  trialEndDate.setDate(trialEndDate.getDate() + 15);
-  const paidAt = payment.created_at ? new Date(payment.created_at * 1000).toISOString() : new Date().toISOString();
-
-  // Update company with trial status
-  const { error: companyError } = await supabase
-    .from('companies')
-    .update({
-      subscription_status: 'trial',
-      trial_end_date: trialEndDate.toISOString(),
-      trial_activated_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', company_id)
-    .eq('user_id', user_id);
-
-  if (companyError) {
-    console.error('Company update error:', companyError);
-    return NextResponse.json({ error: 'Failed to activate trial' }, { status: 500 });
-  }
-
-  // Record billing transaction
-  await supabase.from('billing_transactions').insert({
-    company_id,
-    user_id,
-    amount: 5.0,
-    currency: 'INR',
-    status: 'success',
-    payment_method: 'razorpay',
-    payment_id,
-    description: 'Trial Activation Fee',
-    transaction_type: 'trial_activation',
-    created_at: paidAt,
-  });
-
-  // BLOCKER 2: Generate invoice for trial payment
-  const reference = `trial_activation:${payment_id}`;
-  
-  // Check if invoice already exists (idempotency)
-  const { data: existingInvoice } = await supabase
-    .from('billing_invoices')
-    .select('id')
-    .eq('company_id', company_id)
-    .eq('reference', reference)
-    .maybeSingle();
-
-  if (!existingInvoice) {
-    // Create invoice with optional columns first, fallback to minimal if needed
-    const invoiceRowWithOptionalColumns: any = {
-      company_id,
-      plan: 'Trial Activation',
-      period_start: paidAt,
-      period_end: trialEndDate.toISOString(),
-      amount: 5.0,
-      currency: 'INR',
-      status: 'PAID',
-      paid_at: paidAt,
-      reference,
-      provider: 'razorpay',
-      provider_payment_id: payment_id,
-      base_amount: 5.0,
-      addons_amount: 0,
-      wallet_applied: 0,
-      metadata: {
-        type: 'trial_activation',
-        razorpay: { payment_id },
-        created_by: 'system',
-      },
-    };
-
-    const invoiceRowMinimal: any = {
-      company_id,
-      plan: 'Trial Activation',
-      period_start: paidAt,
-      period_end: trialEndDate.toISOString(),
-      amount: 5.0,
-      currency: 'INR',
-      status: 'PAID',
-      paid_at: paidAt,
-      reference,
-      metadata: {
-        type: 'trial_activation',
-        razorpay: { payment_id },
-        created_by: 'system',
-      },
-    };
-
-    // Try inserting with optional columns first
-    const firstAttempt = await supabase
-      .from('billing_invoices')
-      .insert(invoiceRowWithOptionalColumns)
-      .select('id')
-      .maybeSingle();
-
-    if (firstAttempt.error) {
-      const msg = String(firstAttempt.error.message ?? firstAttempt.error);
-      const looksLikeMissingColumn = /column .* does not exist/i.test(msg);
-      
-      if (looksLikeMissingColumn) {
-        // Retry with minimal columns
-        const secondAttempt = await supabase
-          .from('billing_invoices')
-          .insert(invoiceRowMinimal)
-          .select('id')
-          .maybeSingle();
-
-        if (secondAttempt.error) {
-          console.error('Failed to create trial invoice (minimal):', secondAttempt.error);
-          // Continue - trial activated, invoice can be created manually if needed
-        }
-      } else {
-        console.error('Failed to create trial invoice:', firstAttempt.error);
-        // Continue - trial activated, invoice can be created manually if needed
-      }
-    }
-  }
-
-  // CRITICAL: Create company_subscriptions record so billing page can show trial details
-  // Get starter monthly plan ID - try multiple queries if needed
-  let starterPlanId: string | null = null;
-  
-  // Try exact match first
-  let { data: starterPlan, error: planError } = await supabase
-    .from('subscription_plans')
-    .select('id')
-    .eq('name', 'Starter')
-    .eq('billing_cycle', 'monthly')
-    .maybeSingle();
-
-  // If not found, try case-insensitive or just name match
-  if (planError || !starterPlan) {
-    const { data: altPlan } = await supabase
-      .from('subscription_plans')
-      .select('id')
-      .ilike('name', 'starter')
-      .eq('billing_cycle', 'monthly')
-      .maybeSingle();
-    if (altPlan) starterPlan = altPlan;
-  }
-
-  // If still not found, get first monthly plan
-  if (!starterPlan) {
-    const { data: firstPlan } = await supabase
-      .from('subscription_plans')
-      .select('id')
-      .eq('billing_cycle', 'monthly')
-      .limit(1)
-      .maybeSingle();
-    if (firstPlan) starterPlan = firstPlan;
-  }
-
-  if (starterPlan?.id) {
-    starterPlanId = starterPlan.id;
-  }
-
-  // ALWAYS create subscription record - check for existing first
+  // Check if trial already activated - check company_subscriptions ONLY (single source of truth)
   const { data: existingSubscription } = await supabase
     .from('company_subscriptions')
     .select('id, status')
     .eq('company_id', company_id)
     .maybeSingle();
 
-  // CRITICAL: Always ensure subscription record exists for billing page
-  if (!existingSubscription) {
-    if (starterPlanId) {
-      // Create subscription record - this is CRITICAL for billing page to work
-      const { error: subError } = await supabase
-        .from('company_subscriptions')
-        .insert({
-          company_id: company_id,
-          plan_id: starterPlanId,
-          status: 'TRIAL',
-          trial_end: trialEndDate.toISOString(),
-          current_period_end: trialEndDate.toISOString(),
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        });
-
-      if (subError) {
-        console.error('CRITICAL: Failed to create subscription record:', subError);
-        // Don't fail trial activation - log error but continue
-        // Subscription can be created manually via admin fix tool
+  if (existingSubscription && existingSubscription.status === 'TRIAL') {
+    // Check if trial is still active (not expired)
+    const { data: subDetails } = await supabase
+      .from('company_subscriptions')
+      .select('trial_end')
+      .eq('id', existingSubscription.id)
+      .maybeSingle();
+    
+    if (subDetails?.trial_end) {
+      const trialEnd = new Date(subDetails.trial_end);
+      if (trialEnd > new Date()) {
+        return NextResponse.json({
+          success: false,
+          message: 'Trial already activated for this company',
+          already_activated: true,
+        }, { status: 409 });
       }
     } else {
-      console.error('CRITICAL: No plan ID found - cannot create subscription record');
-      // Don't fail trial activation - subscription can be created later
+      return NextResponse.json({
+        success: false,
+        message: 'Trial already activated for this company',
+        already_activated: true,
+      }, { status: 409 });
     }
-  } else if (existingSubscription.status !== 'TRIAL') {
-    // Update existing subscription to TRIAL if it's not already
-    await supabase
-      .from('company_subscriptions')
-      .update({
-        status: 'TRIAL',
-        trial_end: trialEndDate.toISOString(),
-        current_period_end: trialEndDate.toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', existingSubscription.id);
   }
 
-  // BLOCKER 4: Audit log for trial activation
+  // Calculate trial end date (15 days from now)
+  const trialEndDate = new Date();
+  trialEndDate.setDate(trialEndDate.getDate() + 15);
+  const now = new Date().toISOString();
+
+  // CRITICAL: Create company_subscriptions record FIRST (single source of truth)
+  // plan_id = NULL during trial (per business rules)
+  const { error: subError } = await supabase
+    .from('company_subscriptions')
+    .insert({
+      company_id: company_id,
+      plan_id: null, // NULL during trial
+      status: 'TRIAL',
+      trial_end: trialEndDate.toISOString(),
+      current_period_end: trialEndDate.toISOString(),
+      billing_amount: 0, // No payment during trial
+      razorpay_subscription_id: null,
+      created_at: now,
+      updated_at: now,
+    });
+
+  // FAIL FAST: If subscription record creation fails, rollback and fail trial activation
+  if (subError) {
+    console.error('CRITICAL: Failed to create subscription record:', subError);
+    return NextResponse.json({ 
+      error: 'Failed to activate trial: Could not create subscription record',
+      details: subError.message 
+    }, { status: 500 });
+  }
+
+  // Audit log for trial activation
   try {
     await writeAuditLog({
       companyId: company_id,
       actor: user_id || 'system',
       action: 'TRIAL_ACTIVATED',
       status: 'success',
-      integrationSystem: 'razorpay',
+      integrationSystem: 'system',
       metadata: {
-        payment_id,
-        amount: 5.0,
-        currency: 'INR',
         trial_end_date: trialEndDate.toISOString(),
-        description: '15-day free trial activated',
+        description: '15-day free trial activated (no payment required)',
       },
     });
   } catch (auditError) {
@@ -380,12 +149,16 @@ async function handleSimpleTrialActivation(payment_id: string, company_id: strin
 
 export async function POST(req: NextRequest) {
   try {
-    const { payment_id, order_id, signature, company_id, plan, user_id } = await req.json();
+    const { company_id, user_id } = await req.json();
 
-    // Handle simple ₹5 trial activation (no order_id/signature)
-    if (!order_id && payment_id && company_id && user_id) {
-      return handleSimpleTrialActivation(payment_id, company_id, user_id);
+    // PRIORITY-1: Trial activation is payment-free
+    // Handle simple trial activation (no payment required)
+    if (company_id && user_id) {
+      return handleSimpleTrialActivation(company_id, user_id);
     }
+
+    // Legacy payment-based flow (deprecated - kept for backward compatibility only)
+    const { payment_id, order_id, signature, plan } = await req.json();
 
     if (!payment_id || !order_id || !company_id || !plan) {
       return NextResponse.json(
@@ -519,14 +292,13 @@ export async function POST(req: NextRequest) {
       console.error('Failed to create Razorpay subscription:', e);
     }
 
-    // Update company with trial status
+    // DO NOT update companies.subscription_status - trial state is ONLY in company_subscriptions
+    // Only update trial metadata fields if they exist
     const { error: companyUpdateError } = await supabase
       .from('companies')
       .update({
-        subscription_status: 'trial',
         trial_start_date: new Date().toISOString(),
         trial_end_date: trialEndDate.toISOString(),
-        subscription_plan: planKey,
         ...(subscription?.id
           ? {
               razorpay_subscription_id: subscription.id,
@@ -600,44 +372,68 @@ export async function POST(req: NextRequest) {
       // Continue - quota can be initialized later
     }
 
-    // FIX: Create company_subscriptions record so billing page can show trial details
-    // Get plan ID for the selected plan
-    const { data: selectedPlan, error: planError } = await supabase
-      .from('subscription_plans')
+    // CRITICAL: Create company_subscriptions record (single source of truth for trial)
+    // plan_id = NULL during trial (per business rules)
+    const { data: existingSubscription } = await supabase
+      .from('company_subscriptions')
       .select('id')
-      .eq('name', planType === 'starter' ? 'Starter' : planType === 'growth' ? 'Growth' : 'Enterprise')
-      .eq('billing_cycle', 'monthly')
+      .eq('company_id', company.id)
       .maybeSingle();
 
-    if (planError) {
-      console.error('Failed to find plan:', planError);
-    } else if (selectedPlan) {
-      // Check if subscription already exists (idempotency)
-      const { data: existingSubscription } = await supabase
+    if (!existingSubscription) {
+      // Create subscription record with plan_id = NULL
+      const { error: subError } = await supabase
         .from('company_subscriptions')
-        .select('id')
-        .eq('company_id', company.id)
-        .maybeSingle();
+        .insert({
+          company_id: company.id,
+          plan_id: null, // NULL during trial
+          status: 'TRIAL',
+          trial_end: trialEndDate.toISOString(),
+          current_period_end: trialEndDate.toISOString(),
+          billing_amount: 0,
+          razorpay_subscription_id: subscription?.id || null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        });
 
-      if (!existingSubscription && selectedPlan.id) {
-        // Create subscription record
-        const { error: subError } = await supabase
-          .from('company_subscriptions')
-          .insert({
-            company_id: company.id,
-            plan_id: selectedPlan.id,
-            status: 'TRIAL',
-            trial_end: trialEndDate.toISOString(),
-            current_period_end: trialEndDate.toISOString(),
-            razorpay_subscription_id: subscription?.id || null,
-            created_at: new Date().toISOString(),
+      // FAIL FAST: If subscription record creation fails, rollback and fail trial activation
+      if (subError) {
+        console.error('CRITICAL: Failed to create subscription record:', subError);
+        // Rollback company update
+        await supabase
+          .from('companies')
+          .update({
+            trial_start_date: null,
+            trial_end_date: null,
             updated_at: new Date().toISOString(),
-          });
+          })
+          .eq('id', company.id);
+        
+        return NextResponse.json({ 
+          error: 'Failed to activate trial: Could not create subscription record',
+          details: subError.message 
+        }, { status: 500 });
+      }
+    } else {
+      // Update existing subscription to TRIAL
+      const { error: updateError } = await supabase
+        .from('company_subscriptions')
+        .update({
+          plan_id: null, // NULL during trial
+          status: 'TRIAL',
+          trial_end: trialEndDate.toISOString(),
+          current_period_end: trialEndDate.toISOString(),
+          billing_amount: 0,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', existingSubscription.id);
 
-        if (subError) {
-          console.error('Failed to create subscription record:', subError);
-          // Continue - trial activated, subscription can be created manually if needed
-        }
+      if (updateError) {
+        console.error('CRITICAL: Failed to update subscription record:', updateError);
+        return NextResponse.json({ 
+          error: 'Failed to activate trial: Could not update subscription record',
+          details: updateError.message 
+        }, { status: 500 });
       }
     }
 
@@ -671,7 +467,6 @@ export async function POST(req: NextRequest) {
       company: {
         id: company.id,
         name: company.company_name,
-        subscription_status: 'trial',
         trial_end_date: trialEndDate.toISOString(),
         plan: planKey,
       },

@@ -13,6 +13,8 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { UsageMeter } from '@/components/usage/UsageMeter';
+import { AdminConfirmDialog } from '@/components/admin/AdminConfirmDialog';
+import { useDestructiveAction } from '@/lib/admin/useDestructiveAction';
 
 type Company = {
   id: string;
@@ -135,6 +137,46 @@ export default function CompanyDetailPage() {
 
         {/* Usage Tab */}
         <TabsContent value="usage" className="space-y-4">
+          {/* PRIORITY-3: Usage Interpretation (Collapsible) */}
+          <Card>
+            <CardHeader>
+              <details className="group">
+                <summary className="cursor-pointer list-none flex items-center justify-between">
+                  <CardTitle className="text-lg">Usage Interpretation</CardTitle>
+                  <span className="text-sm text-gray-500 group-open:hidden">Click to expand</span>
+                  <span className="text-sm text-gray-500 hidden group-open:inline">Click to collapse</span>
+                </summary>
+                <div className="mt-4 pt-4 border-t border-gray-200 space-y-4">
+                  <div>
+                    <h4 className="font-semibold text-gray-800 mb-2">Billing Usage</h4>
+                    <div className="text-sm text-gray-700 space-y-1 pl-4">
+                      <p><strong>Source:</strong> billing_usage table</p>
+                      <p><strong>Period:</strong> Billing period (aligned with subscription cycle)</p>
+                      <p><strong>Purpose:</strong> Tracks usage for current billing cycle</p>
+                    </div>
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-gray-800 mb-2">Analytics Usage</h4>
+                    <div className="text-sm text-gray-700 space-y-1 pl-4">
+                      <p><strong>Source:</strong> usage_counters table</p>
+                      <p><strong>Period:</strong> Calendar month (1st to last day of month)</p>
+                      <p><strong>Purpose:</strong> Monthly aggregation for reporting and analytics</p>
+                    </div>
+                  </div>
+                  <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                    <h4 className="font-semibold text-blue-900 mb-2">Why Numbers Differ</h4>
+                    <p className="text-sm text-blue-800">
+                      <strong>Billing data</strong> reflects your billing cycle (e.g., if your subscription started on the 15th, 
+                      your billing period runs from the 15th of each month). 
+                      <strong>Analytics data</strong> reflects monthly aggregation (always 1st to last day of calendar month). 
+                      These different time windows can cause numbers to differ.
+                    </p>
+                  </div>
+                </div>
+              </details>
+            </CardHeader>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle>Current Period Usage</CardTitle>
@@ -248,6 +290,8 @@ function CompanyDiscountManager({ company, onUpdate }: { company: Company; onUpd
   const [discountAppliesTo, setDiscountAppliesTo] = useState<string>(company.discount_applies_to || 'both');
   const [discountNotes, setDiscountNotes] = useState<string>(company.discount_notes || '');
   const [saving, setSaving] = useState(false);
+  const [removeConfirming, setRemoveConfirming] = useState(false);
+  const destructive = useDestructiveAction<{ company: Company }>();
 
   async function handleSave() {
     setSaving(true);

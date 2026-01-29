@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { requireAdmin } from "@/lib/auth/admin";
 import { PRICING, type PlanType } from "@/lib/billingConfig";
 import { normalizePlanType } from "@/lib/billing/period";
 import { supabaseServer } from "@/lib/supabase/server";
