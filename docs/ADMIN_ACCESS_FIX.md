@@ -85,6 +85,26 @@ ON CONFLICT (user_id) DO UPDATE SET is_active = true;
 
 ---
 
+## Verify admin status
+
+If you still see "Admin access required" or "Failed to remove: Forbidden":
+
+1. **While logged in**, open in your browser: **`/api/admin/check`**  
+   (e.g. `https://your-app.com/api/admin/check`)
+2. The response shows:
+   - **`isAdmin: true`** – Server sees you as admin. If remove still fails, try a hard refresh or sign out and sign in again.
+   - **`isAdmin: false`** – Server does not see you as admin. Use the **`userId`** from the response in the SQL below (replace `YOUR_USER_ID` with that exact UUID), then **sign out and sign in again**.
+
+```sql
+UPDATE auth.users
+SET raw_user_meta_data = COALESCE(raw_user_meta_data, '{}'::jsonb) || '{"is_admin": true}'::jsonb
+WHERE id = 'YOUR_USER_ID';
+```
+
+3. After running the SQL, **sign out and sign in again** (required so the session gets the new metadata).
+
+---
+
 ## After the fix
 
 - **Users** page should load without "Failed to fetch users: Forbidden".

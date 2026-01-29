@@ -21,8 +21,9 @@ export async function isAdmin(userId: string): Promise<boolean> {
       return false;
     }
     
-    // PHASE-1: Check user_metadata.is_admin
-    if (user?.user_metadata?.is_admin === true) {
+    // PHASE-1: Check user_metadata.is_admin (and raw_user_meta_data in case API exposes it)
+    const meta = user?.user_metadata ?? (user as { raw_user_meta_data?: { is_admin?: boolean } })?.raw_user_meta_data;
+    if (meta?.is_admin === true) {
       return true;
     }
     
