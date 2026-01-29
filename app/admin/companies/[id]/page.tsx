@@ -333,12 +333,17 @@ function CompanyDiscountManager({ company, onUpdate }: { company: Company; onUpd
 
     setSaving(true);
     try {
-      const res = await fetch(`/api/admin/companies/discount?company_id=${company.id}`, {
-        method: 'DELETE',
-        credentials: 'include',
-      });
+      let url = `/api/admin/companies/discount?company_id=${company.id}`;
+      let res = await fetch(url, { method: 'DELETE', credentials: 'include' });
+      let data = await res.json();
 
-      const data = await res.json();
+      // If API requires confirmation, retry with the token it returned
+      if (data.requires_confirmation && data.confirmation_token) {
+        url = `/api/admin/companies/discount?company_id=${company.id}&confirmation_token=${encodeURIComponent(data.confirmation_token)}`;
+        res = await fetch(url, { method: 'DELETE', credentials: 'include' });
+        data = await res.json();
+      }
+
       if (data.success) {
         alert('Discount removed successfully');
         setDiscountType('');
