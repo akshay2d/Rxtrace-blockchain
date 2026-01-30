@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-// GET: Public API - Fetch active subscription plans
+// GET: Public API - Fetch active subscription plans (no cache so admin name changes show on pricing page)
 export async function GET() {
   try {
     const supabase = getSupabaseAdmin();
@@ -37,7 +38,10 @@ export async function GET() {
       })
     );
 
-    return NextResponse.json({ success: true, plans: plansWithItems });
+    return NextResponse.json(
+      { success: true, plans: plansWithItems },
+      { headers: { "Cache-Control": "no-store, max-age=0" } }
+    );
   } catch (err: any) {
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }

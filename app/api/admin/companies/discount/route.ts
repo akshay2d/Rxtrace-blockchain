@@ -11,6 +11,7 @@ import {
 } from "@/lib/observability";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 // PUT: Set direct discount on company (using companies.discount_* fields). PHASE-10: Added observability.
 export async function PUT(req: Request) {

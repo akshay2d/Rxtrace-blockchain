@@ -10,6 +10,7 @@ import {
 } from "@/lib/observability";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 /**
  * PHASE-12: Parse time range from query parameters

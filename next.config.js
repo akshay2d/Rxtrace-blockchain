@@ -23,10 +23,12 @@ const nextConfig = {
   },
 }
 
-// Apply Sentry only when not skipping (skip with SENTRY_IGNORE_BUILD=1 to avoid build hang/slow uploads)
+// Apply Sentry only when not building (skip during next build to avoid hang/slow source map uploads)
 const { withSentryConfig } = require("@sentry/nextjs");
+const isProductionBuild = process.env.NEXT_PHASE === "phase-production-build";
+const skipSentry = process.env.SENTRY_IGNORE_BUILD === "1" || isProductionBuild;
 
-const config = process.env.SENTRY_IGNORE_BUILD === "1"
+const config = skipSentry
   ? nextConfig
   : withSentryConfig(nextConfig, {
       org: "rxtrace-india",

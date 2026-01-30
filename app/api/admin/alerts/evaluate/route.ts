@@ -11,6 +11,7 @@ import {
 } from "@/lib/observability";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 /**
  * POST: Manually trigger alert evaluation

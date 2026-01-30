@@ -5,6 +5,7 @@ import { supabaseServer } from '@/lib/supabase/server';
 import { isAdmin } from '@/lib/auth/admin';
 
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {

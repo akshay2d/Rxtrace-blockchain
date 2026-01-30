@@ -5,6 +5,8 @@ import { canCreateSeat } from "@/lib/usage/seats";
 import { sendInvitationEmail } from "@/lib/email";
 import { requireAdmin } from "@/lib/auth/admin";
 
+export const dynamic = "force-dynamic";
+
 export async function POST(req: Request) {
   try {
     const { error: adminError } = await requireAdmin();

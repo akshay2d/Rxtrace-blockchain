@@ -12,6 +12,7 @@ import {
 import { logAdminAction } from "@/lib/audit/admin";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 /**
  * POST: Manually trigger audit log archival

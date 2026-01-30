@@ -57,12 +57,17 @@
 
 ### 2. Application Deployment
 ```bash
-# Build application
-npm run build
+# Build application (skip Sentry during build to avoid hang/slow uploads)
+# PowerShell:
+$env:SENTRY_IGNORE_BUILD="1"; npm run build
+# CMD:
+set SENTRY_IGNORE_BUILD=1 && npm run build
+# Or if Sentry upload is desired, run: npm run build
 
 # Start application
 npm start
 ```
+**Note:** All API routes that use `cookies()` or `headers()` now export `dynamic = 'force-dynamic'` so the build does not fail on dynamic server usage. Sentry is skipped during `next build` when `NEXT_PHASE=phase-production-build` or `SENTRY_IGNORE_BUILD=1`.
 
 ### 3. Health Check
 - [ ] Verify `/api/admin/health` returns 200

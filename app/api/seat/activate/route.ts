@@ -5,6 +5,7 @@ import { PRICING, type PlanType } from "@/lib/billingConfig";
 import { writeAuditLog } from "@/lib/audit";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 function normalizePlanType(raw: unknown): PlanType | null {
   const value = String(raw ?? "").trim().toLowerCase();

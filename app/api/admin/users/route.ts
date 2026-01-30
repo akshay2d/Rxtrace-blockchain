@@ -13,6 +13,7 @@ import {
 } from '@/lib/observability';
 
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 // GET: List all users (admin only). PHASE-10: Added observability.
 export async function GET() {

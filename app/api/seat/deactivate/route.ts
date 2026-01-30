@@ -22,6 +22,8 @@ async function resolveAuthCompanyId() {
   return { user, companyId: (company as any)?.id ?? null };
 }
 
+export const dynamic = "force-dynamic";
+
 export async function POST(req: Request) {
   try {
     const { user, companyId } = await resolveAuthCompanyId();

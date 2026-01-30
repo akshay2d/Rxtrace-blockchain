@@ -12,6 +12,7 @@ import {
 } from "@/lib/observability";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 // POST: Assign discount code to company. PHASE-11: Added observability.
 export async function POST(req: Request) {

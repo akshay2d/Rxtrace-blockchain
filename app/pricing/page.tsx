@@ -82,6 +82,24 @@ function formatINRFromPaise(paise: number): string {
   return `₹${inr.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+// Single source of truth for add-on cart key (must match API add-on names)
+function getAddonKey(name: string): string {
+  return name.toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
+}
+
+// Map cart/addon key to create-order API kind (API only accepts: unit | box | carton | pallet | userid)
+function addonKeyToApiKind(key: string): "unit" | "box" | "carton" | "pallet" | "userid" | null {
+  const k = key.toLowerCase();
+  if (k === "unit" || k.includes("unit_label")) return "unit";
+  if (k === "box" || k.includes("box_label")) return "box";
+  if (k === "carton" || k.includes("carton_label")) return "carton";
+  if (k === "pallet" || k.includes("pallet") || k.includes("sscc")) return "pallet";
+  if (k === "userid" || k.includes("user_id") || k.includes("seat")) return "userid";
+  return null;
+}
+
+const CART_STORAGE_KEY = "rxtrace_pricing_cart";
+
 // Calculate discounted price from company discount
 function calculateDiscountedPrice(
   basePrice: number,
@@ -149,13 +167,13 @@ export default function PricingPage() {
 
   const [qtyByKey, setQtyByKey] = React.useState<Record<string, string>>({});
 
-  // Fetch plans and add-ons from public APIs
+  // Fetch plans and add-ons from public APIs (no cache so admin name changes show immediately)
   React.useEffect(() => {
     (async () => {
       try {
         const [plansRes, addOnsRes] = await Promise.all([
-          fetch('/api/public/plans'),
-          fetch('/api/public/add-ons'),
+          fetch('/api/public/plans', { cache: 'no-store' }),
+          fetch('/api/public/add-ons', { cache: 'no-store' }),
         ]);
         
         const plansData = await plansRes.json();
@@ -165,14 +183,29 @@ export default function PricingPage() {
           setPlans(plansData.plans || []);
         }
         if (addOnsData.success) {
-          setAddOns(addOnsData.add_ons || []);
+          const apiAddOns: AddOnAPI[] = addOnsData.add_ons || [];
+          setAddOns(apiAddOns);
           // Initialize qtyByKey for add-ons
           const initialQty: Record<string, string> = {};
-          addOnsData.add_ons?.forEach((ao: AddOnAPI) => {
-            const key = ao.name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
-            initialQty[key] = '';
+          apiAddOns.forEach((ao: AddOnAPI) => {
+            initialQty[getAddonKey(ao.name)] = '';
           });
           setQtyByKey(initialQty);
+          // Restore cart from localStorage (only keys that match current add-ons)
+          try {
+            const stored = typeof window !== 'undefined' ? localStorage.getItem(CART_STORAGE_KEY) : null;
+            if (stored) {
+              const parsed = JSON.parse(stored) as Record<string, number>;
+              const validKeys = new Set(apiAddOns.map((a) => getAddonKey(a.name)));
+              const restored: Record<string, number> = {};
+              Object.entries(parsed).forEach(([k, v]) => {
+                if (validKeys.has(k) && Number.isInteger(v) && v > 0) restored[k] = v;
+              });
+              if (Object.keys(restored).length > 0) setCart(restored);
+            }
+          } catch (_) {
+            // ignore invalid stored cart
+          }
         }
       } catch (err) {
         console.error('Failed to fetch plans/add-ons:', err);
@@ -181,6 +214,14 @@ export default function PricingPage() {
       }
     })();
   }, []);
+
+  // Persist cart to localStorage whenever it changes
+  React.useEffect(() => {
+    if (typeof window === 'undefined' || Object.keys(cart).length === 0) return;
+    try {
+      localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(cart));
+    } catch (_) {}
+  }, [cart]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -440,10 +481,7 @@ export default function PricingPage() {
   const cartItems = React.useMemo(() => {
     const items = Object.entries(cart)
       .map(([key, qty]) => {
-        const addon = addOns.find((a) => {
-          const addonKey = a.name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
-          return addonKey === key;
-        });
+        const addon = addOns.find((a) => getAddonKey(a.name) === key);
         if (!addon) return null;
         const quantity = Number(qty);
         if (!Number.isInteger(quantity) || quantity <= 0) return null;
@@ -462,42 +500,14 @@ export default function PricingPage() {
 
   function addToCart(addon: AddOnAPI, qty: number) {
     setCheckoutMessage(null);
-    
-    // Validate quantity
     if (!Number.isInteger(qty) || qty <= 0) {
       setCheckoutMessage(`Invalid quantity: ${qty}. Please enter a positive number.`);
       return;
     }
-    
-    const key = addon.name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
-    
-    // Use functional update and create new object reference
-    setCart((prev) => {
-      // Create completely new object to force React re-render
-      const newCart = Object.assign({}, prev);
-      newCart[key] = qty;
-      
-      console.log('[Cart] State update:', { 
-        addonName: addon.name, 
-        key, 
-        qty,
-        prevCartKeys: Object.keys(prev),
-        prevCartValues: Object.values(prev),
-        newCartKeys: Object.keys(newCart),
-        newCartValues: Object.values(newCart),
-        isNewObject: newCart !== prev
-      });
-      
-      return newCart;
-    });
-    
-    // Clear quantity input after adding
+    const key = getAddonKey(addon.name);
+    setCart((prev) => ({ ...prev, [key]: qty }));
     setTimeout(() => {
-      setQtyByKey((prev) => {
-        const updated = { ...prev };
-        updated[key] = '';
-        return updated;
-      });
+      setQtyByKey((prev) => ({ ...prev, [key]: '' }));
     }, 50);
   }
 
@@ -513,6 +523,9 @@ export default function PricingPage() {
   function clearCart() {
     setCheckoutMessage(null);
     setCart({});
+    try {
+      if (typeof window !== 'undefined') localStorage.removeItem(CART_STORAGE_KEY);
+    } catch (_) {}
   }
 
   async function checkoutCart() {
@@ -530,22 +543,12 @@ export default function PricingPage() {
       return;
     }
 
-    // ALWAYS recalculate from cart state to ensure we have latest data
     const currentCartItems = Object.entries(cart)
       .map(([key, qty]) => {
-        const addon = addOns.find((a) => {
-          const addonKey = a.name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
-          return addonKey === key;
-        });
-        if (!addon) {
-          console.warn('[Cart] Addon not found for key:', key, 'Available:', addOns.map(a => a.name));
-          return null;
-        }
+        const addon = addOns.find((a) => getAddonKey(a.name) === key);
+        if (!addon) return null;
         const quantity = Number(qty);
-        if (!Number.isInteger(quantity) || quantity <= 0) {
-          console.warn('[Cart] Invalid quantity:', qty, 'for key:', key);
-          return null;
-        }
+        if (!Number.isInteger(quantity) || quantity <= 0) return null;
         return { addon, qty: quantity };
       })
       .filter(Boolean) as Array<{ addon: AddOnAPI; qty: number }>;
@@ -568,15 +571,27 @@ export default function PricingPage() {
 
     setCheckoutLoading(true);
     try {
+      // Map cart keys to API kinds (API expects: unit | box | carton | pallet | userid)
+      const itemsForApi = currentCartItems
+        .map((i) => {
+          const key = getAddonKey(i.addon.name);
+          const kind = addonKeyToApiKind(key);
+          return kind ? { kind, qty: i.qty } : null;
+        })
+        .filter(Boolean) as Array<{ kind: "unit" | "box" | "carton" | "pallet" | "userid"; qty: number }>;
+
+      if (itemsForApi.length === 0) {
+        setCheckoutMessage("Cart items could not be mapped to products. Please remove and re-add items.");
+        return;
+      }
+
       const res = await fetch("/api/addons/cart/create-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           company_id: companyId,
-          items: currentCartItems.map((i) => {
-            const key = i.addon.name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
-            return { kind: key, qty: i.qty };
-          }),
+          items: itemsForApi,
         }),
       });
 
@@ -585,7 +600,13 @@ export default function PricingPage() {
       const keyId = body?.keyId ?? process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
 
       if (!res.ok || !order?.id) {
-        setCheckoutMessage(body?.error || order?.error || "Failed to create cart order.");
+        const msg =
+          res.status === 401
+            ? "Please sign in again and try checkout."
+            : res.status === 403
+              ? "You don't have access to create this order."
+              : body?.error || order?.error || "Failed to create cart order.";
+        setCheckoutMessage(msg);
         return;
       }
       if (!keyId) {
@@ -605,6 +626,7 @@ export default function PricingPage() {
             const activateRes = await fetch("/api/addons/activate", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
+              credentials: "include",
               body: JSON.stringify({
                 payment_id: response?.razorpay_payment_id,
                 order_id: response?.razorpay_order_id,
@@ -693,73 +715,82 @@ export default function PricingPage() {
           </div>
         ) : (
           <div className="grid md:grid-cols-3 gap-8">
-            {plans.map((plan) => {
-              const monthlyPlan = plans.find(p => p.name === plan.name && p.billing_cycle === 'monthly');
-              const yearlyPlan = plans.find(p => p.name === plan.name && p.billing_cycle === 'yearly');
-              
-              // Show monthly if available, otherwise show the plan itself
-              const displayPlan = plan.billing_cycle === 'monthly' ? plan : monthlyPlan || plan;
-              const yearly = yearlyPlan;
-              
-              // Calculate discounted prices
-              const monthlyDiscount = calculateDiscountedPrice(displayPlan.base_price, companyDiscount);
-              const yearlyDiscount = yearly ? calculateDiscountedPrice(yearly.base_price, companyDiscount) : null;
-              
-              // Format prices with discount display
-              let price = `₹${displayPlan.base_price.toLocaleString('en-IN')} / month`;
-              if (monthlyDiscount.hasDiscount) {
-                price = (
-                  <span>
-                    <span className="line-through text-gray-500 mr-2">
-                      ₹{displayPlan.base_price.toLocaleString('en-IN')}
+            {(() => {
+              // Group by plan name: one card per plan (show monthly + yearly on same card)
+              const byName: Record<string, { monthly?: Plan; yearly?: Plan }> = {};
+              for (const p of plans) {
+                if (!byName[p.name]) byName[p.name] = {};
+                if (p.billing_cycle === 'monthly') byName[p.name].monthly = p;
+                if (p.billing_cycle === 'yearly') byName[p.name].yearly = p;
+              }
+              const planGroups = Object.entries(byName).map(([name, group]) => ({ name, ...group }));
+
+              return planGroups.map(({ name, monthly, yearly }) => {
+                const displayPlan = monthly ?? yearly;
+                if (!displayPlan) return null;
+
+                const monthlyDiscount = monthly ? calculateDiscountedPrice(monthly.base_price, companyDiscount) : null;
+                const yearlyDiscount = yearly ? calculateDiscountedPrice(yearly.base_price, companyDiscount) : null;
+
+                let price: string | React.ReactNode = monthly
+                  ? `₹${monthly.base_price.toLocaleString('en-IN')} / month`
+                  : yearly
+                    ? `₹${yearly.base_price.toLocaleString('en-IN')} / year`
+                    : '';
+                if (monthly && monthlyDiscount?.hasDiscount) {
+                  price = (
+                    <span>
+                      <span className="line-through text-gray-500 mr-2">
+                        ₹{monthly.base_price.toLocaleString('en-IN')}
+                      </span>
+                      <span className="text-green-600 font-bold">
+                        ₹{monthlyDiscount.discountedPrice.toLocaleString('en-IN')}
+                      </span>
+                      <span className="text-gray-600"> / month</span>
                     </span>
-                    <span className="text-green-600 font-bold">
-                      ₹{monthlyDiscount.discountedPrice.toLocaleString('en-IN')}
+                  );
+                }
+
+                let yearlyPrice: string | React.ReactNode = yearly ? `₹${yearly.base_price.toLocaleString('en-IN')} / year` : '';
+                if (yearly && yearlyDiscount?.hasDiscount) {
+                  yearlyPrice = (
+                    <span>
+                      <span className="line-through text-gray-500 mr-2">
+                        ₹{yearly.base_price.toLocaleString('en-IN')}
+                      </span>
+                      <span className="text-green-600 font-bold">
+                        ₹{yearlyDiscount.discountedPrice.toLocaleString('en-IN')}
+                      </span>
+                      <span className="text-gray-600"> / year</span>
                     </span>
-                    <span className="text-gray-600"> / month</span>
-                  </span>
+                  );
+                }
+
+                const savings = yearly && monthly
+                  ? `Save ₹${((monthly.base_price * 12) - yearly.base_price).toLocaleString('en-IN')} / year`
+                  : '';
+
+                const items = displayPlan.items.map(item =>
+                  item.value ? `${item.label}: ${item.value}` : item.label
                 );
-              }
-              
-              let yearlyPrice = yearly ? `₹${yearly.base_price.toLocaleString('en-IN')} / year` : '';
-              if (yearlyDiscount?.hasDiscount) {
-                yearlyPrice = (
-                  <span>
-                    <span className="line-through text-gray-500 mr-2">
-                      ₹{yearly.base_price.toLocaleString('en-IN')}
-                    </span>
-                    <span className="text-green-600 font-bold">
-                      ₹{yearlyDiscount.discountedPrice.toLocaleString('en-IN')}
-                    </span>
-                    <span className="text-gray-600"> / year</span>
-                  </span>
-                ) as any;
-              }
-              
-              const savings = yearly && monthlyPlan 
-                ? `Save ₹${((monthlyPlan.base_price * 12) - yearly.base_price).toLocaleString('en-IN')} / year`
-                : '';
-              
-              const items = plan.items.map(item => 
-                item.value ? `${item.label}: ${item.value}` : item.label
-              );
-              
-              return (
-                <PlanCard
-                  key={plan.id}
-                  title={plan.name}
-                  price={price}
-                  yearly={yearlyPrice}
-                  savings={savings}
-                  items={items}
-                  highlight={plan.name.toLowerCase().includes('growth') || plan.name.toLowerCase().includes('popular')}
-                  actionLabel={`Subscribe to ${plan.name}`}
-                  onAction={() => subscribeToPlan(plan)}
-                  disabled={false}
-                  disabledReason={null}
-                />
-              );
-            })}
+
+                return (
+                  <PlanCard
+                    key={name}
+                    title={name}
+                    price={price}
+                    yearly={yearlyPrice}
+                    savings={savings}
+                    items={items}
+                    highlight={name.toLowerCase().includes('growth') || name.toLowerCase().includes('popular')}
+                    actionLabel={`Subscribe to ${name}`}
+                    onAction={() => subscribeToPlan(displayPlan)}
+                    disabled={false}
+                    disabledReason={null}
+                  />
+                );
+              });
+            })()}
           </div>
         )}
       </section>
@@ -850,7 +881,7 @@ export default function PricingPage() {
             </thead>
             <tbody>
               {addOns.map((addon) => {
-                const key = addon.name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+                const key = getAddonKey(addon.name);
                 const qty = parseQuantity(qtyByKey[key] ?? "");
                 const totalPaise = qty ? Math.round(qty * addon.price * 100) : null;
                 const inCartQty = cart[key];
@@ -958,7 +989,7 @@ export default function PricingPage() {
                 </thead>
                 <tbody>
                   {cartItems.map((item) => {
-                    const key = item.addon.name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+                    const key = getAddonKey(item.addon.name);
                     return (
                       <tr key={item.addon.id} className="border-t border-slate-200">
                         <td className="p-3">
