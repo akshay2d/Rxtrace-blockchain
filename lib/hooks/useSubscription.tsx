@@ -4,23 +4,24 @@ import { createContext, useContext, useEffect, useState, ReactNode } from 'react
 import { useRouter } from 'next/navigation';
 import { supabaseClient } from '@/lib/supabase/client';
 
-type SubscriptionStatus = 'TRIAL' | 'ACTIVE' | 'PAUSED' | 'CANCELLED' | 'EXPIRED' | null;
+type SubscriptionStatus = 'TRIAL' | 'trialing' | 'ACTIVE' | 'PAUSED' | 'CANCELLED' | 'EXPIRED' | null;
 
 type Subscription = {
   id: string;
   company_id: string;
-  plan_id: string;
+  plan_id: string | null;
   plan: {
     id: string;
     name: string;
     description: string | null;
     billing_cycle: string;
     base_price: number;
-  };
+  } | null;
   status: SubscriptionStatus;
   trial_end: string | null;
   current_period_end: string | null;
   razorpay_subscription_id: string | null;
+  is_trial?: boolean;
 };
 
 type AddOn = {
@@ -125,7 +126,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       if (status === 'PAUSED' || status === 'CANCELLED' || status === 'EXPIRED') {
         return false;
       }
-      return status === 'TRIAL' || status === 'ACTIVE';
+      return status === 'TRIAL' || status === 'trialing' || status === 'ACTIVE';
     }
     
     // For other features, require subscription
@@ -136,15 +137,14 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       return false;
     }
 
-    // Feature checks can be extended based on plan_items
-    // For now, basic status check
-    return status === 'TRIAL' || status === 'ACTIVE';
+    // Feature checks can be extended based on plan_items. Trial (plan_id null) is valid.
+    return status === 'TRIAL' || status === 'trialing' || status === 'ACTIVE';
   };
 
   const canAccess = (): boolean => {
     if (!subscription) return false;
     const status = subscription.status;
-    return status === 'TRIAL' || status === 'ACTIVE';
+    return status === 'TRIAL' || status === 'trialing' || status === 'ACTIVE';
   };
 
   return (

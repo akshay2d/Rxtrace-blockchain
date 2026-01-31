@@ -301,7 +301,7 @@ export default function BillingPage() {
                 <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
                   <span className="text-gray-600 font-medium">Status:</span>
                   <Badge className={`font-bold text-lg uppercase ${
-                    subscription.status === 'TRIAL' 
+                    (subscription.status === 'TRIAL' || subscription.status === 'trialing') 
                       ? 'bg-green-600' 
                       : subscription.status === 'ACTIVE'
                       ? 'bg-blue-600'
@@ -309,7 +309,7 @@ export default function BillingPage() {
                       ? 'bg-orange-600'
                       : 'bg-red-600'
                   }`}>
-                    {subscription.status === 'TRIAL' 
+                    {(subscription.status === 'TRIAL' || subscription.status === 'trialing') 
                       ? '🎉 Trial Active' 
                       : subscription.status === 'CANCELLED' || subscription.status === 'PAUSED'
                       ? '⚠️ Subscription Cancelled'
@@ -317,7 +317,7 @@ export default function BillingPage() {
                   </Badge>
                 </div>
 
-                {subscription.status === 'TRIAL' && subscription.trial_end && (
+                {(subscription.status === 'TRIAL' || subscription.status === 'trialing') && subscription.trial_end && (
                   <div className="p-4 bg-yellow-50 border-2 border-yellow-300 rounded-lg">
                     <div className="text-sm text-yellow-800 font-semibold mb-1">⏰ Trial Period</div>
                     <div className="text-2xl font-bold text-yellow-900">
@@ -451,18 +451,18 @@ export default function BillingPage() {
               {subscription.status !== 'EXPIRED' && (
                 <Button 
                   onClick={() => router.push('/pricing')}
-                  variant={subscription.status === 'TRIAL' ? 'default' : 'outline'}
+                  variant={(subscription.status === 'TRIAL' || subscription.status === 'trialing') ? 'default' : 'outline'}
                   size="lg" 
                   className="w-full"
                 >
                   <span className="text-base">
-                    {subscription.status === 'TRIAL' ? 'Upgrade Plan' : 'Change / Upgrade Plan'}
+                    {(subscription.status === 'TRIAL' || subscription.status === 'trialing') ? 'Upgrade Plan' : 'Change / Upgrade Plan'}
                   </span>
                 </Button>
               )}
 
               {/* Cancel Button - Only for TRIAL and ACTIVE */}
-              {(subscription.status === 'TRIAL' || subscription.status === 'ACTIVE') && (
+              {((subscription.status === 'TRIAL' || subscription.status === 'trialing') || subscription.status === 'ACTIVE') && (
                 <Button 
                   onClick={handleCancelSubscription}
                   disabled={cancelLoading}
@@ -656,7 +656,7 @@ export default function BillingPage() {
               {/* C. Indicative Cost (Audit-Only) */}
               <div>
                 <h3 className="text-md font-semibold text-gray-800 mb-3">C. Indicative Cost (Audit-Only)</h3>
-                {subscription.status === 'TRIAL' ? (
+                {(subscription.status === 'TRIAL' || subscription.status === 'trialing') ? (
                   <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
                     <p className="text-sm text-yellow-800 font-medium mb-2">
                       During trial, usage is unlimited. This cost is shown for reference only.

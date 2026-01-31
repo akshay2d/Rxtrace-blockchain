@@ -858,10 +858,10 @@ async function ensureSubscriptionInvoice(params: {
   // Phase 6: Fetch company for GST and billing_cycle (for invoice fields)
   const { data: companyRow } = await admin
     .from('companies')
-    .select('gst, discount_type, discount_value, discount_applies_to')
+    .select('discount_type, discount_value, discount_applies_to')
     .eq('id', companyId)
     .maybeSingle();
-  const gstNumber = (companyRow as any)?.gst ?? null;
+  const gstNumber = (companyRow as any)?.gst ?? (companyRow as any)?.gst_number ?? null;
   const hasGst = Boolean(gstNumber && String(gstNumber).trim() !== '');
   const billingCycleFromNotes = metadata?.notes?.billing_cycle ?? metadata?.billing_cycle ?? null;
   const billingCycle = billingCycleFromNotes && ['monthly', 'yearly', 'quarterly'].includes(String(billingCycleFromNotes)) ? String(billingCycleFromNotes) : null;
@@ -1745,7 +1745,7 @@ async function ensureAddonInvoice(params: {
   // PRIORITY-2: Fetch and apply company discount for add-ons; Phase 6: gst for invoice fields
   const { data: company } = await admin
     .from('companies')
-    .select('discount_type, discount_value, discount_applies_to, gst')
+    .select('discount_type, discount_value, discount_applies_to')
     .eq('id', companyId)
     .maybeSingle();
   
@@ -1772,7 +1772,7 @@ async function ensureAddonInvoice(params: {
     }
   }
 
-  const gstNumber = (company as any)?.gst ?? null;
+  const gstNumber = (company as any)?.gst ?? (company as any)?.gst_number ?? null;
   const hasGstAddon = Boolean(gstNumber && String(gstNumber).trim() !== '');
   const subtotalAddon = Math.max(0, amountInr - (discountBreakdown?.discount_amount ?? 0));
   const taxAmountAddon = hasGstAddon && finalAmount >= subtotalAddon ? Number((finalAmount - subtotalAddon).toFixed(2)) : 0;

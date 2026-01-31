@@ -42,7 +42,7 @@ export async function POST(req: Request) {
     const supabase = getSupabaseAdmin();
     const { data: company, error: companyErr } = await supabase
       .from('companies')
-      .select('id, gst, discount_type, discount_value, discount_applies_to, razorpay_subscription_id, trial_end_date')
+      .select('id, discount_type, discount_value, discount_applies_to, razorpay_subscription_id, trial_end_date')
       .eq('user_id', user.id)
       .maybeSingle();
 
@@ -81,7 +81,7 @@ export async function POST(req: Request) {
       discount_applies_to: (company as any)?.discount_applies_to as 'subscription' | 'addon' | 'both' | null,
     };
 
-    const gstNumber = (company as any)?.gst ?? null;
+    const gstNumber = (company as any)?.gst ?? (company as any)?.gst_number ?? null;
     const finalCalc = calculateFinalAmount({
       basePrice: basePlanPrice,
       discount: discount.discount_type && discount.discount_value !== null

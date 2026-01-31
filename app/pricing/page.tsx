@@ -390,7 +390,6 @@ export default function PricingPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           company_id: companyId,
-          plan: 'starter',  // Default trial plan
         }),
       });
 
@@ -783,20 +782,24 @@ export default function PricingPage() {
 
       {/* HERO */}
       <section className="relative bg-gradient-to-br from-blue-700 to-blue-500 text-white">
-        <div className="max-w-7xl mx-auto px-6 py-20 text-center">
-        <h1 className="text-4xl md:text-5xl font-bold">
-          Simple pricing. Full access. Massive savings.
-        </h1>
-        <p className="mt-4 text-blue-100 text-lg">
-          GS1-compliant • Unlimited handsets • ERP-agnostic
-        </p>
+        <div className="max-w-7xl mx-auto px-6 py-12 md:py-14 text-center">
+          <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">
+            Simple pricing. Full access.
+          </h1>
+          <p className="mt-2 text-blue-100 text-sm md:text-base">
+            GS1-compliant • Unlimited handsets • ERP-agnostic
+          </p>
         </div>
       </section>
 
 
       {trialMessage && (
         <div className="max-w-7xl mx-auto px-6 pb-2">
-          <div className="bg-red-50 border border-red-200 text-red-800 rounded-lg p-3 text-sm">
+          <div className={`rounded-lg p-3 text-sm border ${
+            trialMessage.includes('activated') || trialMessage.includes('success')
+              ? 'bg-green-50 border-green-200 text-green-800'
+              : 'bg-red-50 border-red-200 text-red-800'
+          }`}>
             {trialMessage}
           </div>
         </div>
@@ -814,35 +817,38 @@ export default function PricingPage() {
           </div>
         ) : (
           <>
-            {/* Monthly / Annual toggle - separate subscription options */}
-            <div className="flex flex-wrap justify-center items-center gap-6 mb-10">
-              <div className="inline-flex rounded-lg border border-slate-300 bg-slate-50 p-1">
-                <button
-                  type="button"
-                  onClick={() => setSelectedBillingCycle('monthly')}
-                  className={`px-5 py-2 rounded-md text-sm font-medium transition ${
-                    selectedBillingCycle === 'monthly'
-                      ? 'bg-white text-blue-700 shadow border border-slate-200'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  Monthly
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSelectedBillingCycle('yearly')}
-                  className={`px-5 py-2 rounded-md text-sm font-medium transition ${
-                    selectedBillingCycle === 'yearly'
-                      ? 'bg-white text-blue-700 shadow border border-slate-200'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  Annual
-                </button>
+            {/* Billing cycle + coupon row */}
+            <div className="flex flex-wrap items-center justify-center gap-4 mb-8">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">Billing</span>
+                <div className="inline-flex rounded-md border border-slate-200 bg-slate-50/80 p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedBillingCycle('monthly')}
+                    className={`px-3 py-1.5 rounded text-xs font-medium transition ${
+                      selectedBillingCycle === 'monthly'
+                        ? 'bg-white text-slate-800 shadow-sm border border-slate-200'
+                        : 'text-slate-600 hover:text-slate-800'
+                    }`}
+                  >
+                    Monthly
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedBillingCycle('yearly')}
+                    className={`px-3 py-1.5 rounded text-xs font-medium transition ${
+                      selectedBillingCycle === 'yearly'
+                        ? 'bg-white text-slate-800 shadow-sm border border-slate-200'
+                        : 'text-slate-600 hover:text-slate-800'
+                    }`}
+                  >
+                    Annual
+                  </button>
+                </div>
               </div>
               <div className="flex items-center gap-2">
-                <label htmlFor="subscription-coupon" className="text-sm text-slate-600 whitespace-nowrap">
-                  Coupon code (optional):
+                <label htmlFor="subscription-coupon" className="text-xs text-slate-500 whitespace-nowrap">
+                  Coupon (optional)
                 </label>
                 <input
                   id="subscription-coupon"
@@ -850,10 +856,25 @@ export default function PricingPage() {
                   placeholder="e.g. SAVE10"
                   value={subscriptionCouponCode}
                   onChange={(e) => setSubscriptionCouponCode(e.target.value)}
-                  className="border border-slate-300 rounded-lg px-3 py-2 text-sm w-32 max-w-full"
+                  className="border border-slate-200 rounded px-2.5 py-1.5 text-xs w-28 max-w-full bg-white"
                 />
               </div>
             </div>
+
+            {/* Compact trial CTA - not a big button */}
+            {trialEligible && (
+              <div className="mb-6 text-center">
+                <span className="text-slate-600 text-sm">New here? </span>
+                <button
+                  type="button"
+                  onClick={startFreeTrial}
+                  className="text-sm font-medium text-blue-600 hover:text-blue-700 hover:underline"
+                >
+                  Start 15-day free trial
+                </button>
+                <span className="text-slate-500 text-sm"> (no card required)</span>
+              </div>
+            )}
 
             <div className="grid md:grid-cols-3 gap-8">
               {(() => {

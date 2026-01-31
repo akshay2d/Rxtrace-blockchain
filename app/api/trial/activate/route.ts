@@ -33,7 +33,7 @@ async function handleSimpleTrialActivation(company_id: string, user_id: string) 
     .eq('company_id', company_id)
     .maybeSingle();
 
-  if (existingSubscription && existingSubscription.status === 'TRIAL') {
+  if (existingSubscription && (existingSubscription.status === 'TRIAL' || existingSubscription.status === 'trialing')) {
     // Check if trial is still active (not expired)
     const { data: subDetails } = await supabase
       .from('company_subscriptions')
@@ -64,17 +64,16 @@ async function handleSimpleTrialActivation(company_id: string, user_id: string) 
   trialEndDate.setDate(trialEndDate.getDate() + 15);
   const now = new Date().toISOString();
 
-  // CRITICAL: Create company_subscriptions record FIRST (single source of truth)
-  // plan_id = NULL during trial (per business rules)
+  // Trial = no payment, no plan, no Razorpay. One row per company: status trialing, plan_id NULL, is_trial true.
   const { error: subError } = await supabase
     .from('company_subscriptions')
     .insert({
       company_id: company_id,
-      plan_id: null, // NULL during trial
-      status: 'TRIAL',
+      plan_id: null,
+      status: 'trialing',
+      is_trial: true,
       trial_end: trialEndDate.toISOString(),
       current_period_end: trialEndDate.toISOString(),
-      billing_amount: 0, // No payment during trial
       razorpay_subscription_id: null,
       created_at: now,
       updated_at: now,
@@ -87,6 +86,17 @@ async function handleSimpleTrialActivation(company_id: string, user_id: string) 
       error: 'Failed to activate trial: Could not create subscription record',
       details: subError.message 
     }, { status: 500 });
+  }
+
+  // Sync company.subscription_status so middleware allows access
+  const { error: companyUpdateError } = await supabase
+    .from('companies')
+    .update({ subscription_status: 'trial' })
+    .eq('id', company_id);
+
+  if (companyUpdateError) {
+    console.error('Trial: failed to update company subscription_status', companyUpdateError);
+    // Continue - subscription record exists; company status sync is best-effort
   }
 
   // Audit log for trial activation

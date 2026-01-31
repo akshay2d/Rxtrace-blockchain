@@ -418,7 +418,7 @@ export default function Page() {
                   <div className="flex justify-between">
                     <span className="text-gray-600">Status:</span>
                     <span className="font-medium">
-                      {subscription.status === 'TRIAL' ? 'Active' : 
+                      {(subscription.status === 'TRIAL' || subscription.status === 'trialing') ? 'Active' : 
                        subscription.status === 'CANCELLED' ? 'Ended' : 
                        subscription.status === 'PAUSED' ? 'Paused' : 
                        'N/A'}
@@ -474,14 +474,14 @@ export default function Page() {
                   <div className="flex justify-between">
                     <span className="text-gray-600">Indicative Cost:</span>
                     <span className="font-medium text-blue-700">
-                      {subscription.status === 'TRIAL' 
+                      {(subscription.status === 'TRIAL' || subscription.status === 'trialing') 
                         ? 'Free (Trial)' 
                         : usageSummary?.indicative_cost 
                           ? `₹${usageSummary.indicative_cost.toLocaleString('en-IN')}` 
                           : 'N/A'}
                     </span>
                   </div>
-                  {subscription.status === 'TRIAL' && (
+                  {(subscription.status === 'TRIAL' || subscription.status === 'trialing') && (
                     <p className="text-xs text-gray-500 mt-2 pt-2 border-t border-gray-200">
                       During trial, usage is unlimited. Cost shown is for reference only.
                     </p>
@@ -511,7 +511,7 @@ export default function Page() {
             )}
 
             {/* Trial NOT Started */}
-            {!subscription || subscription.status !== 'TRIAL' ? (
+            {!subscription || (subscription.status !== 'TRIAL' && subscription.status !== 'trialing') ? (
               <div className="space-y-4">
                 <div className="p-6 bg-blue-50 border-2 border-blue-200 rounded-lg">
                   <h3 className="text-lg font-semibold text-blue-900 mb-2">
@@ -529,7 +529,7 @@ export default function Page() {
                   </Button>
                 </div>
               </div>
-            ) : subscription.status === 'TRIAL' ? (
+            ) : (subscription.status === 'TRIAL' || subscription.status === 'trialing') ? (
               /* Trial ACTIVE */
               <div className="space-y-4">
                 <div className="flex items-center justify-between p-4 bg-green-50 border-2 border-green-200 rounded-lg">

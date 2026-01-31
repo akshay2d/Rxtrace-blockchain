@@ -53,7 +53,7 @@ export async function POST(req: Request) {
     }
 
     // Handle TRIAL cancellation (no Razorpay subscription)
-    if (subscription.status === 'TRIAL') {
+    if (subscription.status === 'TRIAL' || subscription.status === 'trialing') {
       const { error: updateError } = await supabase
         .from('company_subscriptions')
         .update({

@@ -48,14 +48,15 @@ export async function GET() {
       subscription = {
         id: subscriptionRaw.id,
         company_id: subscriptionRaw.company_id,
-        plan_id: subscriptionRaw.plan_id, // NULL for TRIAL
+        plan_id: subscriptionRaw.plan_id ?? null,
         status: subscriptionRaw.status,
         trial_end: subscriptionRaw.trial_end,
         current_period_end: subscriptionRaw.current_period_end,
         razorpay_subscription_id: subscriptionRaw.razorpay_subscription_id,
         created_at: subscriptionRaw.created_at,
         updated_at: subscriptionRaw.updated_at,
-        plan: planData || null, // null for TRIAL (plan_id = NULL), single plan object for ACTIVE
+        plan: planData || null,
+        is_trial: subscriptionRaw.is_trial ?? (subscriptionRaw.status === 'TRIAL' || subscriptionRaw.status === 'trialing'),
       };
     }
 

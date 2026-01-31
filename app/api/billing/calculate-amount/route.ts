@@ -36,7 +36,7 @@ export async function POST(req: Request) {
     const admin = getSupabaseAdmin();
     const { data: company, error: companyErr } = await admin
       .from('companies')
-      .select('id, gst, discount_type, discount_value, discount_applies_to')
+      .select('id, discount_type, discount_value, discount_applies_to')
       .eq('user_id', user.id)
       .maybeSingle();
 
@@ -70,7 +70,7 @@ export async function POST(req: Request) {
       value: (company as any)?.discount_value as number | null,
       appliesTo: (company as any)?.discount_applies_to as 'subscription' | 'addon' | 'both' | null,
     };
-    const gstNumber = (company as any)?.gst ?? null;
+    const gstNumber = (company as any)?.gst ?? (company as any)?.gst_number ?? null;
 
     const finalCalc = calculateFinalAmount({
       basePrice,

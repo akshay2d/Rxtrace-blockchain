@@ -16,8 +16,9 @@ export function SubscriptionBanner() {
   const now = new Date();
   const daysUntilTrialEnd = trialEnd ? Math.ceil((trialEnd.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)) : null;
 
+  const isTrial = status === 'TRIAL' || status === 'trialing';
   // Trial expiring soon (≤ 7 days)
-  if (status === 'TRIAL' && daysUntilTrialEnd !== null && daysUntilTrialEnd <= 7 && daysUntilTrialEnd > 0) {
+  if (isTrial && daysUntilTrialEnd !== null && daysUntilTrialEnd <= 7 && daysUntilTrialEnd > 0) {
     return (
       <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6">
         <div className="flex items-start">

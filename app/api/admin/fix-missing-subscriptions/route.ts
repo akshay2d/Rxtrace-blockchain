@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 
 // POST: Fix missing subscription records for companies with trial status
 // This creates company_subscriptions records for companies that have trial status
-// but don't have a subscription record (from before the fix)
+// but don't have a subscription record. Trial records use plan_id NULL, is_trial true.
 export async function POST(req: Request) {
   try {
     const { error: adminError } = await requireAdmin();
@@ -32,25 +32,10 @@ export async function POST(req: Request) {
       });
     }
 
-    // Get starter plan ID (default for trials)
-    const { data: starterPlan, error: planError } = await supabase
-      .from('subscription_plans')
-      .select('id')
-      .eq('name', 'Starter')
-      .eq('billing_cycle', 'monthly')
-      .maybeSingle();
-
-    if (planError || !starterPlan) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Starter plan not found. Cannot create subscriptions.' 
-      }, { status: 500 });
-    }
-
     let fixed = 0;
     const errors: string[] = [];
 
-    // For each company, create subscription record if it doesn't exist
+    // For each company, create subscription record if it doesn't exist (trial = no plan_id)
     for (const company of companies) {
       // Check if subscription already exists
       const { data: existing } = await supabase
@@ -63,15 +48,17 @@ export async function POST(req: Request) {
         continue; // Already has subscription
       }
 
-      // Create subscription record
+      // Create trial subscription record: plan_id NULL, is_trial true, status trialing
       const { error: subError } = await supabase
         .from('company_subscriptions')
         .insert({
           company_id: company.id,
-          plan_id: starterPlan.id,
-          status: 'TRIAL',
+          plan_id: null,
+          status: 'trialing',
+          is_trial: true,
           trial_end: company.trial_end_date,
           current_period_end: company.trial_end_date,
+          razorpay_subscription_id: null,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         });
