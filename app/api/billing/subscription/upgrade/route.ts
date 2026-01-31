@@ -181,55 +181,29 @@ export async function POST(req: Request) {
 
       subscriptionId = subscription.id;
 
-      // Blocker 1: Persist paid subscription to company_subscriptions and set company to active.
+      // Blocker 1: Persist paid subscription to company_subscriptions (upsert: insert or update on company_id).
       const periodEnd = new Date();
       periodEnd.setMonth(periodEnd.getMonth() + (isAnnual ? 12 : 1));
       const nowIso = new Date().toISOString();
-      const { data: existingSub } = await supabase
-        .from('company_subscriptions')
-        .select('id')
-        .eq('company_id', companyId)
-        .maybeSingle();
+      const subRow: Record<string, unknown> = {
+        company_id: companyId,
+        plan_id: planIdDb,
+        status: 'ACTIVE',
+        razorpay_subscription_id: subscriptionId,
+        current_period_end: periodEnd.toISOString(),
+        updated_at: nowIso,
+      };
 
-      if (existingSub?.id) {
-        const { error: updateSubErr } = await supabase
-          .from('company_subscriptions')
-          .update({
-            plan_id: planIdDb,
-            status: 'ACTIVE',
-            razorpay_subscription_id: subscriptionId,
-            is_trial: false,
-            current_period_end: periodEnd.toISOString(),
-            updated_at: nowIso,
-          })
-          .eq('company_id', companyId);
-        if (updateSubErr) {
-          console.error('Upgrade: failed to update company_subscriptions', updateSubErr);
-          return NextResponse.json({
-            error: 'Subscription created in payment gateway but failed to update subscription record. Please contact support.',
-            details: updateSubErr.message,
-          }, { status: 500 });
-        }
-      } else {
-        const { error: insertSubErr } = await supabase
-          .from('company_subscriptions')
-          .insert({
-            company_id: companyId,
-            plan_id: planIdDb,
-            status: 'ACTIVE',
-            razorpay_subscription_id: subscriptionId,
-            is_trial: false,
-            current_period_end: periodEnd.toISOString(),
-            created_at: nowIso,
-            updated_at: nowIso,
-          });
-        if (insertSubErr) {
-          console.error('Upgrade: failed to insert company_subscriptions', insertSubErr);
-          return NextResponse.json({
-            error: 'Subscription created in payment gateway but failed to create subscription record. Please contact support.',
-            details: insertSubErr.message,
-          }, { status: 500 });
-        }
+      const { error: upsertErr } = await supabase
+        .from('company_subscriptions')
+        .upsert(subRow, { onConflict: 'company_id', ignoreDuplicates: false });
+
+      if (upsertErr) {
+        console.error('Upgrade: failed to upsert company_subscriptions', upsertErr);
+        return NextResponse.json({
+          error: 'Subscription created in payment gateway but failed to create subscription record. Please contact support.',
+          details: upsertErr.message,
+        }, { status: 500 });
       }
 
       const { error: companyUpdateErr } = await supabase
