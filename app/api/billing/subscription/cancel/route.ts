@@ -49,24 +49,16 @@ export async function POST(req: Request) {
     }
 
     if (!subscription) {
-      return NextResponse.json({ error: 'Subscription not found' }, { status: 404 });
-    }
-
-    // Handle TRIAL cancellation (no Razorpay subscription)
-    if (subscription.status === 'TRIAL' || subscription.status === 'trialing') {
-      const { error: updateError } = await supabase
-        .from('company_subscriptions')
-        .update({
-          status: 'CANCELLED',
+      const trialStatus = (company as any)?.trial_status;
+      if (trialStatus === 'active') {
+        await supabase.from('companies').update({
+          trial_status: 'expired',
+          subscription_status: 'expired',
           updated_at: new Date().toISOString(),
-        })
-        .eq('id', subscription.id);
-
-      if (updateError) {
-        return NextResponse.json({ error: updateError.message }, { status: 500 });
+        }).eq('id', companyId);
+        return NextResponse.json({ ok: true, status: 'CANCELLED', message: 'Trial cancelled' });
       }
-
-      return NextResponse.json({ ok: true, status: 'CANCELLED' });
+      return NextResponse.json({ error: 'No paid subscription to cancel. Use trial cancel if on trial.' }, { status: 404 });
     }
 
     // Handle ACTIVE subscription cancellation (requires Razorpay)

@@ -42,7 +42,7 @@ export async function POST(req: Request) {
     const supabase = getSupabaseAdmin();
     const { data: company, error: companyErr } = await supabase
       .from('companies')
-      .select('id, discount_type, discount_value, discount_applies_to, razorpay_subscription_id, trial_end_date, razorpay_offer_id')
+      .select('id, discount_type, discount_value, discount_applies_to, razorpay_subscription_id, trial_end_date, razorpay_offer_id, trial_status')
       .eq('user_id', user.id)
       .maybeSingle();
 
@@ -240,6 +240,7 @@ export async function POST(req: Request) {
           razorpay_plan_id: subscription?.plan_id ?? planId,
           razorpay_subscription_status: subscription?.status ?? 'active',
           subscription_status: 'active',
+          ...( (company as any)?.trial_status === 'active' ? { trial_status: 'converted' } : {} ),
           subscription_updated_at: nowIso,
           updated_at: nowIso,
         })
@@ -282,6 +283,7 @@ export async function POST(req: Request) {
           razorpay_plan_id: subscription?.plan_id ?? planId,
           razorpay_subscription_status: subscription?.status ?? null,
           subscription_status: 'active',
+          ...( (company as any)?.trial_status === 'active' ? { trial_status: 'converted' } : {} ),
           subscription_updated_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         })

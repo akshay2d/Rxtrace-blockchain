@@ -23,6 +23,7 @@ END $$;
 DO $$
 DECLARE
   col_udt text;
+  con_name text;
 BEGIN
   SELECT udt_name INTO col_udt FROM information_schema.columns
   WHERE table_schema = 'public' AND table_name = 'company_subscriptions' AND column_name = 'status';
@@ -37,8 +38,21 @@ BEGIN
       ALTER TYPE subscription_status ADD VALUE 'trialing';
     END IF;
   ELSE
-    -- Column is text: replace CHECK to allow TRIAL and trialing
-    ALTER TABLE company_subscriptions DROP CONSTRAINT IF EXISTS company_subscriptions_status_check;
+    -- Column is text: drop any CHECK on status (name may be auto-generated), then add new one
+    FOR con_name IN
+      SELECT c.conname FROM pg_constraint c
+      JOIN pg_class t ON c.conrelid = t.oid
+      JOIN pg_namespace n ON t.relnamespace = n.oid
+      WHERE n.nspname = 'public' AND t.relname = 'company_subscriptions'
+        AND c.contype = 'c'
+        AND c.conkey IS NOT NULL
+        AND EXISTS (
+          SELECT 1 FROM pg_attribute a
+          WHERE a.attrelid = c.conrelid AND a.attnum = ANY(c.conkey) AND a.attname = 'status' AND NOT a.attisdropped
+        )
+    LOOP
+      EXECUTE format('ALTER TABLE company_subscriptions DROP CONSTRAINT IF EXISTS %I', con_name);
+    END LOOP;
     ALTER TABLE company_subscriptions ADD CONSTRAINT company_subscriptions_status_check
       CHECK (status::text IN ('TRIAL', 'trialing', 'ACTIVE', 'PAUSED', 'CANCELLED', 'EXPIRED'));
   END IF;
