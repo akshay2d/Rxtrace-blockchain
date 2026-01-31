@@ -165,7 +165,7 @@ export default function AdminDashboard() {
               <p className="text-sm text-yellow-800 font-medium mb-1">Fix Missing Subscription Records</p>
               <p className="text-xs text-yellow-700">
                 Creates company_subscriptions records for companies with trial status but no subscription record.
-                This fixes billing pages showing "No active subscription" for existing trial users.
+                This fixes billing pages showing &quot;No active subscription&quot; for existing trial users.
               </p>
             </div>
             <Button 

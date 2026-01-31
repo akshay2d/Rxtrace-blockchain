@@ -280,10 +280,10 @@ export default function HandsetsPage() {
             <p className="text-sm text-blue-900 font-medium mb-2">How to activate your handset:</p>
             <ol className="text-sm text-blue-800 space-y-1 list-decimal list-inside">
               <li>Open the RxTrace Scanner app on your device</li>
-              <li>Tap the "Activate" button (🔑) in the top-right corner</li>
+              <li>Tap the &quot;Activate&quot; button (🔑) in the top-right corner</li>
               <li>Paste your Company ID in the activation field</li>
-              <li>Tap "Activate" to register your device</li>
-              <li>Once activated, you'll see "SSCC ready" status</li>
+              <li>Tap &quot;Activate&quot; to register your device</li>
+              <li>Once activated, you&apos;ll see &quot;SSCC ready&quot; status</li>
             </ol>
             <p className="text-xs text-blue-700 mt-3">
               <strong>Note:</strong> Unit label scanning works without activation (free). Activation is only required for SSCC (container-level) scanning.
