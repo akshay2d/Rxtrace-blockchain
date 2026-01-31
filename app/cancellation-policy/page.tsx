@@ -30,8 +30,7 @@ export default function CancellationPolicyPage() {
             </p>
             <ul className="list-disc list-inside space-y-2 text-gray-700">
               <li>Cancel anytime before the trial period ends</li>
-              <li>No charges will be applied if cancelled during trial</li>
-              <li>The ₹5 authorization charge (if paid) will be refunded</li>
+              <li>No charges will be applied if cancelled during trial (no payment required for trial)</li>
               <li>Access continues until the end of the trial period</li>
             </ul>
           </section>
@@ -70,7 +69,7 @@ export default function CancellationPolicyPage() {
             <ul className="list-disc list-inside space-y-2 text-gray-700">
               <li><strong>No refunds for partial months:</strong> If you cancel mid-cycle, you will continue to have access until the end of the current billing period, but no refund will be issued for the unused portion.</li>
               <li><strong>Cancel before renewal:</strong> To avoid charges for the next billing cycle, cancel before the renewal date.</li>
-              <li><strong>Trial authorization charge:</strong> The ₹5 authorization charge paid during trial activation is fully refundable if you cancel during the trial period.</li>
+              <li><strong>Free trial:</strong> No payment is required to start the trial; cancellation during trial results in zero charges.</li>
               <li><strong>Add-ons:</strong> Add-on charges are non-refundable once the billing cycle has started.</li>
             </ul>
           </section>

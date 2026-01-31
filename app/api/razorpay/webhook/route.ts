@@ -855,10 +855,24 @@ async function ensureSubscriptionInvoice(params: {
     throw new Error(`PHASE-4: Invalid invoice amount: ${amount} (must be >= 0)`);
   }
 
+  // Phase 6: Fetch company for GST and billing_cycle (for invoice fields)
+  const { data: companyRow } = await admin
+    .from('companies')
+    .select('gst, discount_type, discount_value, discount_applies_to')
+    .eq('id', companyId)
+    .maybeSingle();
+  const gstNumber = (companyRow as any)?.gst ?? null;
+  const hasGst = Boolean(gstNumber && String(gstNumber).trim() !== '');
+  const billingCycleFromNotes = metadata?.notes?.billing_cycle ?? metadata?.billing_cycle ?? null;
+  const billingCycle = billingCycleFromNotes && ['monthly', 'yearly', 'quarterly'].includes(String(billingCycleFromNotes)) ? String(billingCycleFromNotes) : null;
+
   // PRIORITY-2: Calculate invoice breakdown with discount
   let baseAmount = discountBreakdown?.base_amount ?? amount;
   let discountAmount = discountBreakdown?.discount_amount ?? 0;
   let finalAmount = discountBreakdown?.final_amount ?? amount;
+  const subtotalAfterDiscount = Math.max(0, baseAmount - discountAmount);
+  const taxAmount = hasGst && finalAmount >= subtotalAfterDiscount ? Number((finalAmount - subtotalAfterDiscount).toFixed(2)) : 0;
+  const taxRate = hasGst && subtotalAfterDiscount > 0 ? 0.18 : null;
   
   // PHASE-4: Validate discount breakdown
   const discountValidation = validateDiscountBreakdown(discountBreakdown, baseAmount, finalAmount);
@@ -909,11 +923,22 @@ async function ensureSubscriptionInvoice(params: {
     base_amount: baseAmount,
     addons_amount: 0,
     wallet_applied: 0,
+    // Phase 6: Tax, discount, billing cycle for compliant invoices
+    tax_rate: taxRate,
+    tax_amount: taxAmount > 0 ? taxAmount : null,
+    has_gst: hasGst,
+    gst_number: hasGst ? (String(gstNumber).trim() || null) : null,
+    discount_type: discountBreakdown?.discount_type ?? (companyRow as any)?.discount_type ?? null,
+    discount_value: discountBreakdown?.discount_value ?? (companyRow as any)?.discount_value ?? null,
+    discount_amount: discountAmount > 0 ? discountAmount : null,
+    billing_cycle: billingCycle,
     metadata: {
       ...(metadata ?? {}),
       pricing: { 
         base: baseAmount, 
         discount: discountAmount,
+        subtotal: subtotalAfterDiscount,
+        tax: taxAmount,
         final: finalAmount,
         addons: 0 
       },
@@ -1717,10 +1742,10 @@ async function ensureAddonInvoice(params: {
     return { id: existing.id, created: false };
   }
 
-  // PRIORITY-2: Fetch and apply company discount for add-ons
+  // PRIORITY-2: Fetch and apply company discount for add-ons; Phase 6: gst for invoice fields
   const { data: company } = await admin
     .from('companies')
-    .select('discount_type, discount_value, discount_applies_to')
+    .select('discount_type, discount_value, discount_applies_to, gst')
     .eq('id', companyId)
     .maybeSingle();
   
@@ -1746,6 +1771,11 @@ async function ensureAddonInvoice(params: {
       };
     }
   }
+
+  const gstNumber = (company as any)?.gst ?? null;
+  const hasGstAddon = Boolean(gstNumber && String(gstNumber).trim() !== '');
+  const subtotalAddon = Math.max(0, amountInr - (discountBreakdown?.discount_amount ?? 0));
+  const taxAmountAddon = hasGstAddon && finalAmount >= subtotalAddon ? Number((finalAmount - subtotalAddon).toFixed(2)) : 0;
 
   // PHASE-4: Validate final amount
   const amount = Number.isFinite(finalAmount) ? Number(finalAmount.toFixed(2)) : 0;
@@ -1791,11 +1821,21 @@ async function ensureAddonInvoice(params: {
     base_amount: base,
     addons_amount: addons,
     wallet_applied: 0,
+    // Phase 6: Tax, discount for compliant invoices (addon: no billing_cycle)
+    tax_rate: hasGstAddon && taxAmountAddon > 0 ? 0.18 : null,
+    tax_amount: taxAmountAddon > 0 ? taxAmountAddon : null,
+    has_gst: hasGstAddon,
+    gst_number: hasGstAddon ? (String(gstNumber).trim() || null) : null,
+    discount_type: discountBreakdown?.discount_type ?? (company as any)?.discount_type ?? null,
+    discount_value: discountBreakdown?.discount_value ?? (company as any)?.discount_value ?? null,
+    discount_amount: discountBreakdown?.discount_amount ?? null,
+    billing_cycle: null,
     metadata: {
       ...(metadata ?? {}),
       pricing: { 
         base: base, 
         discount: discountBreakdown?.discount_amount ?? 0,
+        tax: taxAmountAddon,
         final: addons,
         addons: addons 
       },
@@ -2853,6 +2893,7 @@ export async function POST(req: Request) {
                     event: eventType,
                     razorpay_subscription_id: subscriptionId,
                     discount: discountBreakdown,
+                    notes: invoiceEntity?.notes ?? {},
                   },
                 });
               },

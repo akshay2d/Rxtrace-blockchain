@@ -165,6 +165,29 @@ export default function PricingPage() {
     discount_applies_to: 'subscription' | 'addon' | 'both' | null;
   } | null>(null);
 
+  // Billing cycle selection: monthly vs annual (separate subscription options)
+  const [selectedBillingCycle, setSelectedBillingCycle] = React.useState<'monthly' | 'yearly'>('monthly');
+
+  // Coupon codes (admin-created, assigned to company): optional at checkout
+  const [subscriptionCouponCode, setSubscriptionCouponCode] = React.useState('');
+  const [cartCouponCode, setCartCouponCode] = React.useState('');
+
+  // Phase 7: Backend-calculated amount preview (subscription and cart)
+  type SubscriptionPreview = {
+    finalAmount: number;
+    basePrice: number;
+    discountAmount: number;
+    couponDiscountAmount: number;
+    taxAmount: number;
+    hasGST: boolean;
+    breakdown: { base: number; discount: number; coupon: number; subtotalAfterCoupon: number; tax: number; total: number };
+  };
+  const [previewByPlan, setPreviewByPlan] = React.useState<Record<string, SubscriptionPreview | null>>({});
+  const [previewLoading, setPreviewLoading] = React.useState(false);
+  type CartPreview = { subtotalInr: number; couponDiscountInr: number; orderAmountInr: number; hasCoupon: boolean };
+  const [cartPreview, setCartPreview] = React.useState<CartPreview | null>(null);
+  const [cartPreviewLoading, setCartPreviewLoading] = React.useState(false);
+
   const [qtyByKey, setQtyByKey] = React.useState<Record<string, string>>({});
 
   // Fetch plans and add-ons from public APIs (no cache so admin name changes show immediately)
@@ -222,6 +245,60 @@ export default function PricingPage() {
       localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(cart));
     } catch (_) {}
   }, [cart]);
+
+  // Phase 7: Fetch subscription amount preview for each plan (selected cycle + coupon)
+  React.useEffect(() => {
+    if (!companyId || !plans.length) {
+      setPreviewByPlan({});
+      return;
+    }
+    const planKeys = ['starter', 'growth', 'enterprise'] as const;
+    let cancelled = false;
+    setPreviewLoading(true);
+    (async () => {
+      const cycle = selectedBillingCycle === 'yearly' ? 'yearly' : 'monthly';
+      const results: Record<string, SubscriptionPreview | null> = {};
+      await Promise.all(
+        planKeys.map(async (planKey) => {
+          if (cancelled) return;
+          try {
+            const res = await fetch('/api/billing/calculate-amount', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({
+                plan: planKey,
+                billing_cycle: cycle,
+                ...(subscriptionCouponCode.trim() ? { coupon_code: subscriptionCouponCode.trim() } : {}),
+              }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (cancelled) return;
+            if (data.success && data.finalAmount != null) {
+              results[planKey] = {
+                finalAmount: data.finalAmount,
+                basePrice: data.basePrice,
+                discountAmount: data.discountAmount ?? 0,
+                couponDiscountAmount: data.couponDiscountAmount ?? 0,
+                taxAmount: data.taxAmount ?? 0,
+                hasGST: data.hasGST ?? false,
+                breakdown: data.breakdown ?? {},
+              };
+            } else {
+              results[planKey] = null;
+            }
+          } catch {
+            if (!cancelled) results[planKey] = null;
+          }
+        })
+      );
+      if (!cancelled) setPreviewByPlan(results);
+      setPreviewLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [companyId, plans.length, selectedBillingCycle, subscriptionCouponCode]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -286,96 +363,56 @@ export default function PricingPage() {
     };
   }, []);
 
-  /* ---------- START FREE TRIAL (₹5 AUTH) ---------- */
+  /* ---------- START FREE TRIAL (NO PAYMENT) ---------- */
   async function startFreeTrial() {
     setTrialMessage(null);
 
     // Check if user needs to set up company first
     if (!companyId) {
+      setTrialMessage('Please complete company setup first.');
       router.push('/dashboard/company-setup');
       return;
     }
 
     // If trial or subscription already exists, send to billing
     if (company?.subscription_status) {
+      setTrialMessage('Trial or subscription already active.');
       router.push('/dashboard/billing');
       return;
     }
 
-    const ok = await loadRazorpay();
-    if (!ok) {
-      setTrialMessage('Razorpay failed to load. Please refresh and try again.');
-      return;
+    setTrialMessage('Activating your free trial...');
+
+    try {
+      // Activate trial WITHOUT payment
+      const activateRes = await fetch('/api/trial/activate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          company_id: companyId,
+          plan: 'starter',  // Default trial plan
+        }),
+      });
+
+      const activateBody = await activateRes.json();
+
+      if (activateRes.ok) {
+        setTrialMessage('Free trial activated! Redirecting...');
+        
+        // Refresh auth session
+        await supabaseClient().auth.refreshSession();
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Redirect to dashboard
+        router.push('/dashboard');
+      } else {
+        setTrialMessage(activateBody?.error || 'Failed to activate trial. Please try again.');
+        console.error('Trial activation error:', activateBody);
+      }
+    } catch (err) {
+      setTrialMessage('Failed to activate trial. Please try again.');
+      console.error('Activation error:', err);
     }
-
-    const res = await fetch("/api/razorpay/create-order", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ amount: 5, purpose: "trial_auth" }),
-    });
-
-    const body = await res.json();
-    const order = body?.order ?? body;
-    const keyId = body?.keyId ?? process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
-
-    if (!res.ok || !order?.id) {
-      setTrialMessage(order?.error || body?.error || "Failed to create order");
-      return;
-    }
-    if (!keyId) {
-      setTrialMessage("Razorpay key not configured (NEXT_PUBLIC_RAZORPAY_KEY_ID)");
-      return;
-    }
-
-    new (window as any).Razorpay({
-      key: keyId,
-      order_id: order.id,
-      amount: order.amount,
-      currency: "INR",
-      name: "RxTrace",
-      description: "15-day Free Trial Authorization (₹5 refundable)",
-      handler: async (response: any) => {
-        try {
-          // Activate trial with payment details
-          const activateRes = await fetch('/api/trial/activate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              company_id: companyId,
-              plan: 'starter',
-              payment_id: response.razorpay_payment_id,
-              order_id: response.razorpay_order_id,
-              signature: response.razorpay_signature,
-            }),
-          });
-
-          const activateBody = await activateRes.json().catch(() => null);
-
-          if (activateRes.ok) {
-            // Force refresh auth session to get updated company subscription status
-            await supabaseClient().auth.refreshSession();
-            
-            // Wait a moment for session to update
-            await new Promise(resolve => setTimeout(resolve, 500));
-            
-            // Redirect to dashboard - middleware will route appropriately
-            router.push('/dashboard');
-          } else {
-            setTrialMessage('Payment successful but trial activation failed. Please contact support.');
-            console.error('Trial activation error:', activateBody);
-          }
-        } catch (err) {
-          setTrialMessage('Payment processed but activation failed. Please contact support.');
-          console.error('Activation error:', err);
-        }
-      },
-      modal: {
-        ondismiss: () => {
-          setTrialMessage('Payment cancelled. Please try again to activate your free trial.');
-        },
-      },
-      theme: { color: "#0052CC" },
-    }).open();
   }
 
   const trialEligible = Boolean(companyId && !company?.subscription_status);
@@ -408,14 +445,21 @@ export default function PricingPage() {
                            planKey.includes('growth') ? 'growth' : 
                            planKey.includes('enterprise') ? 'enterprise' : 'starter';
 
+    // Send selected billing cycle so backend uses correct Razorpay plan (monthly vs annual)
+    const billingCycle = plan.billing_cycle === 'yearly' ? 'yearly' : 'monthly';
+
     setTrialMessage('Processing subscription...');
     
     try {
-      // Create/upgrade subscription via API
+      // Create/upgrade subscription via API (with explicit billing cycle)
       const res = await fetch('/api/billing/subscription/upgrade', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ plan: normalizedPlan }),
+        body: JSON.stringify({
+          plan: normalizedPlan,
+          billing_cycle: billingCycle,
+          ...(subscriptionCouponCode.trim() ? { coupon_code: subscriptionCouponCode.trim() } : {}),
+        }),
       });
 
       const body = await res.json();
@@ -497,6 +541,60 @@ export default function PricingPage() {
   const cartTotalPaise = React.useMemo(() => {
     return cartItems.reduce((sum, item) => sum + item.totalPaise, 0);
   }, [cartItems]);
+
+  // Phase 7: Fetch cart amount preview (subtotal, coupon, amount to pay)
+  React.useEffect(() => {
+    if (!companyId || cartItems.length === 0) {
+      setCartPreview(null);
+      return;
+    }
+    let cancelled = false;
+    setCartPreviewLoading(true);
+    const itemsForApi = cartItems
+      .map((i) => {
+        const key = getAddonKey(i.addon.name);
+        const kind = addonKeyToApiKind(key);
+        return kind ? { kind, qty: i.qty } : null;
+      })
+      .filter(Boolean) as Array<{ kind: 'unit' | 'box' | 'carton' | 'pallet' | 'userid'; qty: number }>;
+    if (itemsForApi.length === 0) {
+      setCartPreview(null);
+      setCartPreviewLoading(false);
+      return;
+    }
+    fetch('/api/billing/calculate-cart-amount', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        items: itemsForApi,
+        ...(cartCouponCode.trim() ? { coupon_code: cartCouponCode.trim() } : {}),
+      }),
+    })
+      .then((res) => res.json().catch(() => ({})))
+      .then((data) => {
+        if (cancelled) return;
+        if (data.success) {
+          setCartPreview({
+            subtotalInr: data.subtotalInr ?? 0,
+            couponDiscountInr: data.couponDiscountInr ?? 0,
+            orderAmountInr: data.orderAmountInr ?? 0,
+            hasCoupon: data.hasCoupon ?? false,
+          });
+        } else {
+          setCartPreview(null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setCartPreview(null);
+      })
+      .finally(() => {
+        if (!cancelled) setCartPreviewLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [companyId, cartItems, cartCouponCode]);
 
   function addToCart(addon: AddOnAPI, qty: number) {
     setCheckoutMessage(null);
@@ -592,6 +690,7 @@ export default function PricingPage() {
         body: JSON.stringify({
           company_id: companyId,
           items: itemsForApi,
+          ...(cartCouponCode.trim() ? { coupon_code: cartCouponCode.trim() } : {}),
         }),
       });
 
@@ -714,84 +813,132 @@ export default function PricingPage() {
             <p className="text-gray-600">No plans available at the moment.</p>
           </div>
         ) : (
-          <div className="grid md:grid-cols-3 gap-8">
-            {(() => {
-              // Group by plan name: one card per plan (show monthly + yearly on same card)
-              const byName: Record<string, { monthly?: Plan; yearly?: Plan }> = {};
-              for (const p of plans) {
-                if (!byName[p.name]) byName[p.name] = {};
-                if (p.billing_cycle === 'monthly') byName[p.name].monthly = p;
-                if (p.billing_cycle === 'yearly') byName[p.name].yearly = p;
-              }
-              const planGroups = Object.entries(byName).map(([name, group]) => ({ name, ...group }));
+          <>
+            {/* Monthly / Annual toggle - separate subscription options */}
+            <div className="flex flex-wrap justify-center items-center gap-6 mb-10">
+              <div className="inline-flex rounded-lg border border-slate-300 bg-slate-50 p-1">
+                <button
+                  type="button"
+                  onClick={() => setSelectedBillingCycle('monthly')}
+                  className={`px-5 py-2 rounded-md text-sm font-medium transition ${
+                    selectedBillingCycle === 'monthly'
+                      ? 'bg-white text-blue-700 shadow border border-slate-200'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Monthly
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedBillingCycle('yearly')}
+                  className={`px-5 py-2 rounded-md text-sm font-medium transition ${
+                    selectedBillingCycle === 'yearly'
+                      ? 'bg-white text-blue-700 shadow border border-slate-200'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Annual
+                </button>
+              </div>
+              <div className="flex items-center gap-2">
+                <label htmlFor="subscription-coupon" className="text-sm text-slate-600 whitespace-nowrap">
+                  Coupon code (optional):
+                </label>
+                <input
+                  id="subscription-coupon"
+                  type="text"
+                  placeholder="e.g. SAVE10"
+                  value={subscriptionCouponCode}
+                  onChange={(e) => setSubscriptionCouponCode(e.target.value)}
+                  className="border border-slate-300 rounded-lg px-3 py-2 text-sm w-32 max-w-full"
+                />
+              </div>
+            </div>
 
-              return planGroups.map(({ name, monthly, yearly }) => {
-                const displayPlan = monthly ?? yearly;
-                if (!displayPlan) return null;
+            <div className="grid md:grid-cols-3 gap-8">
+              {(() => {
+                // Group by plan name: monthly and yearly are separate subscription options
+                const byName: Record<string, { monthly?: Plan; yearly?: Plan }> = {};
+                for (const p of plans) {
+                  if (!byName[p.name]) byName[p.name] = {};
+                  if (p.billing_cycle === 'monthly') byName[p.name].monthly = p;
+                  if (p.billing_cycle === 'yearly') byName[p.name].yearly = p;
+                }
+                const planGroups = Object.entries(byName).map(([name, group]) => ({ name, ...group }));
 
-                const monthlyDiscount = monthly ? calculateDiscountedPrice(monthly.base_price, companyDiscount) : null;
-                const yearlyDiscount = yearly ? calculateDiscountedPrice(yearly.base_price, companyDiscount) : null;
+                return planGroups.map(({ name, monthly, yearly }) => {
+                  // Plan for selected cycle (monthly or annual) - used for price display and Subscribe
+                  const planForCycle = selectedBillingCycle === 'monthly' ? (monthly ?? yearly) : (yearly ?? monthly);
+                  if (!planForCycle) return null;
 
-                let price: string | React.ReactNode = monthly
-                  ? `₹${monthly.base_price.toLocaleString('en-IN')} / month`
-                  : yearly
-                    ? `₹${yearly.base_price.toLocaleString('en-IN')} / year`
+                  const monthlyDiscount = monthly ? calculateDiscountedPrice(monthly.base_price, companyDiscount) : null;
+                  const yearlyDiscount = yearly ? calculateDiscountedPrice(yearly.base_price, companyDiscount) : null;
+
+                  const isMonthly = selectedBillingCycle === 'monthly';
+                  const discount = isMonthly ? monthlyDiscount : yearlyDiscount;
+                  const basePrice = planForCycle.base_price;
+
+                  let price: string | React.ReactNode = isMonthly
+                    ? `₹${basePrice.toLocaleString('en-IN')} / month`
+                    : `₹${basePrice.toLocaleString('en-IN')} / year`;
+                  if (discount?.hasDiscount) {
+                    price = (
+                      <span>
+                        <span className="line-through text-gray-500 mr-2">
+                          ₹{basePrice.toLocaleString('en-IN')}
+                        </span>
+                        <span className="text-green-600 font-bold">
+                          ₹{discount.discountedPrice.toLocaleString('en-IN')}
+                        </span>
+                        <span className="text-gray-600"> {isMonthly ? '/ month' : '/ year'}</span>
+                      </span>
+                    );
+                  }
+
+                  // Show other cycle as secondary (e.g. "or ₹X/year")
+                  const otherCycleLabel = isMonthly && yearly
+                    ? `or ₹${(yearlyDiscount?.discountedPrice ?? yearly.base_price).toLocaleString('en-IN')} / year`
+                    : !isMonthly && monthly
+                    ? `or ₹${(monthlyDiscount?.discountedPrice ?? monthly.base_price).toLocaleString('en-IN')} / month`
                     : '';
-                if (monthly && monthlyDiscount?.hasDiscount) {
-                  price = (
-                    <span>
-                      <span className="line-through text-gray-500 mr-2">
-                        ₹{monthly.base_price.toLocaleString('en-IN')}
-                      </span>
-                      <span className="text-green-600 font-bold">
-                        ₹{monthlyDiscount.discountedPrice.toLocaleString('en-IN')}
-                      </span>
-                      <span className="text-gray-600"> / month</span>
-                    </span>
+
+                  const savings = yearly && monthly && selectedBillingCycle === 'yearly'
+                    ? `Save ₹${((monthly.base_price * 12) - yearly.base_price).toLocaleString('en-IN')} vs monthly`
+                    : yearly && monthly && selectedBillingCycle === 'monthly'
+                    ? `Switch to annual to save ₹${((monthly.base_price * 12) - yearly.base_price).toLocaleString('en-IN')} / year`
+                    : '';
+
+                  const items = planForCycle.items.map(item =>
+                    item.value ? `${item.label}: ${item.value}` : item.label
                   );
-                }
 
-                let yearlyPrice: string | React.ReactNode = yearly ? `₹${yearly.base_price.toLocaleString('en-IN')} / year` : '';
-                if (yearly && yearlyDiscount?.hasDiscount) {
-                  yearlyPrice = (
-                    <span>
-                      <span className="line-through text-gray-500 mr-2">
-                        ₹{yearly.base_price.toLocaleString('en-IN')}
-                      </span>
-                      <span className="text-green-600 font-bold">
-                        ₹{yearlyDiscount.discountedPrice.toLocaleString('en-IN')}
-                      </span>
-                      <span className="text-gray-600"> / year</span>
-                    </span>
+                  const cycleLabel = planForCycle.billing_cycle === 'yearly' ? 'Annual' : 'Monthly';
+                  const actionLabel = `Subscribe to ${name} (${cycleLabel})`;
+                  const planKey = name.toLowerCase().replace(/\s+/g, '_');
+                  const previewKey = planKey === 'starter' ? 'starter' : planKey === 'growth' ? 'growth' : planKey === 'enterprise' ? 'enterprise' : planKey;
+                  const preview = companyId && previewByPlan[previewKey];
+
+                  return (
+                    <PlanCard
+                      key={name}
+                      title={name}
+                      price={price}
+                      yearly={otherCycleLabel}
+                      savings={savings}
+                      items={items}
+                      highlight={name.toLowerCase().includes('growth') || name.toLowerCase().includes('popular')}
+                      actionLabel={actionLabel}
+                      onAction={() => subscribeToPlan(planForCycle)}
+                      disabled={false}
+                      disabledReason={null}
+                      youPayPreview={preview ? { finalAmount: preview.finalAmount, isMonthly: isMonthly, breakdown: preview.breakdown, hasGST: preview.hasGST } : undefined}
+                      previewLoading={previewLoading}
+                    />
                   );
-                }
-
-                const savings = yearly && monthly
-                  ? `Save ₹${((monthly.base_price * 12) - yearly.base_price).toLocaleString('en-IN')} / year`
-                  : '';
-
-                const items = displayPlan.items.map(item =>
-                  item.value ? `${item.label}: ${item.value}` : item.label
-                );
-
-                return (
-                  <PlanCard
-                    key={name}
-                    title={name}
-                    price={price}
-                    yearly={yearlyPrice}
-                    savings={savings}
-                    items={items}
-                    highlight={name.toLowerCase().includes('growth') || name.toLowerCase().includes('popular')}
-                    actionLabel={`Subscribe to ${name}`}
-                    onAction={() => subscribeToPlan(displayPlan)}
-                    disabled={false}
-                    disabledReason={null}
-                  />
-                );
-              });
-            })()}
-          </div>
+                });
+              })()}
+            </div>
+          </>
         )}
       </section>
 
@@ -803,7 +950,7 @@ export default function PricingPage() {
             <div className="space-y-3">
               <div>
                 <h3 className="font-semibold text-blue-800 mb-1">15-Day Free Trial</h3>
-                <p className="text-slate-700">Full access to all plan features. ₹5 authorization (refunded) required to verify payment method.</p>
+                <p className="text-slate-700">Full access to all plan features for 15 days. No payment required.</p>
               </div>
               <div>
                 <h3 className="font-semibold text-blue-800 mb-1">After Trial Ends</h3>
@@ -957,7 +1104,7 @@ export default function PricingPage() {
                 disabled={Object.keys(cart).length === 0 || checkoutLoading}
                 className="px-5 py-2.5 rounded-lg font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {checkoutLoading ? "Processing…" : Object.keys(cart).length === 0 ? "Add items to cart" : `Checkout (${formatINRFromPaise(cartTotalPaise)})`}
+                {checkoutLoading ? "Processing…" : Object.keys(cart).length === 0 ? "Add items to cart" : `Checkout (${cartPreview ? `₹${cartPreview.orderAmountInr.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : formatINRFromPaise(cartTotalPaise)})`}
               </button>
             </div>
           </div>
@@ -1013,9 +1160,44 @@ export default function PricingPage() {
                   })}
                 </tbody>
               </table>
-              <div className="flex items-center justify-between p-4 border-t border-slate-200 bg-slate-50">
-                <div className="text-sm text-slate-600">Grand total</div>
-                <div className="text-lg font-bold text-slate-900">{formatINRFromPaise(cartTotalPaise)}</div>
+              <div className="flex flex-wrap items-center justify-between gap-3 p-4 border-t border-slate-200 bg-slate-50">
+                <div className="flex items-center gap-2">
+                  <label htmlFor="cart-coupon" className="text-sm text-slate-600 whitespace-nowrap">
+                    Coupon code (optional):
+                  </label>
+                  <input
+                    id="cart-coupon"
+                    type="text"
+                    placeholder="e.g. SAVE10"
+                    value={cartCouponCode}
+                    onChange={(e) => setCartCouponCode(e.target.value)}
+                    className="border border-slate-300 rounded-lg px-3 py-2 text-sm w-32 max-w-full"
+                  />
+                </div>
+                <div className="flex flex-col items-end gap-1">
+                  {cartPreviewLoading && (
+                    <span className="text-xs text-slate-500">Calculating…</span>
+                  )}
+                  {!cartPreviewLoading && cartPreview && (
+                    <div className="text-right text-sm text-slate-600">
+                      {cartPreview.hasCoupon && (
+                        <>
+                          <span>Subtotal: ₹{cartPreview.subtotalInr.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                          <br />
+                          <span>Coupon: -₹{cartPreview.couponDiscountInr.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                          <br />
+                        </>
+                      )}
+                      <span className="font-semibold text-slate-800">You pay: ₹{cartPreview.orderAmountInr.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                  )}
+                  {!cartPreview && !cartPreviewLoading && (
+                    <>
+                      <span className="text-sm text-slate-600">Grand total</span>
+                      <span className="text-lg font-bold text-slate-900">{formatINRFromPaise(cartTotalPaise)}</span>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
           )}
@@ -1058,7 +1240,7 @@ export default function PricingPage() {
               Payment & Trial Policy
             </h3>
             <ul className="space-y-2">
-              <li>• 15-day free trial requires payment authorization (₹5 test charge).</li>
+              <li>• 15-day free trial requires no payment or credit card.</li>
               <li>• No charges are applied during the trial period.</li>
               <li>• Subscription billing starts automatically after trial expiry.</li>
               <li>• Add-ons are charged only when explicitly enabled by the user.</li>
@@ -1105,6 +1287,8 @@ function PlanCard({
   disabled = false,
   disabledReason,
   highlight = false,
+  youPayPreview,
+  previewLoading = false,
 }: {
   title: string;
   price: string | React.ReactNode;
@@ -1116,7 +1300,10 @@ function PlanCard({
   disabled?: boolean;
   disabledReason?: string | null;
   highlight?: boolean;
+  youPayPreview?: { finalAmount: number; isMonthly: boolean; breakdown: { base?: number; discount?: number; coupon?: number; subtotalAfterCoupon?: number; tax?: number; total?: number }; hasGST: boolean };
+  previewLoading?: boolean;
 }) {
+  const hasBreakdown = youPayPreview?.breakdown && (Number(youPayPreview.breakdown.discount ?? 0) > 0 || Number(youPayPreview.breakdown.coupon ?? 0) > 0 || Number(youPayPreview.breakdown.tax ?? 0) > 0);
   return (
     <div
       className={`rounded-2xl p-8 border ${
@@ -1138,6 +1325,28 @@ function PlanCard({
       <div className="mt-6 text-sm text-emerald-700 font-semibold">
         {savings}
       </div>
+
+      {/* Phase 7: You pay (incl. discount & tax) - matches Razorpay and invoice */}
+      {previewLoading && (
+        <div className="mt-4 text-sm text-slate-500">Calculating final amount…</div>
+      )}
+      {!previewLoading && youPayPreview && (
+        <div className="mt-4 p-3 bg-slate-50 rounded-lg border border-slate-200">
+          <div className="text-sm font-semibold text-slate-800">
+            You pay: ₹{youPayPreview.finalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {youPayPreview.isMonthly ? ' / month' : ' / year'}
+          </div>
+          {hasBreakdown && youPayPreview.breakdown && (
+            <ul className="mt-2 text-xs text-slate-600 space-y-0.5">
+              {youPayPreview.breakdown.base != null && <li>Base: ₹{Number(youPayPreview.breakdown.base).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</li>}
+              {Number(youPayPreview.breakdown.discount ?? 0) > 0 && <li>Discount: -₹{Number(youPayPreview.breakdown.discount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</li>}
+              {Number(youPayPreview.breakdown.coupon ?? 0) > 0 && <li>Coupon: -₹{Number(youPayPreview.breakdown.coupon).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</li>}
+              {Number(youPayPreview.breakdown.tax ?? 0) > 0 && youPayPreview.hasGST && <li>GST (18%): +₹{Number(youPayPreview.breakdown.tax).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</li>}
+              <li className="font-medium text-slate-800">Total: ₹{Number(youPayPreview.breakdown.total ?? youPayPreview.finalAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</li>
+            </ul>
+          )}
+        </div>
+      )}
 
       <button
         onClick={onAction}

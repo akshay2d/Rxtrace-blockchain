@@ -376,8 +376,10 @@ async function applyAddon(opts: { orderId: string; paymentId: string; signature?
 
     const orderAmountPaise = Number((orderRecord as any).amount_paise ?? 0);
     const cartTotalPaise = Number((cartRow as any).total_paise ?? 0);
+    const cartDiscountPaise = Number((cartRow as any).discount_paise ?? 0);
+    const expectedOrderPaise = Math.max(100, cartTotalPaise - cartDiscountPaise);
     if (Number.isFinite(orderAmountPaise) && Number.isFinite(cartTotalPaise) && cartTotalPaise > 0) {
-      if (orderAmountPaise !== cartTotalPaise) {
+      if (orderAmountPaise !== expectedOrderPaise) {
         throw new Error("Order amount mismatch for cart");
       }
     }
@@ -437,6 +439,18 @@ async function applyAddon(opts: { orderId: string; paymentId: string; signature?
       .update({ status: "applied", applied_at: paidAt, applied_items: appliedItems })
       .eq("id", cartInfo.cartId)
       .eq("company_id", cartInfo.companyId);
+
+    const couponId = (cartRow as any).coupon_id as string | null | undefined;
+    if (couponId) {
+      const { data: d } = await supabase.from("discounts").select("usage_count").eq("id", couponId).single();
+      await supabase
+        .from("discounts")
+        .update({
+          usage_count: ((d as any)?.usage_count ?? 0) + 1,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", couponId);
+    }
 
     await ensureAddonInvoice({
       admin,

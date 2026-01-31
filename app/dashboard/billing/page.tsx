@@ -146,7 +146,7 @@ export default function BillingPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [invoices, setInvoices] = useState<any[]>([]);
   const [invoicesLoading, setInvoicesLoading] = useState(false);
-  const [trialInvoice, setTrialInvoice] = useState<any>(null);
+  // Trial invoice removed - free trial requires no payment
   const [company, setCompany] = useState<any>(null);
   const [trialUsed, setTrialUsed] = useState<boolean | null>(null);
   const [usageData, setUsageData] = useState<any>(null);
@@ -163,21 +163,7 @@ export default function BillingPage() {
       if (!res.ok) throw new Error(body.error || 'Failed to load invoices');
       setInvoices(body.invoices || []);
 
-      // Fetch trial authorization invoice (₹5) - might not exist for all users
-      try {
-        const trialRes = await fetch('/api/billing/trial-invoice');
-        if (trialRes.ok) {
-          const trialBody = await trialRes.json();
-          setTrialInvoice(trialBody.invoice || null);
-        } else {
-          // No trial invoice found - that's okay for existing users
-          setTrialInvoice(null);
-        }
-      } catch (trialErr) {
-        // Silently handle trial invoice errors
-        console.log('No trial invoice found:', trialErr);
-        setTrialInvoice(null);
-      }
+      // Trial invoice removed - free trial requires no payment
     } catch (err: any) {
       setMessage(err.message || String(err));
     } finally {
@@ -423,6 +409,29 @@ export default function BillingPage() {
                     <li className="text-gray-500">Plan details loading...</li>
                   )}
                 </ul>
+                {/* Phase 7: Tax & discount breakdown from latest subscription invoice */}
+                {invoices?.length > 0 && (() => {
+                  const latestSubInvoice = invoices.find((inv: any) => inv.plan != null && String(inv.plan).trim() !== '') ?? invoices[0];
+                  const taxAmount = Number(latestSubInvoice?.tax_amount ?? 0);
+                  const discountAmount = Number(latestSubInvoice?.discount_amount ?? 0);
+                  const total = Number(latestSubInvoice?.amount ?? 0);
+                  const hasBreakdown = taxAmount > 0 || discountAmount > 0;
+                  if (!hasBreakdown) return null;
+                  return (
+                    <div className="mt-3 pt-3 border-t border-gray-200">
+                      <h5 className="font-medium text-gray-800 mb-1">Amount breakdown (latest invoice)</h5>
+                      <ul className="text-xs text-gray-600 space-y-0.5">
+                        {discountAmount > 0 && (
+                          <li>Discount: -₹{discountAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</li>
+                        )}
+                        {taxAmount > 0 && (
+                          <li>GST: +₹{taxAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</li>
+                        )}
+                        <li className="font-medium text-gray-800">Total: ₹{total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</li>
+                      </ul>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
 
@@ -740,49 +749,14 @@ export default function BillingPage() {
       <Card>
         <CardHeader>
           <CardTitle>📄 Invoices & Receipts</CardTitle>
-          <p className="text-sm text-gray-600">Download invoices for trial authorization, subscriptions, and add-on purchases</p>
+          <p className="text-sm text-gray-600">Download invoices for subscriptions and add-on purchases</p>
         </CardHeader>
         <CardContent>
           {invoicesLoading ? (
             <div className="text-sm text-gray-500">Loading invoices…</div>
           ) : (
             <div className="space-y-6">
-              {/* Trial Authorization Invoice (₹5) */}
-              {trialInvoice && (
-                <div>
-                  <h3 className="text-sm font-semibold text-blue-900 mb-3 flex items-center gap-2">
-                    <span className="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs rounded">Trial</span>
-                    Trial Authorization Receipt
-                  </h3>
-                  <div className="border-2 border-yellow-200 bg-yellow-50 rounded-lg p-4">
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-2">
-                        <div className="font-semibold text-gray-900">₹5 Payment Method Verification</div>
-                        <div className="text-xs text-gray-600 space-y-1">
-                          <div>Order ID: <span className="font-mono">{trialInvoice.order_id}</span></div>
-                          <div>Payment ID: <span className="font-mono">{trialInvoice.payment_id || '—'}</span></div>
-                          <div>Status: <span className="font-semibold text-green-600 uppercase">{trialInvoice.status}</span></div>
-                          <div>Date: {trialInvoice.paid_at ? new Date(trialInvoice.paid_at).toLocaleString('en-IN') : '—'}</div>
-                        </div>
-                        <div className="text-xs text-yellow-700 mt-2 flex items-start gap-1">
-                          <span>💡</span>
-                          <span>This is a refundable authorization charge to verify your payment method for the 15-day free trial.</span>
-                        </div>
-                      </div>
-                      <div className="flex flex-col items-end gap-2">
-                        <div className="text-xl font-bold text-gray-900">
-                          ₹{(Number(trialInvoice.amount || 0) / 100).toFixed(2)}
-                        </div>
-                        <Button asChild variant="outline" size="sm" className="bg-white">
-                          <a href="/api/billing/trial-invoice/download" target="_blank">
-                            📥 Download PDF
-                          </a>
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
+              {/* Trial invoice section removed - free trial requires no payment */}
 
               {/* Subscription & Add-on Invoices */}
               {invoices.length > 0 && (
@@ -856,7 +830,7 @@ export default function BillingPage() {
               )}
 
               {/* No Invoices Message */}
-              {!trialInvoice && invoices.length === 0 && (
+              {invoices.length === 0 && (
                 <div className="text-center py-8 text-gray-500">
                   <div className="text-4xl mb-2">📄</div>
                   <div className="text-sm">No invoices available yet.</div>

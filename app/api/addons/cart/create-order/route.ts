@@ -114,6 +114,44 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid total" }, { status: 400 });
     }
 
+    const admin = getSupabaseAdmin();
+
+    // Coupon: validate and compute discount for add-on cart
+    let couponId: string | null = null;
+    let discountPaise = 0;
+    const couponCode = typeof body.coupon_code === "string" ? body.coupon_code.trim() : null;
+    if (couponCode) {
+      const { data: couponRow } = await admin
+        .from("discounts")
+        .select("id, code, type, value, valid_from, valid_to, usage_limit, usage_count, is_active")
+        .ilike("code", couponCode.toLowerCase())
+        .eq("is_active", true)
+        .maybeSingle();
+      if (couponRow) {
+        const now = new Date();
+        const vFrom = new Date((couponRow as any).valid_from);
+        const vTo = (couponRow as any).valid_to ? new Date((couponRow as any).valid_to) : null;
+        const limit = (couponRow as any).usage_limit;
+        const used = (couponRow as any).usage_count ?? 0;
+        const { data: assign } = await admin
+          .from("company_discounts")
+          .select("id")
+          .eq("company_id", companyId)
+          .eq("discount_id", (couponRow as any).id)
+          .maybeSingle();
+        if (vFrom <= now && (!vTo || vTo >= now) && (limit == null || used < limit) && assign) {
+          const amountInr = totalPaise / 100;
+          const typ = (couponRow as any).type;
+          const val = Number((couponRow as any).value ?? 0);
+          const discountInr = typ === "percentage" ? Math.min(amountInr * (val / 100), amountInr) : Math.min(val, amountInr);
+          discountPaise = Math.round(discountInr * 100);
+          couponId = (couponRow as any).id;
+        }
+      }
+    }
+
+    const orderAmountPaise = Math.max(100, totalPaise - discountPaise);
+
     const keyId = process.env.RAZORPAY_KEY_ID ?? process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
     const keySecret = process.env.RAZORPAY_KEY_SECRET;
     if (!keyId || !keySecret) {
@@ -126,9 +164,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const admin = getSupabaseAdmin();
-
-    // Create cart record first
+    // Create cart record (with optional coupon)
     const { data: cartInsert, error: cartErr } = await admin
       .from("addon_carts")
       .insert({
@@ -140,6 +176,7 @@ export async function POST(req: Request) {
         applied_items: [],
         status: "created",
         created_at: new Date().toISOString(),
+        ...(couponId ? { coupon_id: couponId, discount_paise: discountPaise } : {}),
       })
       .select("id")
       .maybeSingle();
@@ -160,7 +197,7 @@ export async function POST(req: Request) {
     let order: any;
     try {
       order = await razorpay.orders.create({
-        amount: totalPaise,
+        amount: orderAmountPaise,
         currency: "INR",
         receipt: buildRazorpayReceipt(),
         notes: {
@@ -168,18 +205,19 @@ export async function POST(req: Request) {
           cart_id: cartId,
           company_id: companyId,
           created_at: new Date().toISOString(),
+          ...(couponId ? { coupon_id: couponId, discount_paise: String(discountPaise) } : {}),
         },
       });
     } catch (e: any) {
       return NextResponse.json({ error: formatRazorpayError(e) }, { status: 502 });
     }
 
-    // Store order record
-    const amountInr = totalPaise / 100;
+    // Store order record (amount paid = orderAmountPaise)
+    const amountInr = orderAmountPaise / 100;
     const { error: orderInsertErr } = await admin.from("razorpay_orders").insert({
       order_id: order.id,
       amount: amountInr,
-      amount_paise: totalPaise,
+      amount_paise: orderAmountPaise,
       currency: order.currency,
       receipt: order.receipt,
       status: order.status,
@@ -208,7 +246,15 @@ export async function POST(req: Request) {
       );
     }
 
-    return NextResponse.json({ order, keyId, cartId, totalPaise, items });
+    return NextResponse.json({
+      order,
+      keyId,
+      cartId,
+      totalPaise,
+      orderAmountPaise,
+      discountPaise: discountPaise || 0,
+      items,
+    });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message ?? "Failed" }, { status: 500 });
   }

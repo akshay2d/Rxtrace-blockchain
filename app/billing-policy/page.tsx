@@ -31,8 +31,8 @@ export default function BillingPolicyPage() {
             <ul className="list-disc list-inside space-y-2 text-gray-700">
               <li>Full access to all plan features during trial</li>
               <li>No charges applied during the 15-day trial period</li>
-              <li>Trial requires payment method authorization (₹5 refundable charge)</li>
-              <li>Subscription billing starts automatically after trial expiry</li>
+              <li>No payment or credit card required to start the trial</li>
+              <li>After trial ends, choose a subscription plan from the Pricing page to continue</li>
             </ul>
           </section>
 

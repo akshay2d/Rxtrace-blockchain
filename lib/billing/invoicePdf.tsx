@@ -16,6 +16,14 @@ type InvoiceRow = {
   base_amount?: number | null;
   addons_amount?: number | null;
   wallet_applied?: number | null;
+  tax_rate?: number | null;
+  tax_amount?: number | null;
+  has_gst?: boolean | null;
+  gst_number?: string | null;
+  discount_type?: string | null;
+  discount_value?: number | null;
+  discount_amount?: number | null;
+  billing_cycle?: string | null;
   created_at?: string | null;
   metadata?: any;
 };
@@ -57,8 +65,11 @@ function InvoicePdfDoc({ invoice, company }: { invoice: InvoiceRow; company: Com
   const amount = toNumber(invoice.amount);
   const base = invoice.base_amount != null ? toNumber(invoice.base_amount) : toNumber(invoice?.metadata?.pricing?.base);
   const addons = invoice.addons_amount != null ? toNumber(invoice.addons_amount) : toNumber(invoice?.metadata?.pricing?.addons);
+  const discountAmount = invoice.discount_amount != null ? toNumber(invoice.discount_amount) : toNumber(invoice?.metadata?.pricing?.discount);
+  const taxAmount = invoice.tax_amount != null ? toNumber(invoice.tax_amount) : toNumber(invoice?.metadata?.pricing?.tax);
   const walletApplied = toNumber(invoice.wallet_applied);
   const due = Math.max(0, Number((amount - walletApplied).toFixed(2)));
+  const billingCycle = invoice.billing_cycle ?? invoice?.metadata?.billing_cycle ?? null;
 
   const periodStart = invoice.period_start ? new Date(invoice.period_start).toLocaleDateString('en-IN') : '—';
   const periodEnd = invoice.period_end ? new Date(invoice.period_end).toLocaleDateString('en-IN') : '—';
@@ -111,6 +122,12 @@ function InvoicePdfDoc({ invoice, company }: { invoice: InvoiceRow; company: Com
               <Text style={styles.muted}>Plan</Text>
               <Text>{invoice.plan}</Text>
             </View>
+            {billingCycle ? (
+              <View style={styles.row}>
+                <Text style={styles.muted}>Billing cycle</Text>
+                <Text>{String(billingCycle).charAt(0).toUpperCase() + String(billingCycle).slice(1)}</Text>
+              </View>
+            ) : null}
           </View>
         </View>
 
@@ -130,6 +147,18 @@ function InvoicePdfDoc({ invoice, company }: { invoice: InvoiceRow; company: Com
               <Text>Monthly add-ons</Text>
               <Text>{formatINR(addons)}</Text>
             </View>
+            {discountAmount > 0 ? (
+              <View style={styles.tableRow}>
+                <Text>Discount</Text>
+                <Text>-{formatINR(discountAmount)}</Text>
+              </View>
+            ) : null}
+            {taxAmount > 0 ? (
+              <View style={styles.tableRow}>
+                <Text>GST (18%)</Text>
+                <Text>{formatINR(taxAmount)}</Text>
+              </View>
+            ) : null}
 
             <View style={styles.tableRow}>
               <Text style={styles.bold}>Subtotal</Text>

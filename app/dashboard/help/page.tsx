@@ -76,8 +76,8 @@ const faqData = {
   ],
   billing: [
     {
-      question: 'What is the trial activation fee?',
-      answer: 'The trial activation fee is ₹5 (INR). This is a one-time payment to activate your 15-day free trial. After trial, you can choose a subscription plan.',
+      question: 'Is the free trial really free?',
+      answer: 'Yes! The 15-day free trial requires no payment, no credit card, and no authorization charge. Simply click "Start Free Trial" to begin using all features immediately.',
     },
     {
       question: 'How are scans billed?',

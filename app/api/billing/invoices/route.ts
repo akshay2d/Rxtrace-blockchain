@@ -37,7 +37,7 @@ export async function GET(req: Request) {
 
     let query = supabase
       .from('billing_invoices')
-      .select('id, company_id, plan, period_start, period_end, amount, currency, status, paid_at, reference, created_at, updated_at')
+      .select('id, company_id, plan, period_start, period_end, amount, currency, status, paid_at, reference, created_at, updated_at, tax_rate, tax_amount, has_gst, gst_number, discount_type, discount_value, discount_amount, billing_cycle')
       .eq('company_id', company.id)
       .order('created_at', { ascending: false })
       .limit(limit);

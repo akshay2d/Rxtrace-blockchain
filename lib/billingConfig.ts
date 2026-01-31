@@ -25,6 +25,10 @@ export const PRICING = {
   critical_balance: 500, // Critical alert at ₹500
   auto_freeze_threshold: 0, // Freeze account at ₹0
 
+  // Tax configuration (GST - apply only when company has valid GST number)
+  TAX_RATE: 0.18, // 18% GST
+  TAX_APPLIES_TO: ['subscription', 'addon'] as const,
+
   // Plan configurations
   plans: {
     starter: {
