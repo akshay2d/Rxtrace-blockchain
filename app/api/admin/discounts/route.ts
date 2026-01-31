@@ -105,7 +105,7 @@ export async function POST(req: Request) {
     
     const supabase = getSupabaseAdmin();
     const body = await req.json();
-    const { code, type, value, valid_from, valid_to, usage_limit } = body;
+    const { code, type, value, valid_from, valid_to, usage_limit, razorpay_offer_id } = body;
     
     logWithContext('info', 'Admin discount create request', {
       correlationId,
@@ -136,6 +136,7 @@ export async function POST(req: Request) {
             valid_from: valid_from || new Date().toISOString(),
             valid_to,
             usage_limit,
+            razorpay_offer_id: razorpay_offer_id && String(razorpay_offer_id).trim() ? String(razorpay_offer_id).trim() : null,
             is_active: true,
           })
           .select()
@@ -203,7 +204,7 @@ export async function PUT(req: Request) {
     
     const supabase = getSupabaseAdmin();
     const body = await req.json();
-    const { id, code, type, value, valid_from, valid_to, usage_limit, is_active } = body;
+    const { id, code, type, value, valid_from, valid_to, usage_limit, is_active, razorpay_offer_id } = body;
     
     logWithContext('info', 'Admin discount update request', {
       correlationId,
@@ -240,6 +241,7 @@ export async function PUT(req: Request) {
         if (valid_to !== undefined) updates.valid_to = valid_to;
         if (usage_limit !== undefined) updates.usage_limit = usage_limit;
         if (is_active !== undefined) updates.is_active = is_active;
+        if (razorpay_offer_id !== undefined) updates.razorpay_offer_id = razorpay_offer_id && String(razorpay_offer_id).trim() ? String(razorpay_offer_id).trim() : null;
 
         const { data: discount, error } = await supabase
           .from("discounts")

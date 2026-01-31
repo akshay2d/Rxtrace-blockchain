@@ -20,6 +20,7 @@ type Discount = {
   usage_limit: number | null;
   usage_count: number;
   is_active: boolean;
+  razorpay_offer_id?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -296,6 +297,11 @@ export default function AdminDiscountsPage() {
                       <strong>Usage:</strong> {discount.usage_count}
                       {discount.usage_limit ? ` / ${discount.usage_limit}` : ' / Unlimited'}
                     </p>
+                    {discount.razorpay_offer_id && (
+                      <p>
+                        <strong>Razorpay Offer ID:</strong> <code className="text-xs bg-gray-100 px-1 rounded">{discount.razorpay_offer_id}</code>
+                      </p>
+                    )}
                     <p>
                       <strong>Created:</strong> {formatDate(discount.created_at)}
                     </p>
@@ -441,6 +447,7 @@ function DiscountForm({ discount, onSave, onCancel }: { discount: Discount | nul
   const [validTo, setValidTo] = useState(discount?.valid_to ? new Date(discount.valid_to).toISOString().split('T')[0] : '');
   const [usageLimit, setUsageLimit] = useState(discount?.usage_limit?.toString() || '');
   const [isActive, setIsActive] = useState(discount?.is_active ?? true);
+  const [razorpayOfferId, setRazorpayOfferId] = useState(discount?.razorpay_offer_id ?? '');
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -452,6 +459,7 @@ function DiscountForm({ discount, onSave, onCancel }: { discount: Discount | nul
       valid_to: validTo ? new Date(validTo).toISOString() : null,
       usage_limit: usageLimit ? parseInt(usageLimit) : null,
       is_active: isActive,
+      razorpay_offer_id: razorpayOfferId.trim() || null,
     });
   }
 
@@ -523,6 +531,16 @@ function DiscountForm({ discount, onSave, onCancel }: { discount: Discount | nul
               onChange={(e) => setUsageLimit(e.target.value)}
               placeholder="Leave empty for unlimited"
             />
+          </div>
+          <div>
+            <Label>Razorpay Offer ID (Optional)</Label>
+            <Input
+              value={razorpayOfferId}
+              onChange={(e) => setRazorpayOfferId(e.target.value)}
+              placeholder="e.g. offer_xxxx from Razorpay Dashboard"
+              className="font-mono text-sm"
+            />
+            <p className="text-xs text-gray-500 mt-1">Required for this coupon to apply discount at checkout. Create matching offer in Razorpay Dashboard and paste ID here.</p>
           </div>
           <div className="flex items-center gap-2">
             <input

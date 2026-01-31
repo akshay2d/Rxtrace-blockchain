@@ -37,7 +37,7 @@ export async function PUT(req: Request) {
     
     const supabase = getSupabaseAdmin();
     const body = await req.json();
-    const { company_id, discount_type, discount_value, discount_applies_to, discount_notes } = body;
+    const { company_id, discount_type, discount_value, discount_applies_to, discount_notes, razorpay_offer_id } = body;
     
     logWithContext('info', 'Admin company discount update request', {
       correlationId,
@@ -95,7 +95,7 @@ export async function PUT(req: Request) {
         // Get current company data for audit
         const { data: currentCompany } = await supabase
           .from("companies")
-          .select("id, company_name, discount_type, discount_value, discount_applies_to, discount_notes")
+          .select("id, company_name, discount_type, discount_value, discount_applies_to, discount_notes, razorpay_offer_id")
           .eq("id", company_id)
           .single();
 
@@ -117,6 +117,9 @@ export async function PUT(req: Request) {
         if (discount_notes !== undefined) {
           updates.discount_notes = discount_notes || null;
         }
+        if (razorpay_offer_id !== undefined) {
+          updates.razorpay_offer_id = razorpay_offer_id && String(razorpay_offer_id).trim() ? String(razorpay_offer_id).trim() : null;
+        }
 
         // If all discount fields are being cleared, set them all to null
         if (discount_type === null && discount_value === null && discount_applies_to === null) {
@@ -124,6 +127,7 @@ export async function PUT(req: Request) {
           updates.discount_value = null;
           updates.discount_applies_to = null;
           updates.discount_notes = null;
+          updates.razorpay_offer_id = null;
         }
 
         // Update company
@@ -131,7 +135,7 @@ export async function PUT(req: Request) {
           .from("companies")
           .update(updates)
           .eq("id", company_id)
-          .select("id, company_name, discount_type, discount_value, discount_applies_to, discount_notes")
+          .select("id, company_name, discount_type, discount_value, discount_applies_to, discount_notes, razorpay_offer_id")
           .single();
 
         if (error) throw error;
@@ -151,12 +155,14 @@ export async function PUT(req: Request) {
         discount_value: updateData.currentCompany.discount_value,
         discount_applies_to: updateData.currentCompany.discount_applies_to,
         discount_notes: updateData.currentCompany.discount_notes,
+        razorpay_offer_id: (updateData.currentCompany as any).razorpay_offer_id,
       },
       newValue: {
         discount_type: updateData.updatedCompany.discount_type,
         discount_value: updateData.updatedCompany.discount_value,
         discount_applies_to: updateData.updatedCompany.discount_applies_to,
         discount_notes: updateData.updatedCompany.discount_notes,
+        razorpay_offer_id: (updateData.updatedCompany as any).razorpay_offer_id,
       },
       status: 'success',
     });
@@ -272,7 +278,7 @@ export async function DELETE(req: Request) {
     // Get current company data for audit
     const { data: currentCompany } = await supabase
       .from("companies")
-      .select("id, company_name, discount_type, discount_value, discount_applies_to, discount_notes")
+      .select("id, company_name, discount_type, discount_value, discount_applies_to, discount_notes, razorpay_offer_id")
       .eq("id", company_id)
       .single();
 
@@ -295,9 +301,10 @@ export async function DELETE(req: Request) {
             discount_value: null,
             discount_applies_to: null,
             discount_notes: null,
+            razorpay_offer_id: null,
           })
           .eq("id", company_id)
-          .select("id, company_name, discount_type, discount_value, discount_applies_to, discount_notes")
+          .select("id, company_name, discount_type, discount_value, discount_applies_to, discount_notes, razorpay_offer_id")
           .single();
 
         if (error) throw error;
@@ -317,12 +324,14 @@ export async function DELETE(req: Request) {
         discount_value: currentCompany.discount_value,
         discount_applies_to: currentCompany.discount_applies_to,
         discount_notes: currentCompany.discount_notes,
+        razorpay_offer_id: (currentCompany as any).razorpay_offer_id,
       },
       newValue: {
         discount_type: null,
         discount_value: null,
         discount_applies_to: null,
         discount_notes: null,
+        razorpay_offer_id: null,
       },
       status: 'success',
       requiresConfirmation: needsConfirmation,
@@ -403,7 +412,7 @@ export async function GET(req: Request) {
       async () => {
         const { data: company, error } = await supabase
           .from("companies")
-          .select("id, company_name, discount_type, discount_value, discount_applies_to, discount_notes")
+          .select("id, company_name, discount_type, discount_value, discount_applies_to, discount_notes, razorpay_offer_id")
           .eq("id", company_id)
           .single();
 
@@ -414,6 +423,7 @@ export async function GET(req: Request) {
             discount_value: company.discount_value,
             discount_applies_to: company.discount_applies_to,
             discount_notes: company.discount_notes,
+            razorpay_offer_id: (company as any).razorpay_offer_id,
           },
         };
       },

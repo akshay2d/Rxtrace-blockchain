@@ -24,6 +24,7 @@ type Company = {
   discount_value?: number | null;
   discount_applies_to?: 'subscription' | 'addon' | 'both' | null;
   discount_notes?: string | null;
+  razorpay_offer_id?: string | null;
 };
 
 type UsageData = {
@@ -65,7 +66,7 @@ export default function CompanyDetailPage() {
       // Fetch company with discount fields
       const { data: companyData } = await supabase
         .from('companies')
-        .select('id, company_name, created_at, discount_type, discount_value, discount_applies_to, discount_notes')
+        .select('id, company_name, created_at, discount_type, discount_value, discount_applies_to, discount_notes, razorpay_offer_id')
         .eq('id', companyId)
         .single();
 
@@ -289,6 +290,7 @@ function CompanyDiscountManager({ company, onUpdate }: { company: Company; onUpd
   const [discountValue, setDiscountValue] = useState<string>(company.discount_value?.toString() || '');
   const [discountAppliesTo, setDiscountAppliesTo] = useState<string>(company.discount_applies_to || 'both');
   const [discountNotes, setDiscountNotes] = useState<string>(company.discount_notes || '');
+  const [razorpayOfferId, setRazorpayOfferId] = useState<string>(company.razorpay_offer_id ?? '');
   const [saving, setSaving] = useState(false);
   const [removeConfirming, setRemoveConfirming] = useState(false);
   const destructive = useDestructiveAction<{ company: Company }>();
@@ -306,6 +308,7 @@ function CompanyDiscountManager({ company, onUpdate }: { company: Company; onUpd
           discount_value: discountValue ? parseFloat(discountValue) : null,
           discount_applies_to: discountAppliesTo || null,
           discount_notes: discountNotes || null,
+          razorpay_offer_id: razorpayOfferId.trim() || null,
         }),
       });
 
@@ -350,6 +353,7 @@ function CompanyDiscountManager({ company, onUpdate }: { company: Company; onUpd
         setDiscountValue('');
         setDiscountAppliesTo('both');
         setDiscountNotes('');
+        setRazorpayOfferId('');
         onUpdate();
       } else {
         const msg = res.status === 403 || data.error === 'Forbidden'
@@ -390,6 +394,9 @@ function CompanyDiscountManager({ company, onUpdate }: { company: Company; onUpd
                 </p>
                 {company.discount_notes && (
                   <p className="text-xs text-blue-600 mt-1">Notes: {company.discount_notes}</p>
+                )}
+                {company.razorpay_offer_id && (
+                  <p className="text-xs text-blue-600 mt-1">Razorpay Offer ID: <code className="bg-blue-100 px-1 rounded">{company.razorpay_offer_id}</code></p>
                 )}
               </div>
               <Button variant="destructive" size="sm" onClick={handleRemove} disabled={saving}>
@@ -436,6 +443,16 @@ function CompanyDiscountManager({ company, onUpdate }: { company: Company; onUpd
               <SelectItem value="both">Both</SelectItem>
             </SelectContent>
           </Select>
+        </div>
+        <div>
+          <Label>Razorpay Offer ID (Optional)</Label>
+          <Input
+            value={razorpayOfferId}
+            onChange={(e) => setRazorpayOfferId(e.target.value)}
+            placeholder="e.g. offer_xxxx from Razorpay Dashboard"
+            className="font-mono text-sm"
+          />
+          <p className="text-xs text-gray-500 mt-1">Required for subscription discount to apply at Razorpay. Create matching offer in Razorpay Dashboard and paste ID here.</p>
         </div>
         <div>
           <Label>Notes (Optional)</Label>

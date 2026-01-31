@@ -42,7 +42,7 @@ export async function POST(req: Request) {
     const supabase = getSupabaseAdmin();
     const { data: company, error: companyErr } = await supabase
       .from('companies')
-      .select('id, discount_type, discount_value, discount_applies_to, razorpay_subscription_id, trial_end_date, razorpay_offer_id, trial_status')
+      .select('id, discount_type, discount_value, discount_applies_to, razorpay_subscription_id, razorpay_offer_id')
       .eq('user_id', user.id)
       .maybeSingle();
 
@@ -151,8 +151,7 @@ export async function POST(req: Request) {
     const totalCount = isAnnual ? 100 : 120;
 
     if (!subscriptionId) {
-      const trialEnd = (company as any).trial_end_date ? new Date(String((company as any).trial_end_date)) : null;
-      const startAtSeconds = Math.floor(((trialEnd && trialEnd.getTime() > Date.now()) ? trialEnd : new Date(Date.now() + 60_000)).getTime() / 1000);
+      const startAtSeconds = Math.floor((Date.now() + 60_000) / 1000);
 
       subscription = await razorpay.subscriptions.create({
         plan_id: planId,
@@ -214,7 +213,6 @@ export async function POST(req: Request) {
           razorpay_plan_id: subscription?.plan_id ?? planId,
           razorpay_subscription_status: subscription?.status ?? 'active',
           subscription_status: 'active',
-          ...( (company as any)?.trial_status === 'active' ? { trial_status: 'converted' } : {} ),
           subscription_updated_at: nowIso,
           updated_at: nowIso,
         })
@@ -257,7 +255,6 @@ export async function POST(req: Request) {
           razorpay_plan_id: subscription?.plan_id ?? planId,
           razorpay_subscription_status: subscription?.status ?? null,
           subscription_status: 'active',
-          ...( (company as any)?.trial_status === 'active' ? { trial_status: 'converted' } : {} ),
           subscription_updated_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         })
