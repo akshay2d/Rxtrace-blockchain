@@ -42,7 +42,7 @@ export async function POST(req: Request) {
     const supabase = getSupabaseAdmin();
     const { data: company, error: companyErr } = await supabase
       .from('companies')
-      .select('id, discount_type, discount_value, discount_applies_to, razorpay_subscription_id, trial_end_date')
+      .select('id, discount_type, discount_value, discount_applies_to, razorpay_subscription_id, trial_end_date, razorpay_offer_id')
       .eq('user_id', user.id)
       .maybeSingle();
 
@@ -57,18 +57,19 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Company not found' }, { status: 404 });
     }
 
-    // Phase 4: Fetch base plan price from subscription_plans (by plan name + billing_cycle)
+    // Fetch plan (id + base_price) for validation and company_subscriptions.plan_id
     const planNameForDb = requestedPlan.charAt(0).toUpperCase() + requestedPlan.slice(1);
     const { data: planRow } = await supabase
       .from('subscription_plans')
-      .select('base_price')
+      .select('id, base_price')
       .eq('name', planNameForDb)
       .eq('billing_cycle', billingCycleDb)
       .eq('is_active', true)
       .maybeSingle();
 
     const basePlanPrice = Number(planRow?.base_price ?? 0);
-    if (basePlanPrice <= 0) {
+    const planIdDb = (planRow as any)?.id as string | undefined;
+    if (basePlanPrice <= 0 || !planIdDb) {
       return NextResponse.json(
         { error: `Plan "${requestedPlan}" with cycle "${billingCycleDb}" not found or inactive` },
         { status: 404 }
@@ -91,13 +92,14 @@ export async function POST(req: Request) {
       itemType: 'subscription',
     });
 
-    let couponDiscountInr = 0;
+    // Blocker 2: Resolve exactly ONE offer_id (coupon OR company). Gateway applies discount; never send discount as addon.
+    let offerId: string | null = null;
     let couponDiscountId: string | null = null;
     const couponCode = typeof body?.coupon_code === 'string' ? body.coupon_code.trim() : null;
     if (couponCode) {
       const { data: couponRow } = await supabase
         .from('discounts')
-        .select('id, code, type, value, valid_from, valid_to, usage_limit, usage_count, is_active')
+        .select('id, code, type, value, valid_from, valid_to, usage_limit, usage_count, is_active, razorpay_offer_id')
         .ilike('code', couponCode.toLowerCase())
         .eq('is_active', true)
         .maybeSingle();
@@ -114,37 +116,24 @@ export async function POST(req: Request) {
           .eq('discount_id', (couponRow as any).id)
           .maybeSingle();
         if (vFrom <= now && (!vTo || vTo >= now) && (limit == null || used < limit) && assign) {
-          const amt = finalCalc.amountAfterDiscount;
-          const typ = (couponRow as any).type;
-          const val = Number((couponRow as any).value ?? 0);
-          couponDiscountInr = typ === 'percentage' ? Math.min(amt * (val / 100), amt) : Math.min(val, amt);
           couponDiscountId = (couponRow as any).id;
+          const rpOffer = (couponRow as any).razorpay_offer_id;
+          if (rpOffer && String(rpOffer).trim()) offerId = String(rpOffer).trim();
         }
       }
     }
+    if (!offerId && discount.discount_type && discount.discount_value !== null) {
+      const applies = discount.discount_applies_to === 'subscription' || discount.discount_applies_to === 'both';
+      if (applies) {
+        const companyOffer = (company as any)?.razorpay_offer_id;
+        if (companyOffer && String(companyOffer).trim()) offerId = String(companyOffer).trim();
+      }
+    }
 
-    const subtotalAfterCoupon = Math.max(0, finalCalc.amountAfterDiscount - couponDiscountInr);
-    const taxAfterCoupon = finalCalc.hasGST ? Number((subtotalAfterCoupon * 0.18).toFixed(2)) : 0;
-
+    // Addons: GST only. Never send discount/coupon as addon (Blocker 2).
+    const subtotalForTax = finalCalc.amountAfterDiscount; // preview only; gateway is authority when offer_id used
+    const taxAfterCoupon = finalCalc.hasGST ? Number((subtotalForTax * 0.18).toFixed(2)) : 0;
     const addons: Array<{ item: { name: string; amount: number; currency: string } }> = [];
-    if (finalCalc.discountAmount > 0) {
-      addons.push({
-        item: {
-          name: `Discount (${discount.discount_type === 'percentage' ? discount.discount_value + '%' : '₹' + discount.discount_value})`,
-          amount: -Math.round(finalCalc.discountAmount * 100),
-          currency: 'INR',
-        },
-      });
-    }
-    if (couponDiscountInr > 0 && couponDiscountId) {
-      addons.push({
-        item: {
-          name: `Coupon (${couponCode})`,
-          amount: -Math.round(couponDiscountInr * 100),
-          currency: 'INR',
-        },
-      });
-    }
     if (taxAfterCoupon > 0) {
       addons.push({
         item: {
@@ -170,13 +159,14 @@ export async function POST(req: Request) {
         total_count: totalCount,
         customer_notify: 1,
         start_at: startAtSeconds,
+        ...(offerId ? { offer_id: offerId } : {}),
         ...(addons.length > 0 ? { addons } : {}),
         notes: {
           company_id: companyId,
           plan: requestedPlan,
           billing_cycle: billingCycleDb,
           source: 'billing_upgrade',
-          has_discount: String(finalCalc.discountAmount > 0),
+          has_discount: String(!!offerId),
           has_tax: String(finalCalc.hasGST),
           ...(couponDiscountId ? { coupon_id: couponDiscountId, coupon_code: couponCode ?? '' } : {}),
         } as Record<string, string>,
@@ -190,6 +180,77 @@ export async function POST(req: Request) {
       }
 
       subscriptionId = subscription.id;
+
+      // Blocker 1: Persist paid subscription to company_subscriptions and set company to active.
+      const periodEnd = new Date();
+      periodEnd.setMonth(periodEnd.getMonth() + (isAnnual ? 12 : 1));
+      const nowIso = new Date().toISOString();
+      const { data: existingSub } = await supabase
+        .from('company_subscriptions')
+        .select('id')
+        .eq('company_id', companyId)
+        .maybeSingle();
+
+      if (existingSub?.id) {
+        const { error: updateSubErr } = await supabase
+          .from('company_subscriptions')
+          .update({
+            plan_id: planIdDb,
+            status: 'ACTIVE',
+            razorpay_subscription_id: subscriptionId,
+            is_trial: false,
+            current_period_end: periodEnd.toISOString(),
+            updated_at: nowIso,
+          })
+          .eq('company_id', companyId);
+        if (updateSubErr) {
+          console.error('Upgrade: failed to update company_subscriptions', updateSubErr);
+          return NextResponse.json({
+            error: 'Subscription created in payment gateway but failed to update subscription record. Please contact support.',
+            details: updateSubErr.message,
+          }, { status: 500 });
+        }
+      } else {
+        const { error: insertSubErr } = await supabase
+          .from('company_subscriptions')
+          .insert({
+            company_id: companyId,
+            plan_id: planIdDb,
+            status: 'ACTIVE',
+            razorpay_subscription_id: subscriptionId,
+            is_trial: false,
+            current_period_end: periodEnd.toISOString(),
+            created_at: nowIso,
+            updated_at: nowIso,
+          });
+        if (insertSubErr) {
+          console.error('Upgrade: failed to insert company_subscriptions', insertSubErr);
+          return NextResponse.json({
+            error: 'Subscription created in payment gateway but failed to create subscription record. Please contact support.',
+            details: insertSubErr.message,
+          }, { status: 500 });
+        }
+      }
+
+      const { error: companyUpdateErr } = await supabase
+        .from('companies')
+        .update({
+          subscription_plan: requestedPlan,
+          razorpay_subscription_id: subscription?.id ?? subscriptionId,
+          razorpay_plan_id: subscription?.plan_id ?? planId,
+          razorpay_subscription_status: subscription?.status ?? 'active',
+          subscription_status: 'active',
+          subscription_updated_at: nowIso,
+          updated_at: nowIso,
+        })
+        .eq('id', companyId);
+      if (companyUpdateErr) {
+        console.error('Upgrade: failed to update company', companyUpdateErr);
+        return NextResponse.json({
+          error: 'Subscription created in payment gateway but failed to update company. Please contact support.',
+          details: companyUpdateErr.message,
+        }, { status: 500 });
+      }
     } else {
       const discountMetadata = discount.discount_type && discount.discount_value !== null
         ? {
@@ -207,24 +268,46 @@ export async function POST(req: Request) {
           plan: requestedPlan,
           billing_cycle: billingCycleDb,
           company_id: companyId,
-          has_discount: String(finalCalc.discountAmount > 0),
+          has_discount: String(!!offerId),
           has_tax: String(finalCalc.hasGST),
           ...discountMetadata,
         } as Record<string, string | number | null>,
       });
-    }
 
-    await supabase
-      .from('companies')
-      .update({
-        subscription_plan: requestedPlan,
-        razorpay_subscription_id: subscription?.id ?? subscriptionId,
-        razorpay_plan_id: subscription?.plan_id ?? planId,
-        razorpay_subscription_status: subscription?.status ?? null,
-        subscription_updated_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', companyId);
+      const { error: companyUpdateErr } = await supabase
+        .from('companies')
+        .update({
+          subscription_plan: requestedPlan,
+          razorpay_subscription_id: subscription?.id ?? subscriptionId,
+          razorpay_plan_id: subscription?.plan_id ?? planId,
+          razorpay_subscription_status: subscription?.status ?? null,
+          subscription_status: 'active',
+          subscription_updated_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', companyId);
+      if (companyUpdateErr) {
+        return NextResponse.json({ error: companyUpdateErr.message }, { status: 500 });
+      }
+
+      // Update company_subscriptions for existing paid subscription (e.g. plan change)
+      const { data: existingSub } = await supabase
+        .from('company_subscriptions')
+        .select('id')
+        .eq('company_id', companyId)
+        .maybeSingle();
+      if (existingSub?.id) {
+        await supabase
+          .from('company_subscriptions')
+          .update({
+            plan_id: planIdDb,
+            status: 'ACTIVE',
+            razorpay_subscription_id: subscription?.id ?? subscriptionId,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('company_id', companyId);
+      }
+    }
 
     return NextResponse.json({
       ok: true,
