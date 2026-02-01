@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
+import { resolveCompanyForUser } from '@/lib/company/resolve';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -20,15 +21,11 @@ export async function POST(req: Request) {
     }
 
     const admin = getSupabaseAdmin();
-    const { data: company } = await admin
-      .from('companies')
-      .select('id')
-      .eq('user_id', user.id)
-      .maybeSingle();
-    const companyId = (company as any)?.id;
-    if (!companyId) {
+    const resolved = await resolveCompanyForUser(admin, user.id, 'id');
+    if (!resolved) {
       return NextResponse.json({ valid: false, error: 'Company not found' }, { status: 404 });
     }
+    const companyId = resolved.companyId;
 
     const body = await req.json().catch(() => ({}));
     const code = typeof body?.code === 'string' ? body.code.trim() : '';

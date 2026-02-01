@@ -1,6 +1,7 @@
 // middleware.ts
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
+import { resolveCompanyForUser } from '@/lib/company/resolve';
 
 export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
@@ -64,8 +65,6 @@ export async function middleware(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
     
-    // PHASE-1: Admin routes require admin check (will be done in route handler)
-    // Regular API routes just need authentication (checked above)
     return supabaseResponse;
   }
 
@@ -73,7 +72,6 @@ export async function middleware(request: NextRequest) {
     data: { session },
   } = await supabase.auth.getSession();
 
-  // Protect everything under /dashboard and /regulator
   const isProtectedArea =
     pathname.startsWith('/dashboard') ||
     pathname.startsWith('/regulator');
@@ -82,47 +80,35 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL('/auth/signin', request.url));
   }
 
-  // If user is authenticated and accessing dashboard, check for company and subscription
+  // Dashboard: canonical company resolver (owner + active seat). No owner-only logic.
   if (session && pathname.startsWith('/dashboard')) {
-    // Allow company-setup page access even when company doesn't exist or is incomplete
     if (pathname === '/dashboard/company-setup' || pathname.startsWith('/dashboard/company-setup/')) {
       return supabaseResponse;
     }
 
-    // Always refresh company data to get latest subscription status after payment
-    const { data: company, error } = await supabase
-      .from('companies')
-      .select('id, subscription_status, profile_completed')
-      .eq('user_id', session.user.id)
-      .maybeSingle();
+    const resolved = await resolveCompanyForUser(
+      supabase,
+      session.user.id,
+      'id, subscription_status, profile_completed'
+    );
 
-    if (error) {
-      console.error('Error fetching company from middleware:', error);
-      // Allow access on error to prevent redirect loops
-      return supabaseResponse;
-    }
-
-    if (!company) {
-      // No company profile yet - redirect to company setup (not onboarding)
+    if (!resolved) {
       return NextResponse.redirect(new URL('/dashboard/company-setup', request.url));
     }
 
-    // If company exists but profile is not completed, redirect to company setup
-    // EXCEPT for ERP integration page (which should be accessible after company exists)
+    const company = resolved.company as Record<string, unknown>;
     if (company.profile_completed === false) {
-      // Allow ERP integration page access even if profile not completed
       if (pathname.startsWith('/dashboard/settings/erp-integration')) {
         return supabaseResponse;
       }
-      // Redirect other dashboard pages to company setup
-      return NextResponse.redirect(new URL('/dashboard/company-setup', request.url));
+      const companySetupUrl = new URL('/dashboard/company-setup', request.url);
+      companySetupUrl.searchParams.set('reason', 'complete_profile');
+      return NextResponse.redirect(companySetupUrl);
     }
 
     const status = String(company.subscription_status ?? '').toLowerCase();
     const allowed = new Set(['trial', 'trialing', 'active', 'paid', 'live']);
-
     if (!allowed.has(status)) {
-      // Trial not activated yet - redirect to pricing
       return NextResponse.redirect(new URL('/pricing', request.url));
     }
   }

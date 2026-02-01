@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
+import { resolveCompanyForUser } from '@/lib/company/resolve';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -22,17 +23,8 @@ export async function GET(
     }
 
     const supabase = getSupabaseAdmin();
-
-    const { data: company, error: companyErr } = await supabase
-      .from('companies')
-      .select('id')
-      .eq('user_id', user.id)
-      .maybeSingle();
-
-    if (companyErr) {
-      return NextResponse.json({ error: companyErr.message }, { status: 500 });
-    }
-    if (!company?.id) {
+    const resolved = await resolveCompanyForUser(supabase, user.id, 'id');
+    if (!resolved) {
       return NextResponse.json({ error: 'Company not found' }, { status: 404 });
     }
 
@@ -40,7 +32,7 @@ export async function GET(
       .from('billing_invoices')
       .select('*')
       .eq('id', id)
-      .eq('company_id', company.id)
+      .eq('company_id', resolved.companyId)
       .maybeSingle();
 
     if (error) {

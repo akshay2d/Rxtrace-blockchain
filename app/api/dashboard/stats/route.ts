@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
+import { resolveCompanyForUser } from '@/lib/company/resolve';
 import { ensureActiveBillingUsage } from '@/lib/billing/usage';
 
 export const runtime = 'nodejs';
@@ -25,24 +26,14 @@ export async function GET() {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    // Use admin client for data reads to avoid RLS friction.
+    // Use admin client and canonical company resolver (owner + seat).
     const supabase = getSupabaseAdmin();
-
-    const { data: company, error: companyError } = await supabase
-      .from('companies')
-      .select('id, company_name')
-      .eq('user_id', user.id)
-      .maybeSingle();
-
-    if (companyError) {
-      return NextResponse.json({ error: companyError.message }, { status: 500 });
-    }
-
-    if (!company?.id) {
+    const resolved = await resolveCompanyForUser(supabase, user.id, 'id, company_name');
+    if (!resolved) {
       return NextResponse.json({ error: 'Company not found' }, { status: 404 });
     }
-
-    const companyId = company.id as string;
+    const companyId = resolved.companyId;
+    const company = resolved.company;
 
     // Billing usage (current trial/paid period): used label quotas are the most accurate
     // “realtime generation” counters because they are incremented atomically during create APIs.
@@ -159,7 +150,7 @@ export async function GET() {
 
     return NextResponse.json({
       company_id: companyId,
-      company_name: company.company_name ?? null,
+      company_name: (company?.company_name as string) ?? null,
       total_skus: totalSkus ?? 0,
       units_generated: unitsGenerated,
       sscc_generated: ssccGenerated ?? 0,

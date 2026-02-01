@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { resolveCompanyForUser } from "@/lib/company/resolve";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,17 +16,19 @@ export async function GET() {
     }
 
     const admin = getSupabaseAdmin();
-    const { data: company } = await admin
-      .from("companies")
-      .select("id, trial_started_at, trial_ends_at, trial_status")
-      .eq("user_id", user.id)
-      .maybeSingle();
+    const resolved = await resolveCompanyForUser(
+      admin,
+      user.id,
+      "id, subscription_status, trial_started_at, trial_ends_at, trial_status"
+    );
 
-    if (!company) {
-      return NextResponse.json({ success: true, subscription: null, add_ons: [], discounts: [] });
+    if (!resolved) {
+      return NextResponse.json({ success: true, company_id: null, subscription_status: null, subscription: null, add_ons: [], discounts: [] });
     }
 
-    const companyId = (company as any).id;
+    const companyId = resolved.companyId;
+    const company = resolved.company as Record<string, unknown>;
+    const subscriptionStatus = (company.subscription_status as string) ?? null;
 
     const { data: subscriptionRaw } = await admin
       .from("company_subscriptions")
@@ -56,12 +59,12 @@ export async function GET() {
         is_trial: false,
       };
     } else {
-      const trialStatus = (company as any).trial_status;
-      const trialEndsAt = (company as any).trial_ends_at;
+      const trialStatus = company.trial_status;
+      const trialEndsAt = company.trial_ends_at;
       const now = new Date();
 
       if (trialStatus === 'active' && trialEndsAt) {
-        const end = new Date(trialEndsAt);
+        const end = new Date(trialEndsAt as string);
         if (end > now) {
           subscription = {
             id: `trial-${companyId}`,
@@ -71,7 +74,7 @@ export async function GET() {
             trial_end: trialEndsAt,
             current_period_end: trialEndsAt,
             razorpay_subscription_id: null,
-            created_at: (company as any).trial_started_at,
+            created_at: company.trial_started_at,
             updated_at: null,
             plan: null,
             is_trial: true,
@@ -105,6 +108,8 @@ export async function GET() {
 
     return NextResponse.json({
       success: true,
+      company_id: companyId,
+      subscription_status: subscriptionStatus,
       subscription: subscription || null,
       add_ons: addOns || [],
       discounts: discounts || [],

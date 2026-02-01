@@ -3,6 +3,7 @@ import { supabaseServer } from '@/lib/supabase/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
 import { createRazorpayClient, razorpaySubscriptionPlanIdFor } from '@/lib/razorpay/server';
 import { calculateFinalAmount } from '@/lib/billing/tax';
+import { resolveCompanyForUser } from '@/lib/company/resolve';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -40,22 +41,24 @@ export async function POST(req: Request) {
     }
 
     const supabase = getSupabaseAdmin();
-    const { data: company, error: companyErr } = await supabase
-      .from('companies')
-      .select('id, discount_type, discount_value, discount_applies_to, razorpay_subscription_id, razorpay_offer_id')
-      .eq('user_id', user.id)
-      .maybeSingle();
-
-    if (companyErr) {
-      return NextResponse.json({ error: companyErr.message }, { status: 500 });
-    }
-
-    const companyId = (company as any)?.id as string | undefined;
-    let subscriptionId = (company as any)?.razorpay_subscription_id as string | undefined;
-
-    if (!companyId) {
+    const resolved = await resolveCompanyForUser(
+      supabase,
+      user.id,
+      'id, user_id, discount_type, discount_value, discount_applies_to, razorpay_subscription_id, razorpay_offer_id, gst'
+    );
+    if (!resolved) {
       return NextResponse.json({ error: 'Company not found' }, { status: 404 });
     }
+    // RXTrace Gate: Only owner can trigger billing. Seat users can view status/cost, not upgrade.
+    if (!resolved.isOwner) {
+      return NextResponse.json(
+        { error: 'Only company owner can manage subscription. Contact your company admin to upgrade.' },
+        { status: 403 }
+      );
+    }
+    const companyId = resolved.companyId;
+    const company = resolved.company as Record<string, unknown>;
+    let subscriptionId = company?.razorpay_subscription_id as string | undefined;
 
     // Fetch plan (id + base_price) for validation and company_subscriptions.plan_id
     const planNameForDb = requestedPlan.charAt(0).toUpperCase() + requestedPlan.slice(1);
@@ -77,12 +80,12 @@ export async function POST(req: Request) {
     }
 
     const discount = {
-      discount_type: (company as any)?.discount_type as 'percentage' | 'flat' | null,
-      discount_value: (company as any)?.discount_value as number | null,
-      discount_applies_to: (company as any)?.discount_applies_to as 'subscription' | 'addon' | 'both' | null,
+      discount_type: company?.discount_type as 'percentage' | 'flat' | null,
+      discount_value: company?.discount_value as number | null,
+      discount_applies_to: company?.discount_applies_to as 'subscription' | 'addon' | 'both' | null,
     };
 
-    const gstNumber = (company as any)?.gst ?? (company as any)?.gst_number ?? null;
+    const gstNumber = company?.gst ?? (company as any)?.gst_number ?? null;
     const finalCalc = calculateFinalAmount({
       basePrice: basePlanPrice,
       discount: discount.discount_type && discount.discount_value !== null
@@ -125,7 +128,7 @@ export async function POST(req: Request) {
     if (!offerId && discount.discount_type && discount.discount_value !== null) {
       const applies = discount.discount_applies_to === 'subscription' || discount.discount_applies_to === 'both';
       if (applies) {
-        const companyOffer = (company as any)?.razorpay_offer_id;
+        const companyOffer = company?.razorpay_offer_id;
         if (companyOffer && String(companyOffer).trim()) offerId = String(companyOffer).trim();
       }
     }

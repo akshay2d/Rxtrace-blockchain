@@ -1,7 +1,10 @@
 // app/layout.tsx
 import type { Metadata } from "next";
+import { Inter } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
+
+const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "RxTrace India – India's First Pharma Traceability Platform",
@@ -15,12 +18,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet" />
-      </head>
-      <body className="font-sans min-h-screen bg-background text-foreground antialiased" style={{ fontFamily: 'Inter, system-ui, -apple-system, sans-serif' }}>
+      <body className={`${inter.className} font-sans min-h-screen bg-background text-foreground antialiased`}>
         {children}
         <Toaster />
       </body>

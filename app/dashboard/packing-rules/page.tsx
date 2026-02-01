@@ -148,7 +148,7 @@ export default function PackagingRulesPage() {
         }
       }
     })();
-  }, []);
+  }, [router]);
 
   async function saveRule() {
     setError("");

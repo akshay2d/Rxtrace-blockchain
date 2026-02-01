@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
+import { resolveCompanyForUser } from '@/lib/company/resolve';
 import { createRazorpayClient } from '@/lib/razorpay/server';
 
 export const runtime = 'nodejs';
@@ -21,21 +22,19 @@ export async function POST(req: Request) {
     const atPeriodEnd = body?.at_period_end !== false; // default true
 
     const supabase = getSupabaseAdmin();
-    const { data: company, error: companyErr } = await supabase
-      .from('companies')
-      .select('*')
-      .eq('user_id', user.id)
-      .maybeSingle();
-
-    if (companyErr) {
-      return NextResponse.json({ error: companyErr.message }, { status: 500 });
-    }
-
-    const companyId = (company as any)?.id as string | undefined;
-
-    if (!companyId) {
+    const resolved = await resolveCompanyForUser(supabase, user.id, 'id, trial_status');
+    if (!resolved) {
       return NextResponse.json({ error: 'Company not found' }, { status: 404 });
     }
+    // RXTrace Gate: Only owner can cancel subscription. Seat users can view only.
+    if (!resolved.isOwner) {
+      return NextResponse.json(
+        { error: 'Only company owner can cancel subscription. Contact your company admin.' },
+        { status: 403 }
+      );
+    }
+    const companyId = resolved.companyId;
+    const company = resolved.company as Record<string, unknown>;
 
     // Get subscription from company_subscriptions (single source of truth)
     const { data: subscription, error: subError } = await supabase
@@ -49,7 +48,7 @@ export async function POST(req: Request) {
     }
 
     if (!subscription) {
-      const trialStatus = (company as any)?.trial_status;
+      const trialStatus = company?.trial_status;
       if (trialStatus === 'active') {
         await supabase.from('companies').update({
           trial_status: 'expired',

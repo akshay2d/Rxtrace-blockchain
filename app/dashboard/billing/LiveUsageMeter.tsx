@@ -3,15 +3,19 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { formatCurrency, PRICING, getBalanceStatus } from '@/lib/billingConfig';
+import { formatCurrency, getBalanceStatus } from '@/lib/billingConfig';
 import { TrendingUp, AlertCircle, CheckCircle, XCircle } from 'lucide-react';
 
-type UsageData = {
-  handsets: number;
-  seats: number;
-  box_scans: number;
-  carton_scans: number;
-  pallet_scans: number;
+type LineItem = {
+  label: string;
+  count: number;
+  rate: number;
+  cost: number;
+};
+
+type CostData = {
+  usage: { handsets: number; seats: number; box_scans: number; carton_scans: number; pallet_scans: number; total: number };
+  line_items: LineItem[];
   total: number;
 };
 
@@ -26,36 +30,39 @@ export default function LiveUsageMeter({
   balance,
   refreshInterval = 30000,
 }: LiveUsageMeterProps) {
-  const [usage, setUsage] = useState<UsageData | null>(null);
+  const [costData, setCostData] = useState<CostData | null>(null);
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
 
-  const fetchUsage = useCallback(async () => {
+  const fetchCost = useCallback(async () => {
     if (!companyId) return;
 
     try {
-      const res = await fetch(`/api/billing/wallet?company_id=${companyId}`);
+      const res = await fetch('/api/billing/cost', { cache: 'no-store' });
       const data = await res.json();
 
-      if (data.usage) {
-        setUsage(data.usage);
+      if (data.success && data.line_items) {
+        setCostData({
+          usage: data.usage ?? { handsets: 0, seats: 0, box_scans: 0, carton_scans: 0, pallet_scans: 0, total: data.total ?? 0 },
+          line_items: data.line_items,
+          total: data.total ?? 0,
+        });
         setLastUpdated(new Date());
       }
     } catch (err) {
-      console.error('Failed to fetch usage:', err);
+      console.error('Failed to fetch cost:', err);
     } finally {
       setLoading(false);
     }
   }, [companyId]);
 
   useEffect(() => {
-    fetchUsage();
+    fetchCost();
 
-    // Set up polling for real-time updates
-    const interval = setInterval(fetchUsage, refreshInterval);
+    const interval = setInterval(fetchCost, refreshInterval);
 
     return () => clearInterval(interval);
-  }, [fetchUsage, refreshInterval]);
+  }, [fetchCost, refreshInterval]);
 
   if (loading) {
     return (
@@ -67,9 +74,11 @@ export default function LiveUsageMeter({
     );
   }
 
-  if (!usage) {
+  if (!costData) {
     return null;
   }
+
+  const { line_items, total } = costData;
 
   const balanceStatus = getBalanceStatus(balance);
   const statusConfig = {
@@ -101,45 +110,22 @@ export default function LiveUsageMeter({
       </CardHeader>
 
       <CardContent className="space-y-4">
-        {/* Usage Breakdown */}
         <div className="space-y-3">
-          <UsageRow
-            label="Handsets"
-            count={usage.handsets}
-            rate={PRICING.handset_monthly}
-            cost={usage.handsets * PRICING.handset_monthly}
-          />
-          <UsageRow
-            label="Seats"
-            count={usage.seats}
-            rate={PRICING.seat_monthly}
-            cost={usage.seats * PRICING.seat_monthly}
-          />
-          <UsageRow
-            label="Box Scans"
-            count={usage.box_scans}
-            rate={PRICING.box_scan}
-            cost={usage.box_scans * PRICING.box_scan}
-          />
-          <UsageRow
-            label="Carton Scans"
-            count={usage.carton_scans}
-            rate={PRICING.carton_scan}
-            cost={usage.carton_scans * PRICING.carton_scan}
-          />
-          <UsageRow
-            label="Pallet Scans"
-            count={usage.pallet_scans}
-            rate={PRICING.pallet_scan}
-            cost={usage.pallet_scans * PRICING.pallet_scan}
-          />
+          {line_items.map((item) => (
+            <UsageRow
+              key={item.label}
+              label={item.label}
+              count={item.count}
+              rate={item.rate}
+              cost={item.cost}
+            />
+          ))}
         </div>
 
-        {/* Total */}
         <div className="border-t pt-3">
           <div className="flex justify-between items-center font-semibold text-lg">
             <span>Running Total</span>
-            <span className="text-blue-600">{formatCurrency(usage.total)}</span>
+            <span className="text-blue-600">{formatCurrency(total)}</span>
           </div>
         </div>
 

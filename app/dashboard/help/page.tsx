@@ -88,8 +88,8 @@ const faqData = {
       answer: 'Yes. Seats can be purchased as add-ons from the Billing page. Each seat allows one additional user to access the system.',
     },
     {
-      question: 'Are printers and ERP integrations billed separately?',
-      answer: 'No. Printer integrations are unlimited and free. One ERP integration per user is included free. Additional ERP integrations are not available as add-ons.',
+      question: 'Are printers and ERP code ingestion billed separately?',
+      answer: 'No. Printer integrations are unlimited and free. ERP code ingestion (CSV import) is included in your plan. Export codes from your ERP and import via the ERP Code Ingestion page.',
     },
     {
       question: 'How do I view my invoices?',

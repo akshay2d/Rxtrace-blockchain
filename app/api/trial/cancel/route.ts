@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
+import { resolveCompanyForUser } from '@/lib/company/resolve';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -14,17 +15,18 @@ export async function POST(req: NextRequest) {
     }
 
     const supabase = getSupabaseAdmin();
-    const { data: company } = await supabase
-      .from('companies')
-      .select('id, trial_status')
-      .eq('user_id', user.id)
-      .maybeSingle();
-
-    if (!company) {
+    const resolved = await resolveCompanyForUser(supabase, user.id, 'id, trial_status');
+    if (!resolved) {
       return NextResponse.json({ error: 'Company not found' }, { status: 404 });
     }
+    if (!resolved.isOwner) {
+      return NextResponse.json(
+        { error: 'Only company owner can cancel trial.' },
+        { status: 403 }
+      );
+    }
 
-    if ((company as any).trial_status !== 'active') {
+    if ((resolved.company as Record<string, unknown>).trial_status !== 'active') {
       return NextResponse.json({ error: 'No active trial to cancel' }, { status: 400 });
     }
 
@@ -34,7 +36,7 @@ export async function POST(req: NextRequest) {
         trial_status: 'expired',
         subscription_status: 'expired',
       })
-      .eq('id', (company as any).id);
+      .eq('id', resolved.companyId);
 
     if (updateErr) {
       return NextResponse.json({ error: updateErr.message }, { status: 500 });

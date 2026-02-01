@@ -13,7 +13,6 @@ export const PRICING = {
   
   // Subscription & add-ons
   seat_monthly: 3000, // ₹3,000 per additional User ID per month
-  erp_integration_monthly: 3000, // ₹3,000 per additional ERP integration
 
   // Per-scan costs (if different from generation)
   box_scan: 0.1, // ₹0.10 per box scan
@@ -30,12 +29,12 @@ export const PRICING = {
   TAX_APPLIES_TO: ['subscription', 'addon'] as const,
 
   // Plan configurations
+  // max_handsets: unlimited for all plans (handset activation has no limit)
   plans: {
     starter: {
       name: "Starter",
-      max_handsets: 5,
+      max_handsets: 999999,
       max_seats: 1,
-      max_integrations: 1,
       unit_labels_quota: 200000,
       box_labels_quota: 20000,
       carton_labels_quota: 2000,
@@ -47,9 +46,8 @@ export const PRICING = {
     },
     growth: {
       name: "Growth",
-      max_handsets: 20,
+      max_handsets: 999999,
       max_seats: 5,
-      max_integrations: 1,
       unit_labels_quota: 1000000,
       box_labels_quota: 200000,
       carton_labels_quota: 20000,
@@ -61,9 +59,8 @@ export const PRICING = {
     },
     enterprise: {
       name: "Enterprise",
-      max_handsets: 100,
+      max_handsets: 999999,
       max_seats: 10,
-      max_integrations: 1,
       unit_labels_quota: 10000000,
       box_labels_quota: 1000000,
       carton_labels_quota: 100000,

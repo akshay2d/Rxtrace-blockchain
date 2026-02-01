@@ -16,7 +16,6 @@ type AddonKind = "unit" | "box" | "carton" | "pallet" | "userid";
 
 function parseAddonPurpose(purpose: string): { kind: AddonKind; companyId: string; qty: number } | null {
   // Expected: addon_<kind>_company_<companyId>_qty_<qty>
-  // ERP removed: 1 ERP per user_id is FREE (not sold as add-on)
   const match = purpose.match(/^addon_(unit|box|carton|pallet|userid)_company_(.+)_qty_(\d+)$/);
   if (!match) return null;
   const kind = match[1] as AddonKind;
@@ -208,9 +207,6 @@ async function applySingleAddon(params: {
 
     return { kind, qty, extra_user_seats: nextExtra };
   }
-
-  // ERP removed: 1 ERP per user_id is FREE (not sold as add-on)
-  // ERP integration limit is enforced in /api/integrations/save route using user_id check
 
   await ensureActiveBillingUsage({ supabase: admin, companyId });
   const { data: addRow, error: addErr } = await admin.rpc("billing_usage_add_quota", {

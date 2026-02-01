@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { supabaseClient } from '@/lib/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -18,8 +18,10 @@ type BusinessType = 'manufacturer' | 'distributor' | 'wholesaler' | 'exporter' |
 type OperationType = 'manufacturing' | 'packing' | 'import' | 'export' | 'distribution' | 'retail';
 type Industry = 'pharma' | 'medical_devices' | 'fmcg' | 'cosmetics' | 'food' | 'packaging' | 'printing';
 
-export default function CompanySetupPage() {
+function CompanySetupContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const reasonCompleteProfile = searchParams.get('reason') === 'complete_profile';
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>('');
@@ -223,6 +225,15 @@ export default function CompanySetupPage() {
           Complete your company setup to continue
         </p>
       </div>
+
+      {reasonCompleteProfile && (
+        <Alert className="bg-amber-50 border-amber-200 text-amber-900">
+          <AlertCircle className="h-4 w-4 text-amber-600" />
+          <AlertDescription>
+            Please complete your company profile to access the dashboard.
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Alerts */}
       {error && (
@@ -435,5 +446,13 @@ export default function CompanySetupPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+export default function CompanySetupPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-gray-500">Loading...</div>}>
+      <CompanySetupContent />
+    </Suspense>
   );
 }

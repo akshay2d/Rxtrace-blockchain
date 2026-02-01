@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
+import { resolveCompanyForUser } from '@/lib/company/resolve';
 import { renderInvoicePdfBuffer } from '@/lib/billing/invoicePdf';
 import { getDefaultZohoOrganizationId, zohoBooksFetch } from '@/lib/billing/zohoBooks';
 
@@ -24,25 +25,21 @@ export async function GET(
     }
 
     const supabase = getSupabaseAdmin();
-
-    const { data: company, error: companyErr } = await supabase
-      .from('companies')
-      .select('id, company_name, gst_number, contact_email, contact_phone, address')
-      .eq('user_id', user.id)
-      .maybeSingle();
-
-    if (companyErr) {
-      return NextResponse.json({ error: companyErr.message }, { status: 500 });
-    }
-    if (!company?.id) {
+    const resolved = await resolveCompanyForUser(
+      supabase,
+      user.id,
+      'id, company_name, gst_number, contact_email, contact_phone, address'
+    );
+    if (!resolved) {
       return NextResponse.json({ error: 'Company not found' }, { status: 404 });
     }
+    const company = resolved.company as Record<string, unknown>;
 
     const { data: invoice, error: invErr } = await supabase
       .from('billing_invoices')
       .select('*')
       .eq('id', id)
-      .eq('company_id', company.id)
+      .eq('company_id', resolved.companyId)
       .maybeSingle();
 
     if (invErr) {

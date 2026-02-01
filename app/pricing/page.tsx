@@ -9,54 +9,7 @@ import { useRouter } from "next/navigation";
 
 /* ===================== TYPES ===================== */
 
-type AddOn = {
-  key: string;
-  name: string;
-  priceLabel: string;
-  unitPricePaise: number; // integer paise
-  quantityPlaceholder?: string;
-};
-
-/* ===================== ADD-ONS ===================== */
-
-const ADDONS: AddOn[] = [
-  {
-    key: "unit",
-    name: "Extra Unit labels",
-    priceLabel: "₹0.10 / label",
-    unitPricePaise: 10,
-    quantityPlaceholder: "e.g. 1L",
-  },
-  {
-    key: "box",
-    name: "Extra Box labels",
-    priceLabel: "₹0.30 / label",
-    unitPricePaise: 30,
-    quantityPlaceholder: "e.g. 10K",
-  },
-  {
-    key: "carton",
-    name: "Extra Carton labels",
-    priceLabel: "₹1.00 / label",
-    unitPricePaise: 100,
-    quantityPlaceholder: "e.g. 1K",
-  },
-  {
-    key: "pallet",
-    name: "Extra Pallet labels (SSCC)",
-    priceLabel: "₹2.00 / label",
-    unitPricePaise: 200,
-    quantityPlaceholder: "e.g. 500",
-  },
-  {
-    key: "userid",
-    name: "Additional User ID (Seat)",
-    priceLabel: "₹3,000 / month",
-    unitPricePaise: 3000 * 100,
-    quantityPlaceholder: "e.g. 1",
-  },
-  // ERP removed: 1 ERP integration per User ID is FREE (not sold as add-on)
-];
+/* Add-on prices come from /api/public/add-ons (admin source of truth). No frontend constants. */
 
 function parseQuantity(input: string): number | null {
   const raw = (input ?? "").trim();
@@ -164,6 +117,7 @@ export default function PricingPage() {
     discount_value: number | null;
     discount_applies_to: 'subscription' | 'addon' | 'both' | null;
   } | null>(null);
+  const [companyLoadError, setCompanyLoadError] = React.useState<string | null>(null);
 
   // Billing cycle selection: monthly vs annual (separate subscription options)
   const [selectedBillingCycle, setSelectedBillingCycle] = React.useState<'monthly' | 'yearly'>('monthly');
@@ -309,42 +263,68 @@ export default function PricingPage() {
         const user = data?.user;
         if (!user) return;
 
-        // Fetch company data
+        // Prefer subscription API (uses canonical company resolver: owner + seat)
+        let companyIdFromApi: string | null = null;
+        let subscriptionStatusFromApi: string | null = null;
+        let subscriptionData: any = null;
+        try {
+          const subRes = await fetch('/api/user/subscription', { cache: 'no-store' });
+          if (subRes.ok) {
+            const subBody = await subRes.json();
+            companyIdFromApi = subBody.company_id ?? null;
+            subscriptionStatusFromApi = subBody.subscription_status ?? null;
+            subscriptionData = subBody.subscription ?? null;
+          }
+        } catch (subErr) {
+          console.error('[Pricing] Failed to fetch subscription:', subErr);
+        }
+
+        // If API returned company_id, use it (resolver-backed; works for owner and seat)
+        if (companyIdFromApi) {
+          let discountData = null;
+          try {
+            const discountRes = await fetch(`/api/admin/companies/discount?company_id=${companyIdFromApi}`);
+            if (discountRes.ok) {
+              const discountBody = await discountRes.json();
+              if (discountBody.success && discountBody.discount) discountData = discountBody.discount;
+            }
+          } catch (err) {
+            console.error('Failed to fetch company discount:', err);
+          }
+          if (!cancelled) {
+            setCompany({
+              id: companyIdFromApi,
+              subscription_status: subscriptionStatusFromApi,
+              trial_started_at: subscriptionData?.is_trial ? subscriptionData?.created_at : null,
+              trial_ends_at: subscriptionData?.is_trial ? subscriptionData?.trial_end : null,
+              trial_status: subscriptionData?.is_trial ? 'active' : null,
+            });
+            setCompanyId(companyIdFromApi);
+            setSubscription(subscriptionData);
+            setCompanyDiscount(discountData);
+            setCompanyLoadError(null);
+          }
+          return;
+        }
+
+        // Fallback: direct company fetch (owner only; correct column names)
         const { data: company } = await supabase
           .from("companies")
-          .select("id, subscription_status, trial_start_date, trial_end_date, trial_activated_at, discount_type, discount_value, discount_applies_to")
+          .select("id, subscription_status, trial_started_at, trial_ends_at, trial_status, discount_type, discount_value, discount_applies_to")
           .eq("user_id", user.id)
           .maybeSingle();
-        
-        // Fetch company discount if company exists
+
         let discountData = null;
         if (company?.id) {
           try {
             const discountRes = await fetch(`/api/admin/companies/discount?company_id=${company.id}`);
             if (discountRes.ok) {
               const discountBody = await discountRes.json();
-              if (discountBody.success && discountBody.discount) {
-                discountData = discountBody.discount;
-              }
+              if (discountBody.success && discountBody.discount) discountData = discountBody.discount;
             }
           } catch (err) {
             console.error('Failed to fetch company discount:', err);
           }
-        }
-
-        // Fetch subscription data from API (same source as billing page)
-        let subscriptionData = null;
-        try {
-          const subRes = await fetch('/api/user/subscription', { cache: 'no-store' });
-          if (subRes.ok) {
-            const subBody = await subRes.json();
-            subscriptionData = subBody.subscription || null;
-            console.log('[Pricing] Subscription data:', subscriptionData);
-          } else {
-            console.error('[Pricing] Subscription API error:', subRes.status, await subRes.text());
-          }
-        } catch (subErr) {
-          console.error('[Pricing] Failed to fetch subscription:', subErr);
         }
 
         if (!cancelled) {
@@ -352,9 +332,15 @@ export default function PricingPage() {
           setCompanyId((company as any)?.id ?? null);
           setSubscription(subscriptionData);
           setCompanyDiscount(discountData);
+          setCompanyLoadError(null);
         }
-      } catch {
-        // ignore
+      } catch (err) {
+        if (!cancelled) {
+          console.error('[Pricing] Failed to load company:', err);
+          setCompanyLoadError('Could not load company. Please refresh the page or complete company setup.');
+          setCompanyId(null);
+          setCompany(null);
+        }
       }
     })();
 
@@ -792,6 +778,15 @@ export default function PricingPage() {
         </div>
       </section>
 
+
+      {companyLoadError && (
+        <div className="max-w-7xl mx-auto px-6 pb-2">
+          <div className="rounded-lg p-3 text-sm border bg-amber-50 border-amber-200 text-amber-900">
+            {companyLoadError}
+            <Link href="/dashboard/company-setup" className="ml-2 font-medium underline">Complete company setup →</Link>
+          </div>
+        </div>
+      )}
 
       {trialMessage && (
         <div className="max-w-7xl mx-auto px-6 pb-2">

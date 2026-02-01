@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -41,12 +41,7 @@ export default function CompanyAuditPage() {
   const [selectedAction, setSelectedAction] = useState<string>('all');
   const [selectedAdmin, setSelectedAdmin] = useState<string>('all');
 
-  useEffect(() => {
-    fetchCompany();
-    fetchAuditLogs();
-  }, [companyId, dateFrom, dateTo, selectedAction, selectedAdmin]);
-
-  async function fetchCompany() {
+  const fetchCompany = useCallback(async () => {
     try {
       const supabase = supabaseClient();
       const { data, error } = await supabase
@@ -59,9 +54,9 @@ export default function CompanyAuditPage() {
     } catch (error: any) {
       console.error('Failed to fetch company:', error);
     }
-  }
+  }, [companyId]);
 
-  async function fetchAuditLogs() {
+  const fetchAuditLogs = useCallback(async () => {
     setLoading(true);
     try {
       const supabase = supabaseClient();
@@ -138,7 +133,12 @@ export default function CompanyAuditPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [companyId, dateFrom, dateTo, selectedAction]);
+
+  useEffect(() => {
+    fetchCompany();
+    fetchAuditLogs();
+  }, [fetchCompany, fetchAuditLogs]);
 
   const exportToCSV = () => {
     const headers = ['Timestamp', 'Action', 'Old Value', 'New Value', 'Performed By', 'Notes'];

@@ -2,13 +2,12 @@ import Razorpay from "razorpay";
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import { PRICING } from "@/lib/billingConfig";
+import { resolveCompanyForUser } from "@/lib/company/resolve";
+import { fetchAddonPricesFromDb, getPricePaise, type AddonKind } from "@/lib/billing/addon-pricing";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-type AddonKind = "unit" | "box" | "carton" | "pallet" | "userid";
 
 type CartItemInput = {
   kind: AddonKind;
@@ -32,17 +31,6 @@ function formatRazorpayError(e: any) {
 
   const parts = [description, code ? `code=${code}` : null, status ? `status=${status}` : null].filter(Boolean);
   return parts.length ? parts.join(" | ") : "Failed to create Razorpay order";
-}
-
-function unitPricePaise(kind: AddonKind): number {
-  if (kind === "unit") return Math.round(PRICING.unit_label * 100);
-  if (kind === "box") return Math.round(PRICING.box_label * 100);
-  if (kind === "carton") return Math.round(PRICING.carton_label * 100);
-  if (kind === "pallet") return Math.round(PRICING.pallet_label * 100);
-  if (kind === "userid") return Math.round(PRICING.seat_monthly * 100);
-  // ERP removed: 1 ERP per user_id is FREE (not sold as add-on)
-  // exhaustive
-  return 0;
 }
 
 function normalizeItems(raw: unknown): CartItemInput[] {
@@ -73,48 +61,44 @@ function normalizeItems(raw: unknown): CartItemInput[] {
   return Array.from(merged.entries()).map(([kind, qty]) => ({ kind, qty }));
 }
 
-async function resolveAuthCompanyId() {
-  const supabase = await supabaseServer();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) return { user: null as any, companyId: null as string | null };
-
-  const admin = getSupabaseAdmin();
-  const { data: company } = await admin
-    .from("companies")
-    .select("id")
-    .eq("user_id", user.id)
-    .maybeSingle();
-
-  return { user, companyId: (company as any)?.id ?? null };
-}
-
 export async function POST(req: Request) {
   try {
+    const supabase = await supabaseServer();
+    const { data: { user }, error: authErr } = await supabase.auth.getUser();
+    if (authErr || !user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const admin = getSupabaseAdmin();
+    const resolved = await resolveCompanyForUser(admin, user.id, "id");
+    if (!resolved) {
+      return NextResponse.json({ error: "No company found" }, { status: 404 });
+    }
+    // RXTrace Gate: Only owner can purchase add-ons. Seat users can view cost only.
+    if (!resolved.isOwner) {
+      return NextResponse.json(
+        { error: "Only company owner can purchase add-ons. Contact your company admin." },
+        { status: 403 }
+      );
+    }
+    const companyId = resolved.companyId;
+
     const body = await req.json().catch(() => ({}));
     const requestedCompanyId = body.company_id as string | undefined;
+    if (requestedCompanyId && requestedCompanyId !== companyId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
     const items = normalizeItems(body.items);
     if (items.length === 0) {
       return NextResponse.json({ error: "items required" }, { status: 400 });
     }
 
-    const { user, companyId } = await resolveAuthCompanyId();
-    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    if (!companyId) return NextResponse.json({ error: "No company found" }, { status: 403 });
-
-    if (requestedCompanyId && requestedCompanyId !== companyId) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
-
-    const totalPaise = items.reduce((sum, item) => sum + unitPricePaise(item.kind) * item.qty, 0);
+    const priceMap = await fetchAddonPricesFromDb(admin);
+    const totalPaise = items.reduce((sum, item) => sum + getPricePaise(priceMap, item.kind) * item.qty, 0);
     if (!Number.isInteger(totalPaise) || totalPaise <= 0) {
       return NextResponse.json({ error: "Invalid total" }, { status: 400 });
     }
-
-    const admin = getSupabaseAdmin();
 
     // Coupon: validate and compute discount for add-on cart
     let couponId: string | null = null;

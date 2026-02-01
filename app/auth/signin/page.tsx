@@ -67,35 +67,24 @@ export default function SignIn() {
           return;
         }
 
-        // Check if company exists and has subscription
-        const { data: companyData, error: companyError } = await supabaseClient()
-          .from('companies')
-          .select('id, subscription_status, trial_end_date')
-          .eq('user_id', data.user.id)
-          .maybeSingle();
-        
-        if (companyError) {
-          console.error('Company fetch error:', companyError);
-          setError('Failed to load company data. Please try again.');
-          setLoading(false);
-          return;
-        }
-        
-        // Redirect to company setup if no company (backend-first guard)
-        if (!companyData) {
+        // Blocker 1 fix: Use canonical resolver (owner + seat) via API instead of owner-only companies fetch
+        const subRes = await fetch('/api/user/subscription', { cache: 'no-store' });
+        const subBody = await subRes.json().catch(() => ({}));
+        const companyId = subBody.company_id ?? null;
+        const subscriptionStatus = subBody.subscription_status ?? null;
+
+        if (!companyId) {
           router.push('/dashboard/company-setup');
           return;
         }
-        
-        // Redirect to pricing if company exists but no active subscription or trial
-        const status = String(companyData.subscription_status ?? '').toLowerCase();
-        const allowed = new Set(['trial', 'trialing', 'active', 'paid', 'live']);
 
+        const status = String(subscriptionStatus ?? '').toLowerCase();
+        const allowed = new Set(['trial', 'trialing', 'active', 'paid', 'live']);
         if (!allowed.has(status)) {
           router.push('/pricing');
           return;
         }
-        
+
         router.push('/dashboard');
       } else {
         console.error('No user data returned');

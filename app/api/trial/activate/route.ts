@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { supabaseServer } from '@/lib/supabase/server';
 import { writeAuditLog } from '@/lib/audit';
+import { resolveCompanyForUser } from '@/lib/company/resolve';
+import { safeApiErrorMessage } from '@/lib/api-error';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -10,26 +12,29 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 async function handleTrialActivation(company_id: string, user_id: string) {
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-  const { data: company, error: companyErr } = await supabase
-    .from('companies')
-    .select('id, trial_status, trial_ends_at, subscription_status')
-    .eq('id', company_id)
-    .eq('user_id', user_id)
-    .maybeSingle();
-
-  if (companyErr) {
-    console.error('Trial: company check error', companyErr);
-    return NextResponse.json({ error: 'Failed to verify company' }, { status: 500 });
-  }
-  if (!company) {
+  // Canonical resolver: user must be owner or active seat member of this company
+  const resolved = await resolveCompanyForUser(
+    supabase,
+    user_id,
+    'id, trial_status, trial_ends_at, subscription_status'
+  );
+  if (!resolved || resolved.companyId !== company_id) {
     return NextResponse.json({ error: 'Company not found' }, { status: 404 });
   }
+  // RXTrace Gate: Only owner can start trial. Seat users cannot activate trial.
+  if (!resolved.isOwner) {
+    return NextResponse.json(
+      { error: 'Only company owner can start trial. Contact your company admin.' },
+      { status: 403 }
+    );
+  }
+  const company = resolved.company as Record<string, unknown>;
 
-  const trialStatus = (company as any).trial_status;
-  const trialEndsAt = (company as any).trial_ends_at;
+  const trialStatus = company.trial_status;
+  const trialEndsAt = company.trial_ends_at;
 
   if (trialStatus === 'active' && trialEndsAt) {
-    if (new Date(trialEndsAt) > new Date()) {
+    if (new Date(trialEndsAt as string) > new Date()) {
       return NextResponse.json({
         success: false,
         message: 'Trial already active for this company',
@@ -68,10 +73,11 @@ async function handleTrialActivation(company_id: string, user_id: string) {
     .eq('id', company_id);
 
   if (updateErr) {
-    console.error('Trial: failed to set company trial state', updateErr);
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Trial: failed to set company trial state', updateErr);
+    }
     return NextResponse.json({
-      error: 'Failed to activate trial',
-      details: updateErr.message,
+      error: process.env.NODE_ENV === 'production' ? 'Failed to activate trial' : updateErr.message,
     }, { status: 500 });
   }
 
@@ -114,9 +120,11 @@ export async function POST(req: NextRequest) {
     }
 
     return await handleTrialActivation(company_id, userId);
-  } catch (error: any) {
-    console.error('Trial activation error:', error);
-    return NextResponse.json({ error: error?.message || 'Failed to activate trial' }, { status: 500 });
+  } catch (error: unknown) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Trial activation error:', error);
+    }
+    return NextResponse.json({ error: safeApiErrorMessage(error, 'Failed to activate trial') }, { status: 500 });
   }
 }
 

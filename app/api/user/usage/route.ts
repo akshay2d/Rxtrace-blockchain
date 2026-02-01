@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
+import { resolveCompanyForUser } from '@/lib/company/resolve';
 import { getCurrentUsage, getUsageLimits } from '@/lib/usage/tracking';
 import { ensureActiveBillingUsage, billingUsageToDashboard } from '@/lib/billing/usage';
 
@@ -18,17 +19,12 @@ export async function GET(req: Request) {
     }
 
     const admin = getSupabaseAdmin();
-    const { data: company } = await admin
-      .from('companies')
-      .select('id')
-      .eq('user_id', user.id)
-      .maybeSingle();
-
-    if (!company?.id) {
+    const resolved = await resolveCompanyForUser(admin, user.id, 'id');
+    if (!resolved) {
       return NextResponse.json({ error: 'Company not found' }, { status: 404 });
     }
 
-    const companyId = company.id as string;
+    const companyId = resolved.companyId;
     const limits = await getUsageLimits(admin, companyId);
 
     // PHASE-3: Prefer billing_usage for current period (single source of truth for user UI)

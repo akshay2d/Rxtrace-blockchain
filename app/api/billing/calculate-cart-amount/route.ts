@@ -1,21 +1,11 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
-import { PRICING } from '@/lib/billingConfig';
+import { resolveCompanyForUser } from '@/lib/company/resolve';
+import { fetchAddonPricesFromDb, getPricePaise, type AddonKind } from '@/lib/billing/addon-pricing';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-type AddonKind = 'unit' | 'box' | 'carton' | 'pallet' | 'userid';
-
-function unitPricePaise(kind: AddonKind): number {
-  if (kind === 'unit') return Math.round(PRICING.unit_label * 100);
-  if (kind === 'box') return Math.round(PRICING.box_label * 100);
-  if (kind === 'carton') return Math.round(PRICING.carton_label * 100);
-  if (kind === 'pallet') return Math.round(PRICING.pallet_label * 100);
-  if (kind === 'userid') return Math.round(PRICING.seat_monthly * 100);
-  return 0;
-}
 
 function normalizeItems(raw: unknown): Array<{ kind: AddonKind; qty: number }> {
   if (!Array.isArray(raw)) return [];
@@ -52,15 +42,11 @@ export async function POST(req: Request) {
     }
 
     const admin = getSupabaseAdmin();
-    const { data: company } = await admin
-      .from('companies')
-      .select('id')
-      .eq('user_id', user.id)
-      .maybeSingle();
-    const companyId = (company as any)?.id;
-    if (!companyId) {
+    const resolved = await resolveCompanyForUser(admin, user.id, 'id');
+    if (!resolved) {
       return NextResponse.json({ success: false, error: 'Company not found' }, { status: 404 });
     }
+    const companyId = resolved.companyId;
 
     const body = await req.json().catch(() => ({}));
     const items = normalizeItems(body?.items);
@@ -68,7 +54,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: false, error: 'items required' }, { status: 400 });
     }
 
-    const subtotalPaise = items.reduce((sum, item) => sum + unitPricePaise(item.kind) * item.qty, 0);
+    const priceMap = await fetchAddonPricesFromDb(admin);
+    const subtotalPaise = items.reduce(
+      (sum, item) => sum + getPricePaise(priceMap, item.kind) * item.qty,
+      0
+    );
     if (!Number.isInteger(subtotalPaise) || subtotalPaise <= 0) {
       return NextResponse.json({ success: false, error: 'Invalid total' }, { status: 400 });
     }

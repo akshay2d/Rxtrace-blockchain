@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
+import { resolveCompanyForUser } from '@/lib/company/resolve';
 import {
   createRazorpayClient,
   razorpaySubscriptionPlanIdFor,
@@ -23,21 +24,13 @@ export async function GET() {
     }
 
     const supabase = getSupabaseAdmin();
+    const resolved = await resolveCompanyForUser(supabase, user.id, '*');
 
-    const { data: company, error: companyErr } = await supabase
-      .from('companies')
-      // Use '*' so this endpoint doesn't hard-fail if some optional columns
-      // (e.g. razorpay_subscription_id) haven't been migrated yet.
-      .select('*')
-      .eq('user_id', user.id)
-      .maybeSingle();
-
-    if (companyErr) {
-      return NextResponse.json({ error: companyErr.message }, { status: 500 });
-    }
-    if (!company || !(company as any)?.id) {
+    if (!resolved || !(resolved.company as any)?.id) {
       return NextResponse.json({ error: 'Company not found' }, { status: 404 });
     }
+
+    const company = resolved.company as Record<string, unknown>;
 
     const keyId = process.env.RAZORPAY_KEY_ID ?? process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
     const keySecret = process.env.RAZORPAY_KEY_SECRET;
@@ -72,26 +65,17 @@ export async function POST(req: Request) {
     const requestedPlan = typeof body?.plan === 'string' ? body.plan : null;
 
     const supabase = getSupabaseAdmin();
-    const { data: company, error: companyErr } = await supabase
-      .from('companies')
-      // Use '*' so this endpoint doesn't hard-fail if some optional columns
-      // (e.g. razorpay_subscription_id) haven't been migrated yet.
-      .select('*')
-      .eq('user_id', user.id)
-      .maybeSingle();
-
-    if (companyErr) {
-      return NextResponse.json({ error: companyErr.message }, { status: 500 });
-    }
-    if (!company || !(company as any)?.id) {
+    const resolved = await resolveCompanyForUser(supabase, user.id, '*');
+    if (!resolved) {
       return NextResponse.json({ error: 'Company not found' }, { status: 404 });
     }
+    const company = resolved.company as Record<string, unknown>;
 
-    if ((company as any).razorpay_subscription_id) {
-      return NextResponse.json({ ok: true, subscription_id: (company as any).razorpay_subscription_id });
+    if (company.razorpay_subscription_id) {
+      return NextResponse.json({ ok: true, subscription_id: company.razorpay_subscription_id });
     }
 
-    const planKey = requestedPlan ?? String((company as any).subscription_plan ?? 'starter');
+    const planKey = requestedPlan ?? String(company.subscription_plan ?? 'starter');
     let planId: string;
     try {
       planId = razorpaySubscriptionPlanIdFor(planKey);
@@ -100,7 +84,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: msg }, { status: 400 });
     }
 
-    const trialEnd = (company as any).trial_end_date ? new Date(String((company as any).trial_end_date)) : null;
+    const trialEnd = (company.trial_ends_at ?? (company as any).trial_end_date) ? new Date(String(company.trial_ends_at ?? (company as any).trial_end_date)) : null;
     const startAtSeconds = Math.floor(((trialEnd && trialEnd.getTime() > Date.now()) ? trialEnd : new Date(Date.now() + 60_000)).getTime() / 1000);
 
     // Razorpay limits: max 100 for annual plans, 120 for monthly/quarterly
@@ -114,7 +98,7 @@ export async function POST(req: Request) {
       customer_notify: 1,
       start_at: startAtSeconds,
       notes: {
-        company_id: company.id,
+        company_id: resolved.companyId,
         plan: planKey,
         source: 'billing_page',
       },
@@ -129,7 +113,7 @@ export async function POST(req: Request) {
         subscription_updated_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
-      .eq('id', company.id);
+      .eq('id', resolved.companyId);
 
     const { keyId } = getRazorpayKeys();
 

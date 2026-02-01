@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -54,11 +54,7 @@ export default function CompanyDetailPage() {
   const [usageData, setUsageData] = useState<UsageData | null>(null);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    fetchData();
-  }, [companyId]);
-
-  async function fetchData() {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       const supabase = supabaseClient();
@@ -85,7 +81,11 @@ export default function CompanyDetailPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [companyId]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   if (loading && !company) {
     return <div className="p-6">Loading...</div>;

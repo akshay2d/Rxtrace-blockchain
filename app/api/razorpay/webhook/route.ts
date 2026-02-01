@@ -731,7 +731,7 @@ function verifyRazorpayWebhookSignature(rawBody: string, signature: string | nul
   return crypto.timingSafeEqual(a, b);
 }
 
-type AddonKind = "unit" | "box" | "carton" | "pallet" | "userid" | "erp";
+type AddonKind = "unit" | "box" | "carton" | "pallet" | "userid";
 
 async function ensureSubscriptionInvoice(params: {
   admin: any;
@@ -1609,7 +1609,7 @@ async function validateInvoiceIntegrity(
 
 function parsePurpose(purpose: string): { kind: AddonKind; companyId: string; qty: number } | null {
   // Expected: addon_<kind>_company_<companyId>_qty_<qty>
-  const match = purpose.match(/^addon_(unit|box|carton|pallet|userid|erp)_company_(.+)_qty_(\d+)$/);
+  const match = purpose.match(/^addon_(unit|box|carton|pallet|userid)_company_(.+)_qty_(\d+)$/);
   if (!match) return null;
   const kind = match[1] as AddonKind;
   const companyId = match[2];
@@ -1648,13 +1648,12 @@ function normalizeCartItems(raw: unknown): Array<{ kind: AddonKind; qty: number 
     const qty = typeof qtyRaw === "string" ? Number(qtyRaw) : Number(qtyRaw);
 
     // PHASE-1: Input validation - quantity bounds
-    if (
+    if     (
       (kindRaw === "unit" ||
         kindRaw === "box" ||
         kindRaw === "carton" ||
         kindRaw === "pallet" ||
-        kindRaw === "userid" ||
-        kindRaw === "erp") &&
+        kindRaw === "userid") &&
       Number.isInteger(qty) &&
       qty >= MIN_QUANTITY &&
       qty <= MAX_QUANTITY
@@ -1986,7 +1985,7 @@ function validateAddonApplication(params: {
   if (!Number.isInteger(params.qty) || params.qty < MIN_QUANTITY || params.qty > MAX_QUANTITY) {
     throw new Error(`Invalid quantity: ${params.qty} (must be between ${MIN_QUANTITY} and ${MAX_QUANTITY})`);
   }
-  const validKinds: AddonKind[] = ['unit', 'box', 'carton', 'pallet', 'userid', 'erp'];
+  const validKinds: AddonKind[] = ['unit', 'box', 'carton', 'pallet', 'userid'];
   if (!validKinds.includes(params.kind)) {
     throw new Error(`Invalid addon kind: ${params.kind}`);
   }
@@ -2092,93 +2091,6 @@ async function applySingleAddon(params: {
     }).catch(() => undefined);
 
     return { kind, qty, extra_user_seats: nextExtra };
-  }
-
-  if (kind === "erp") {
-    // PHASE-3: Retry company fetch with error handling
-    // PHASE-2: Atomic operation with validation
-    let companyRow: any = null;
-    try {
-      const result = await retryOperation(
-        async () => {
-          const result = await supabase
-            .from("companies")
-            .select("id, extra_erp_integrations")
-            .eq("id", companyId)
-            .maybeSingle();
-          
-          if (result.error) {
-            throw new Error(result.error.message);
-          }
-          return result;
-        },
-        3,
-        1000,
-        { companyId, kind, operation: 'fetch_company_erp' }
-      );
-      companyRow = result.data;
-    } catch (error: any) {
-      const classified = classifyError(error, { companyId, kind });
-      logWebhookError('applySingleAddon', classified);
-      throw new Error(`PHASE-2: Company fetch failed: ${classified.message}`);
-    }
-    if (!companyRow) {
-      const error = classifyError(new Error(`Company not found: ${companyId}`), { companyId, kind });
-      logWebhookError('applySingleAddon', error);
-      throw new Error(`PHASE-2: Company not found: ${companyId}`);
-    }
-
-    const currentExtra = Number((companyRow as any).extra_erp_integrations ?? 0);
-    // PHASE-2: Validate before update to prevent overflow
-    if (!Number.isFinite(currentExtra) || currentExtra < 0) {
-      const error = classifyError(new Error(`Invalid current extra_erp_integrations value: ${currentExtra}`), { companyId, kind, currentExtra });
-      logWebhookError('applySingleAddon', error);
-      throw new Error(`PHASE-2: Invalid current extra_erp_integrations value: ${currentExtra}`);
-    }
-    
-    const nextExtra = currentExtra + qty;
-    // PHASE-2: Bounds check
-    if (nextExtra > MAX_QUANTITY) {
-      const error = classifyError(new Error(`Quantity overflow: ${nextExtra} exceeds maximum ${MAX_QUANTITY}`), { companyId, kind, nextExtra, max: MAX_QUANTITY });
-      logWebhookError('applySingleAddon', error);
-      throw new Error(`PHASE-2: Quantity overflow: ${nextExtra} exceeds maximum ${MAX_QUANTITY}`);
-    }
-
-    // PHASE-3: Retry company update with error handling
-    try {
-      await retryOperation(
-        async () => {
-          const result = await supabase
-            .from("companies")
-            .update({ extra_erp_integrations: nextExtra, updated_at: paidAt })
-            .eq("id", companyId)
-            .eq("extra_erp_integrations", currentExtra); // PHASE-2: Optimistic locking
-          
-          if (result.error) {
-            throw new Error(result.error.message);
-          }
-          return result;
-        },
-        3,
-        1000,
-        { companyId, kind, currentExtra, nextExtra, operation: 'update_company_erp' }
-      );
-    } catch (error: any) {
-      const classified = classifyError(error, { companyId, kind, currentExtra, nextExtra });
-      logWebhookError('applySingleAddon', classified);
-      throw new Error(`PHASE-2: Company update failed: ${classified.message}`);
-    }
-
-    await writeAuditLog({
-      companyId,
-      actor: "system",
-      action: "addon_erp_activated_webhook",
-      status: "success",
-      integrationSystem: "razorpay",
-      metadata: { order_id: orderId, payment_id: paymentId, qty, extra_erp_integrations: nextExtra },
-    }).catch(() => undefined);
-
-    return { kind, qty, extra_erp_integrations: nextExtra };
   }
 
   // PHASE-2: Ensure billing usage record exists before quota addition
@@ -2577,6 +2489,17 @@ async function applyAddonFromOrder(orderId: string, paymentId: string | null) {
 }
 
 export async function POST(req: Request) {
+  // R1: Fail fast in production if webhook secret is not configured
+  const webhookSecretRequired = process.env.NODE_ENV === 'production';
+  const webhookSecretSet = Boolean(process.env.RAZORPAY_WEBHOOK_SECRET?.trim());
+  if (webhookSecretRequired && !webhookSecretSet) {
+    console.error('RAZORPAY_WEBHOOK_SECRET is not set in production; webhook cannot verify signatures');
+    return NextResponse.json(
+      { error: 'Webhook not configured: RAZORPAY_WEBHOOK_SECRET is required in production' },
+      { status: 503 }
+    );
+  }
+
   // Razorpay webhook: verify signature using webhook secret
   // Configure env: RAZORPAY_WEBHOOK_SECRET
   

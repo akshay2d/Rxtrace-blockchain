@@ -6,7 +6,21 @@ const nextConfig = {
   experimental: {
     optimizePackageImports: ['lucide-react'],
   },
-  // Disable type checking during build to avoid EPERM on Windows
+  // Production security headers
+  async headers() {
+    return [
+      {
+        source: '/(.*)',
+        headers: [
+          { key: 'X-Frame-Options', value: 'DENY' },
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+        ],
+      },
+    ];
+  },
+  // R3: TypeScript/ESLint - kept disabled for Windows EPERM; run `npx tsc --noEmit` and `npm run lint` in CI
   typescript: {
     ignoreBuildErrors: true,
   },

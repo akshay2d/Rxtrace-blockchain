@@ -30,7 +30,7 @@ export async function POST(req: Request) {
     // Find trials that ended
     const { data: companies, error: companiesErr } = await supabase
       .from('companies')
-      .select('id, subscription_plan, subscription_status, trial_end_date, extra_user_seats, extra_erp_integrations')
+      .select('id, subscription_plan, subscription_status, trial_end_date, extra_user_seats')
       .eq('subscription_status', 'trial')
       .not('trial_end_date', 'is', null)
       .lte('trial_end_date', now.toISOString())

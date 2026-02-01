@@ -1,30 +1,9 @@
 import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
 import { requireAdmin } from '@/lib/auth/admin';
+import { resolveCompanyIdFromRequest } from '@/lib/company/resolve';
 
 export const runtime = 'nodejs';
-
-async function resolveCompanyIdFromRequest(req: Request): Promise<string | null> {
-  const authHeader = req.headers.get('authorization');
-  if (!authHeader) return null;
-
-  const supabase = getSupabaseAdmin();
-  const accessToken = authHeader.replace('Bearer ', '');
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser(accessToken);
-
-  if (error || !user) return null;
-
-  const { data: company } = await supabase
-    .from('companies')
-    .select('id')
-    .eq('user_id', user.id)
-    .single();
-
-  return company?.id ?? null;
-}
 
 export async function POST(req: Request) {
   try {

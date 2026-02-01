@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
+import { resolveCompanyForUser } from '@/lib/company/resolve';
 import { calculateFinalAmount } from '@/lib/billing/tax';
 
 export const runtime = 'nodejs';
@@ -34,19 +35,16 @@ export async function POST(req: Request) {
     const couponCode = typeof body?.coupon_code === 'string' ? body.coupon_code.trim() : null;
 
     const admin = getSupabaseAdmin();
-    const { data: company, error: companyErr } = await admin
-      .from('companies')
-      .select('id, discount_type, discount_value, discount_applies_to')
-      .eq('user_id', user.id)
-      .maybeSingle();
-
-    if (companyErr) {
-      return NextResponse.json({ success: false, error: companyErr.message }, { status: 500 });
-    }
-    const companyId = (company as any)?.id;
-    if (!companyId) {
+    const resolved = await resolveCompanyForUser(
+      admin,
+      user.id,
+      'id, discount_type, discount_value, discount_applies_to, gst'
+    );
+    if (!resolved) {
       return NextResponse.json({ success: false, error: 'Company not found' }, { status: 404 });
     }
+    const companyId = resolved.companyId;
+    const company = resolved.company;
 
     const planNameForDb = requestedPlan.charAt(0).toUpperCase() + requestedPlan.slice(1);
     const { data: planRow } = await admin
@@ -66,11 +64,11 @@ export async function POST(req: Request) {
     }
 
     const discount = {
-      type: (company as any)?.discount_type as 'percentage' | 'flat' | null,
-      value: (company as any)?.discount_value as number | null,
-      appliesTo: (company as any)?.discount_applies_to as 'subscription' | 'addon' | 'both' | null,
+      type: company?.discount_type as 'percentage' | 'flat' | null,
+      value: company?.discount_value as number | null,
+      appliesTo: company?.discount_applies_to as 'subscription' | 'addon' | 'both' | null,
     };
-    const gstNumber = (company as any)?.gst ?? (company as any)?.gst_number ?? null;
+    const gstNumber = company?.gst ?? (company as any)?.gst_number ?? null;
 
     const finalCalc = calculateFinalAmount({
       basePrice,

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
 import { supabaseServer } from '@/lib/supabase/server';
+import { resolveCompanyForUser } from '@/lib/company/resolve';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,20 +12,11 @@ function isValidEmail(value: string) {
 async function resolveCompanyIdFromAuth(): Promise<string | null> {
   try {
     const supabase = await supabaseServer();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
+    const { data: { user } } = await supabase.auth.getUser();
     if (!user) return null;
-
     const admin = getSupabaseAdmin();
-    const { data: company } = await admin
-      .from('companies')
-      .select('id')
-      .eq('user_id', user.id)
-      .maybeSingle();
-
-    return company?.id ?? null;
+    const resolved = await resolveCompanyForUser(admin, user.id, 'id');
+    return resolved?.companyId ?? null;
   } catch {
     return null;
   }

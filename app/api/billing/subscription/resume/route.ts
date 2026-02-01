@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
+import { resolveCompanyForUser } from '@/lib/company/resolve';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -17,21 +18,18 @@ export async function POST(req: Request) {
     }
 
     const supabase = getSupabaseAdmin();
-    const { data: company, error: companyErr } = await supabase
-      .from('companies')
-      .select('id')
-      .eq('user_id', user.id)
-      .maybeSingle();
-
-    if (companyErr) {
-      return NextResponse.json({ error: companyErr.message }, { status: 500 });
-    }
-
-    const companyId = (company as any)?.id as string | undefined;
-
-    if (!companyId) {
+    const resolved = await resolveCompanyForUser(supabase, user.id, 'id');
+    if (!resolved) {
       return NextResponse.json({ error: 'Company not found' }, { status: 404 });
     }
+    // RXTrace Gate: Only owner can resume subscription.
+    if (!resolved.isOwner) {
+      return NextResponse.json(
+        { error: 'Only company owner can resume subscription. Contact your company admin.' },
+        { status: 403 }
+      );
+    }
+    const companyId = resolved.companyId;
 
     // Get subscription from company_subscriptions (single source of truth)
     const { data: subscription, error: subError } = await supabase

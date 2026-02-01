@@ -109,10 +109,9 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     fetchSubscription();
-    
-    // Refresh every 30 seconds
     const interval = setInterval(fetchSubscription, 30000);
     return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchSubscription is stable; mount + interval only
   }, []);
 
   const isFeatureEnabled = (feature: string): boolean => {

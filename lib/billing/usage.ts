@@ -30,7 +30,7 @@ export async function getCompanyBillingContext(opts: {
 
   const { data: companyRow, error } = await supabase
     .from('companies')
-    .select('id, subscription_status, subscription_plan, trial_start_date, trial_end_date, extra_user_seats, extra_erp_integrations')
+    .select('id, subscription_status, subscription_plan, trial_started_at, trial_ends_at, trial_start_date, trial_end_date, extra_user_seats')
     .eq('id', companyId)
     .maybeSingle();
 
@@ -75,7 +75,7 @@ export async function ensureActiveBillingUsage(opts: {
   if (!planType) return null;
 
   const status = String(company.subscription_status ?? '').toLowerCase();
-  const trialEndRaw = company.trial_end_date ? String(company.trial_end_date) : null;
+  const trialEndRaw = (company.trial_ends_at ?? company.trial_end_date) ? String(company.trial_ends_at ?? company.trial_end_date) : null;
 
   let periodStart: Date;
   let periodEnd: Date;
