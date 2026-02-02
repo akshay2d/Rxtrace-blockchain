@@ -85,7 +85,24 @@ export async function POST(req: Request) {
     let subscriptionId = company?.razorpay_subscription_id as string | undefined;
 
     // Fetch plan (id + base_price) for validation and company_subscriptions.plan_id
-    const planNameForDb = requestedPlan.charAt(0).toUpperCase() + requestedPlan.slice(1);
+    // Map tier+cycle to fixed plan names: Starter Monthly, Starter Yearly, Growth Monthly, Growth Yearly, Enterprise Monthly, Enterprise Quarterly
+    const tier = requestedPlan.trim().toLowerCase();
+    const cycle = billingCycleDb;
+    const planNameMap: Record<string, string> = {
+      'starter_monthly': 'Starter Monthly',
+      'starter_yearly': 'Starter Yearly',
+      'growth_monthly': 'Growth Monthly',
+      'growth_yearly': 'Growth Yearly',
+      'enterprise_monthly': 'Enterprise Monthly',
+      'enterprise_quarterly': 'Enterprise Quarterly',
+    };
+    const planNameForDb = planNameMap[`${tier}_${cycle}`] ?? null;
+    if (!planNameForDb) {
+      return NextResponse.json(
+        { error: `Plan "${requestedPlan}" with cycle "${cycle}" not supported. Use Starter Monthly/Yearly, Growth Monthly/Yearly, Enterprise Monthly/Quarterly.` },
+        { status: 400 }
+      );
+    }
     const { data: planRow } = await supabase
       .from('subscription_plans')
       .select('id, base_price')

@@ -41,11 +41,13 @@ export async function POST(req: Request) {
 
       if (existing) continue;
 
-      const planName = (company as any).subscription_plan ?? 'Starter';
+      const rawPlan = (company as any).subscription_plan ?? 'Starter';
+      const planNameMap: Record<string, string> = { Starter: 'Starter Monthly', Growth: 'Growth Monthly', Enterprise: 'Enterprise Monthly' };
+      const planName = planNameMap[rawPlan] ?? rawPlan;
       const { data: planRow } = await supabase
         .from('subscription_plans')
         .select('id')
-        .ilike('name', planName)
+        .eq('name', planName)
         .eq('billing_cycle', 'monthly')
         .eq('is_active', true)
         .limit(1)
@@ -53,7 +55,7 @@ export async function POST(req: Request) {
 
       const planIdDb = (planRow as any)?.id;
       if (!planIdDb) {
-        errors.push(`Company ${company.id}: no plan found for ${planName}`);
+        errors.push(`Company ${company.id}: no plan found for ${planName} (raw: ${rawPlan})`);
         continue;
       }
 

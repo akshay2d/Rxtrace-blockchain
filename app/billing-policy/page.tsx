@@ -43,7 +43,7 @@ export default function BillingPolicyPage() {
             </p>
             <ul className="list-disc list-inside space-y-2 text-gray-700">
               <li>Automatic billing begins after trial period expires</li>
-              <li>Charges are based on your selected plan (Starter, Growth, or Enterprise)</li>
+              <li>Charges are based on your selected plan (Starter Monthly/Yearly, Growth Monthly/Yearly, Enterprise Monthly/Quarterly)</li>
               <li>Billing cycle follows your plan&apos;s billing period (monthly, quarterly, or annual)</li>
             </ul>
           </section>
@@ -78,16 +78,16 @@ export default function BillingPolicyPage() {
             <h2 className="text-2xl font-semibold mb-4">Plan Pricing</h2>
             <div className="bg-gray-50 border border-gray-200 rounded-lg p-6 space-y-3">
               <div>
-                <p className="font-semibold text-gray-900">Starter Plan</p>
-                <p className="text-gray-700">₹18,000/month or ₹2,00,000/year</p>
+                <p className="font-semibold text-gray-900">Starter Monthly: ₹18,000/month</p>
+                <p className="font-semibold text-gray-900">Starter Yearly: ₹2,00,000/year</p>
               </div>
               <div>
-                <p className="font-semibold text-gray-900">Growth Plan</p>
-                <p className="text-gray-700">₹49,000/month or ₹5,00,000/year</p>
+                <p className="font-semibold text-gray-900">Growth Monthly: ₹49,000/month</p>
+                <p className="font-semibold text-gray-900">Growth Yearly: ₹5,00,000/year</p>
               </div>
               <div>
-                <p className="font-semibold text-gray-900">Enterprise Plan</p>
-                <p className="text-gray-700">₹2,00,000/month or ₹5,00,000/quarter (₹20,00,000/year)</p>
+                <p className="font-semibold text-gray-900">Enterprise Monthly: ₹2,00,000/month</p>
+                <p className="font-semibold text-gray-900">Enterprise Quarterly: ₹6,00,000/quarter</p>
               </div>
             </div>
           </section>
