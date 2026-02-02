@@ -8,9 +8,11 @@ import { resolveCompanyForUser } from '@/lib/company/resolve';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-function normalizeCycleForDb(raw: unknown): 'monthly' | 'yearly' {
+function normalizeCycleForDb(raw: unknown): 'monthly' | 'yearly' | 'quarterly' {
   const v = String(raw ?? '').trim().toLowerCase();
-  return v === 'yearly' || v === 'annual' || v === 'year' ? 'yearly' : 'monthly';
+  if (v === 'yearly' || v === 'annual' || v === 'year') return 'yearly';
+  if (v === 'quarterly' || v === 'quarter') return 'quarterly';
+  return 'monthly';
 }
 
 export async function POST(req: Request) {

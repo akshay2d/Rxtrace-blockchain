@@ -20,7 +20,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import type { LucideIcon } from 'lucide-react';
 import { LabelGenerationTrend } from '@/components/charts/LabelGenerationTrend';
 import { LabelsByLevel } from '@/components/charts/LabelsByLevel';
-import { CostUsageChart } from '@/components/charts/CostUsageChart';
+import { CostUsageChart, type AddonPrices } from '@/components/charts/CostUsageChart';
 import { DashboardTrialCard } from '@/components/dashboard/DashboardTrialCard';
 
 type DashboardStats = {
@@ -96,6 +96,7 @@ export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [usage, setUsage] = useState<Record<string, any> | null>(null);
+  const [addonPrices, setAddonPrices] = useState<AddonPrices | null>(null);
 
   async function refreshStats(signal?: AbortSignal) {
     const res = await fetch('/api/dashboard/stats', { cache: 'no-store', signal });
@@ -142,6 +143,16 @@ export default function DashboardPage() {
         }
       }
     };
+  }, []);
+
+  // Add-on prices for Cost Usage Chart (unit, box, carton, pallet from add_ons table)
+  useEffect(() => {
+    fetch('/api/billing/addon-prices', { credentials: 'include' })
+      .then((res) => res.json())
+      .then((body) => {
+        if (body.success && body.prices) setAddonPrices(body.prices);
+      })
+      .catch(() => {});
   }, []);
 
   const kpi = useMemo(() => {
@@ -330,13 +341,17 @@ export default function DashboardPage() {
 
         <div className="bg-white border border-gray-200 rounded-lg p-6">
           <h3 className="text-sm font-semibold text-gray-900 mb-4">Cost Usage Distribution</h3>
+          <p className="text-xs text-gray-500 mb-2">Indicative cost from add-on prices (Unit / Box / Carton / Pallet)</p>
           <div className="h-48">
-            <CostUsageChart data={{
-              unit: stats?.label_generation?.unit ?? 0,
-              box: stats?.label_generation?.box ?? 0,
-              carton: stats?.label_generation?.carton ?? 0,
-              pallet: stats?.label_generation?.pallet ?? 0,
-            }} />
+            <CostUsageChart
+              data={{
+                unit: stats?.label_generation?.unit ?? 0,
+                box: stats?.label_generation?.box ?? 0,
+                carton: stats?.label_generation?.carton ?? 0,
+                pallet: stats?.label_generation?.pallet ?? 0,
+              }}
+              prices={addonPrices}
+            />
           </div>
         </div>
       </div>

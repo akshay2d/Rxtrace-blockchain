@@ -121,10 +121,6 @@ export default function AdminSubscriptionsPage() {
             <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
-          <Button onClick={() => { setEditingPlan(null); setShowForm(true); }}>
-            <Plus className="w-4 h-4 mr-2" />
-            New Plan
-          </Button>
         </div>
       </div>
 
@@ -142,11 +138,7 @@ export default function AdminSubscriptionsPage() {
         <Card className="border-dashed border-2 border-[#0052CC]/30 bg-[#0052CC]/5">
           <CardContent className="flex flex-col items-center justify-center py-12">
             <p className="text-lg font-medium text-gray-700 mb-1">No subscription plans yet</p>
-            <p className="text-sm text-gray-500 mb-4">Create your first plan to start offering subscriptions to companies.</p>
-            <Button onClick={() => { setEditingPlan(null); setShowForm(true); }}>
-              <Plus className="w-4 h-4 mr-2" />
-              Create your first subscription plan
-            </Button>
+            <p className="text-sm text-gray-500">Run the database migration to seed the 6 fixed plans (Starter Monthly/Yearly, Growth Monthly/Yearly, Enterprise Monthly/Quarterly).</p>
           </CardContent>
         </Card>
       )}
@@ -171,7 +163,7 @@ export default function AdminSubscriptionsPage() {
                   <CardDescription>
                     {plan.description || 'No description'}
                     {' • '}
-                    {plan.billing_cycle === 'monthly' ? 'Monthly' : 'Yearly'}
+                    {plan.billing_cycle === 'monthly' ? 'Monthly' : plan.billing_cycle === 'quarterly' ? 'Quarterly' : 'Yearly'}
                     {' • ₹'}
                     {plan.base_price.toLocaleString('en-IN')}
                   </CardDescription>
@@ -269,18 +261,27 @@ function PlanForm({ plan, saving, onSave, onCancel }: { plan: Plan | null; savin
           <div className="grid md:grid-cols-2 gap-4">
             <div>
               <Label>Name *</Label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} required />
+              <Input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+                readOnly={!!plan}
+                disabled={!!plan}
+                className={plan ? 'bg-muted cursor-not-allowed' : ''}
+              />
             </div>
             <div>
               <Label>Billing Cycle *</Label>
               <select
                 value={billingCycle}
                 onChange={(e) => setBillingCycle(e.target.value)}
-                className="w-full border rounded-md p-2"
+                className={`w-full border rounded-md p-2 ${plan ? 'bg-muted cursor-not-allowed' : ''}`}
                 required
+                disabled={!!plan}
               >
                 <option value="monthly">Monthly</option>
                 <option value="yearly">Yearly</option>
+                <option value="quarterly">Quarterly</option>
               </select>
             </div>
           </div>
