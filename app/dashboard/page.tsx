@@ -21,6 +21,7 @@ import type { LucideIcon } from 'lucide-react';
 import { LabelGenerationTrend } from '@/components/charts/LabelGenerationTrend';
 import { LabelsByLevel } from '@/components/charts/LabelsByLevel';
 import { CostUsageChart } from '@/components/charts/CostUsageChart';
+import { DashboardTrialCard } from '@/components/dashboard/DashboardTrialCard';
 
 type DashboardStats = {
   company_id: string;
@@ -180,6 +181,9 @@ export default function DashboardPage() {
           Overview of your traceability operations
         </p>
       </div>
+
+      {/* Trial & Upgrade card - Start trial, Upgrade, or Billing link */}
+      <DashboardTrialCard />
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

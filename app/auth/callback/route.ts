@@ -57,8 +57,9 @@ export async function GET(request: Request) {
 
   // Check if there's a next parameter for redirect
   const nextUrl = requestUrl.searchParams.get('next');
-  const redirectTo = nextUrl || '/dashboard/company-setup';
-  
+  // Production: default to dashboard; middleware will redirect to company-setup or pricing as needed
+  const redirectTo = nextUrl || '/dashboard';
+
   // URL to redirect to after sign in process completes
   return NextResponse.redirect(new URL(redirectTo, request.url));
 }

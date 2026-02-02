@@ -41,21 +41,43 @@ export async function POST(req: Request) {
     }
 
     const supabase = getSupabaseAdmin();
-    const resolved = await resolveCompanyForUser(
+    let resolved = await resolveCompanyForUser(
       supabase,
       user.id,
       'id, user_id, discount_type, discount_value, discount_applies_to, razorpay_subscription_id, razorpay_offer_id, gst'
     );
+
+    // Production: subscription must always redirect to payment. If no company, create minimal company so we never block.
     if (!resolved) {
-      return NextResponse.json({ error: 'Company not found' }, { status: 404 });
+      const companyName = (user.user_metadata?.full_name as string)?.trim() || (user.email?.split('@')[0]) || 'My Company';
+      const nowIso = new Date().toISOString();
+      const { data: newCompany, error: createErr } = await supabase
+        .from('companies')
+        .insert({
+          user_id: user.id,
+          company_name: companyName,
+          profile_completed: false,
+          firm_type: 'proprietorship',
+          business_type: 'distributor',
+          business_category: 'pharma',
+          phone: '',
+          address: '',
+          email: user.email ?? null,
+          updated_at: nowIso,
+        })
+        .select('id, user_id, discount_type, discount_value, discount_applies_to, razorpay_subscription_id, razorpay_offer_id, gst')
+        .single();
+      if (createErr || !newCompany?.id) {
+        console.error('Upgrade: failed to create minimal company', createErr);
+        return NextResponse.json({ error: 'Could not create company for subscription. Please complete company setup first.' }, { status: 500 });
+      }
+      resolved = {
+        companyId: newCompany.id,
+        company: newCompany as Record<string, unknown>,
+        isOwner: true,
+      };
     }
-    // RXTrace Gate: Only owner can trigger billing. Seat users can view status/cost, not upgrade.
-    if (!resolved.isOwner) {
-      return NextResponse.json(
-        { error: 'Only company owner can manage subscription. Contact your company admin to upgrade.' },
-        { status: 403 }
-      );
-    }
+
     const companyId = resolved.companyId;
     const company = resolved.company as Record<string, unknown>;
     let subscriptionId = company?.razorpay_subscription_id as string | undefined;

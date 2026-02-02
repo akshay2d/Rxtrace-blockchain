@@ -106,9 +106,12 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(companySetupUrl);
     }
 
+    // Allow access when: (a) has valid trial/subscription, OR (b) just completed setup (no status yet)
+    // User must reach dashboard to start trial (Settings) or subscribe (Pricing)
     const status = String(company.subscription_status ?? '').toLowerCase();
     const allowed = new Set(['trial', 'trialing', 'active', 'paid', 'live']);
-    if (!allowed.has(status)) {
+    const noStatusYet = status === '' || status === 'null';
+    if (!noStatusYet && !allowed.has(status)) {
       return NextResponse.redirect(new URL('/pricing', request.url));
     }
   }

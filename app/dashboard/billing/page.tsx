@@ -5,8 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { formatCurrency, PRICING } from '@/lib/billingConfig';
-import { normalizePlanType } from '@/lib/billing/period';
+import { formatCurrency } from '@/lib/billingConfig';
 import { useSubscription } from '@/lib/hooks/useSubscription';
 import { Badge } from '@/components/ui/badge';
 import { supabaseClient } from '@/lib/supabase/client';
@@ -53,93 +52,6 @@ function UsageQuotaRow({ codeType, planItems }: { codeType: string; planItems: a
   );
 }
 
-// Seat summary component (inline for billing page)
-function SeatSummaryDisplay({ company }: { company: any }) {
-  const [seatLimits, setSeatLimits] = useState<{
-    max_seats: number;
-    used_seats: number;
-    available_seats: number;
-  } | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    if (!company?.id) {
-      setLoading(false);
-      return;
-    }
-
-    // Calculate fallback from company data (same logic as team page)
-    const planRaw = company?.subscription_plan ?? company?.plan_type ?? company?.plan ?? company?.tier;
-    const planType = normalizePlanType(planRaw) ?? 'starter';
-    const baseMax = PRICING.plans[planType]?.max_seats ?? 1;
-    const extra = Number(company?.extra_user_seats ?? 0);
-    const maxSeatsFallback = Math.max(1, baseMax + (Number.isFinite(extra) ? extra : 0));
-
-    // Fetch seat limits from API
-    fetch(`/api/admin/seat-limits?company_id=${company.id}`)
-      .then((res) => res.json())
-      .then((body) => {
-        if (body?.max_seats !== undefined) {
-          setSeatLimits({
-            max_seats: Math.max(1, Number(body.max_seats)),
-            used_seats: Math.max(1, Number(body.used_seats ?? 1)), // Minimum 1 (primary user)
-            available_seats: Math.max(0, Number(body.available_seats ?? 0)),
-          });
-        } else {
-          // Fallback to calculated values
-          setSeatLimits({
-            max_seats: maxSeatsFallback,
-            used_seats: 1, // At least primary user is active
-            available_seats: Math.max(0, maxSeatsFallback - 1),
-          });
-        }
-      })
-      .catch(() => {
-        // Fallback to calculated values on error
-        setSeatLimits({
-          max_seats: maxSeatsFallback,
-          used_seats: 1,
-          available_seats: Math.max(0, maxSeatsFallback - 1),
-        });
-      })
-      .finally(() => setLoading(false));
-  }, [company?.id, company?.subscription_plan, company?.plan_type, company?.plan, company?.tier, company?.extra_user_seats]);
-
-  if (loading || !seatLimits) {
-    return <div className="text-sm text-gray-500">Loading seat information...</div>;
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="text-lg font-semibold text-gray-900">
-        Seats: {seatLimits.max_seats} total | {seatLimits.used_seats} active | {seatLimits.available_seats} available
-      </div>
-      <div className="grid md:grid-cols-3 gap-4">
-        <div className="rounded-md border border-gray-200 p-4 bg-gray-50">
-          <div className="text-sm text-gray-600 mb-1">Total Allowed</div>
-          <div className="text-2xl font-semibold text-gray-900">{seatLimits.max_seats}</div>
-        </div>
-        <div className="rounded-md border border-gray-200 p-4 bg-blue-50">
-          <div className="text-sm text-gray-600 mb-1">Active Users</div>
-          <div className="text-2xl font-semibold text-blue-900">{seatLimits.used_seats}</div>
-        </div>
-        <div className="rounded-md border border-gray-200 p-4 bg-green-50">
-          <div className="text-sm text-gray-600 mb-1">Available</div>
-          <div className="text-2xl font-semibold text-green-900">{seatLimits.available_seats}</div>
-        </div>
-      </div>
-      {seatLimits.available_seats === 0 && (
-        <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
-          <p className="font-medium mb-1">Seat limit reached</p>
-          <p className="text-xs text-amber-700">
-            Purchase additional seats to invite more users. Additional seats: ₹3,000/month each.
-          </p>
-        </div>
-      )}
-    </div>
-  );
-}
-
 export default function BillingPage() {
   const router = useRouter();
   const { subscription, add_ons, loading: subscriptionLoading, refresh } = useSubscription();
@@ -148,7 +60,6 @@ export default function BillingPage() {
   const [invoicesLoading, setInvoicesLoading] = useState(false);
   // Trial invoice removed - free trial requires no payment
   const [company, setCompany] = useState<any>(null);
-  const [trialUsed, setTrialUsed] = useState<boolean | null>(null);
   const [usageData, setUsageData] = useState<any>(null);
   const [planItems, setPlanItems] = useState<any[]>([]);
   const [cancelLoading, setCancelLoading] = useState(false);
@@ -282,13 +193,12 @@ export default function BillingPage() {
             <div className="text-sm text-gray-500">Loading subscription information...</div>
           </CardContent>
         </Card>
-      ) : subscription ? (
+      ) : subscription && subscription.status !== 'TRIAL' && subscription.status !== 'trialing' ? (
         <Card className="border-2 border-blue-300 shadow-lg">
           <CardHeader className="bg-gradient-to-r from-blue-100 to-orange-100">
             <CardTitle className="text-xl text-blue-900">📦 Your Subscription Plan</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4 pt-6">
-            {/* Plan Details */}
             <div className="grid md:grid-cols-2 gap-6">
               <div className="space-y-3">
                 <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
@@ -301,44 +211,17 @@ export default function BillingPage() {
                 <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
                   <span className="text-gray-600 font-medium">Status:</span>
                   <Badge className={`font-bold text-lg uppercase ${
-                    (subscription.status === 'TRIAL' || subscription.status === 'trialing') 
-                      ? 'bg-green-600' 
-                      : subscription.status === 'ACTIVE'
+                    subscription.status === 'ACTIVE'
                       ? 'bg-blue-600'
                       : subscription.status === 'CANCELLED' || subscription.status === 'PAUSED'
                       ? 'bg-orange-600'
                       : 'bg-red-600'
                   }`}>
-                    {(subscription.status === 'TRIAL' || subscription.status === 'trialing') 
-                      ? '🎉 Trial Active' 
-                      : subscription.status === 'CANCELLED' || subscription.status === 'PAUSED'
+                    {subscription.status === 'CANCELLED' || subscription.status === 'PAUSED'
                       ? '⚠️ Subscription Cancelled'
                       : subscription.status}
                   </Badge>
                 </div>
-
-                {(subscription.status === 'TRIAL' || subscription.status === 'trialing') && subscription.trial_end && (
-                  <div className="p-4 bg-yellow-50 border-2 border-yellow-300 rounded-lg">
-                    <div className="text-sm text-yellow-800 font-semibold mb-1">⏰ Trial Period</div>
-                    <div className="text-2xl font-bold text-yellow-900">
-                      {(() => {
-                        const now = new Date();
-                        const endDate = new Date(subscription.trial_end);
-                        const daysLeft = Math.max(0, Math.ceil((endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
-                        return `${daysLeft} days left`;
-                      })()}
-                    </div>
-                    <div className="text-xs text-yellow-700 mt-2">
-                      Ends: {new Date(subscription.trial_end).toLocaleDateString('en-IN', {
-                        day: 'numeric',
-                        month: 'long',
-                        year: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit'
-                      })}
-                    </div>
-                  </div>
-                )}
 
                 {subscription.current_period_end && (subscription.status === 'ACTIVE' || subscription.status === 'CANCELLED' || subscription.status === 'PAUSED') && (
                   <div className={`p-4 border-2 rounded-lg ${
@@ -445,24 +328,20 @@ export default function BillingPage() {
               </div>
             )}
 
-            {/* Action Buttons */}
+            {/* Action Buttons - Subscription only (trial cancel is in Settings) */}
             <div className="grid md:grid-cols-2 gap-3 pt-4 border-t">
-              {/* Upgrade/Change Plan Button - Always visible except for EXPIRED */}
               {subscription.status !== 'EXPIRED' && (
                 <Button 
                   onClick={() => router.push('/pricing')}
-                  variant={(subscription.status === 'TRIAL' || subscription.status === 'trialing') ? 'default' : 'outline'}
+                  variant="outline"
                   size="lg" 
                   className="w-full"
                 >
-                  <span className="text-base">
-                    {(subscription.status === 'TRIAL' || subscription.status === 'trialing') ? 'Upgrade Plan' : 'Change / Upgrade Plan'}
-                  </span>
+                  <span className="text-base">Change / Upgrade Plan</span>
                 </Button>
               )}
 
-              {/* Cancel Button - Only for TRIAL and ACTIVE */}
-              {((subscription.status === 'TRIAL' || subscription.status === 'trialing') || subscription.status === 'ACTIVE') && (
+              {subscription.status === 'ACTIVE' && (
                 <Button 
                   onClick={handleCancelSubscription}
                   disabled={cancelLoading}
@@ -476,7 +355,6 @@ export default function BillingPage() {
                 </Button>
               )}
 
-              {/* Resume Button - Only for CANCELLED or PAUSED */}
               {(subscription.status === 'CANCELLED' || subscription.status === 'PAUSED') && (
                 <Button 
                   onClick={handleResumeSubscription}
@@ -500,12 +378,9 @@ export default function BillingPage() {
             <div className="text-center py-8">
               <p className="text-gray-600 mb-4">No active subscription</p>
               <p className="text-sm text-gray-500 mb-4">
-                Start your trial from the Settings page, or choose a plan to subscribe.
+                Choose a plan to subscribe and start using RxTrace.
               </p>
               <div className="flex gap-3 justify-center">
-                <Button asChild variant="outline">
-                  <Link href="/dashboard/settings">Go to Settings</Link>
-                </Button>
                 <Button asChild>
                   <Link href="/pricing">Choose a Plan</Link>
                 </Button>
@@ -557,8 +432,8 @@ export default function BillingPage() {
         </CardContent>
       </Card>
 
-      {/* PRIORITY-3: Usage & Cost Breakdown (Read-Only) */}
-      {subscription && usageData && (
+      {/* Usage & Quotas - subscription only (no trial; indicative cost on Dashboard) */}
+      {subscription && usageData && (subscription.status !== 'TRIAL' && subscription.status !== 'trialing') && (
         <Card className="border-gray-200">
           <CardHeader>
             <CardTitle className="text-lg font-semibold text-gray-900">Usage & Cost Breakdown (Read-Only)</CardTitle>
@@ -653,48 +528,8 @@ export default function BillingPage() {
                 </p>
               </div>
 
-              {/* C. Indicative Cost (Audit-Only) */}
-              <div>
-                <h3 className="text-md font-semibold text-gray-800 mb-3">C. Indicative Cost (Audit-Only)</h3>
-                {(subscription.status === 'TRIAL' || subscription.status === 'trialing') ? (
-                  <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-                    <p className="text-sm text-yellow-800 font-medium mb-2">
-                      During trial, usage is unlimited. This cost is shown for reference only.
-                    </p>
-                    <p className="text-xs text-yellow-700">
-                      Indicative cost calculation: usage × plan unit price (not charged during trial)
-                    </p>
-                  </div>
-                ) : (
-                  <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                    <p className="text-sm text-blue-800 font-medium mb-2">
-                      Indicative cost — no charges applied
-                    </p>
-                    <p className="text-xs text-blue-700 mb-3">
-                      This is an estimated cost based on usage and plan pricing. Actual billing may differ.
-                    </p>
-                    <div className="text-sm text-gray-700">
-                      <p className="font-medium">Calculation: usage × plan unit price</p>
-                      <p className="text-xs text-gray-600 mt-1">
-                        Note: Actual charges are based on your subscription plan and billing cycle, not per-unit usage.
-                      </p>
-                    </div>
-                  </div>
-                )}
-              </div>
+              {/* Indicative cost moved to Dashboard */}
             </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Seat Usage Summary */}
-      {company && (
-        <Card className="border-gray-200">
-          <CardHeader>
-            <CardTitle className="text-lg font-semibold text-gray-900">Seat Usage</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <SeatSummaryDisplay company={company} />
           </CardContent>
         </Card>
       )}
@@ -835,7 +670,7 @@ export default function BillingPage() {
                   <div className="text-4xl mb-2">📄</div>
                   <div className="text-sm">No invoices available yet.</div>
                   <div className="text-xs text-gray-400 mt-1">
-                    Invoices will appear here after your trial activation and monthly billing cycles.
+                    Invoices will appear here after you subscribe and monthly billing cycles.
                   </div>
                 </div>
               )}

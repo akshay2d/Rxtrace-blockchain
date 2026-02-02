@@ -163,9 +163,14 @@ export default function AdminDashboard() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-yellow-800 font-medium mb-1">Fix Missing Subscription Records</p>
-              <p className="text-xs text-yellow-700">
-                Creates company_subscriptions records for companies with trial status but no subscription record.
-                This fixes billing pages showing &quot;No active subscription&quot; for existing trial users.
+              <p className="text-xs text-yellow-700 max-w-2xl">
+                Creates <code className="bg-yellow-200/70 px-1 rounded">company_subscriptions</code> rows for companies that have
+                <code className="bg-yellow-200/70 px-1 rounded">subscription_status=active</code> and
+                <code className="bg-yellow-200/70 px-1 rounded">razorpay_subscription_id</code> but no subscription record.
+                Use when Billing shows &quot;No active subscription&quot; for paid users. Trial is company-level only — not touched.
+              </p>
+              <p className="text-xs text-yellow-600 mt-1 italic">
+                Does not fix &quot;Payment gateway created but DB failed&quot; — in that case, contact support or use Razorpay dashboard to sync.
               </p>
             </div>
             <Button 

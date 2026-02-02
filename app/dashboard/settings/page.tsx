@@ -52,11 +52,6 @@ export default function Page() {
   const [trialLoading, setTrialLoading] = useState(false);
   const [trialError, setTrialError] = useState('');
   
-  // PRIORITY-3: Usage summary state (read-only)
-  const [usageSummary, setUsageSummary] = useState<{
-    total_usage: number;
-    indicative_cost: number;
-  } | null>(null);
   
   // ERP Integration state
   // Removed ERP integration state - now handled in dedicated page
@@ -170,34 +165,7 @@ export default function Page() {
     };
   }, []);
 
-  // PRIORITY-3: Fetch usage summary (read-only)
-  useEffect(() => {
-    const fetchUsageSummary = async () => {
-      try {
-        const res = await fetch('/api/dashboard/stats');
-        const data = await res.json();
-        if (res.ok && data.label_generation) {
-          const totalUsage = (data.label_generation.unit || 0) + 
-                           (data.label_generation.box || 0) + 
-                           (data.label_generation.carton || 0) + 
-                           (data.label_generation.pallet || 0);
-          
-          // Indicative cost calculation (simplified - would need plan unit prices)
-          // For now, just show usage total
-          setUsageSummary({
-            total_usage: totalUsage,
-            indicative_cost: 0, // Would need plan pricing to calculate
-          });
-        }
-      } catch (err) {
-        console.error('Failed to fetch usage summary:', err);
-      }
-    };
-    
-    if (subscription) {
-      fetchUsageSummary();
-    }
-  }, [subscription]);
+  // Indicative cost moved to Dashboard
 
   async function handleUserProfileSave(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -269,62 +237,46 @@ export default function Page() {
     }
   }
 
-  // Removed handleErpSave - ERP integration now handled in dedicated page
-
-  // Handle Start Trial
+  // Handle Start Trial (user lands here from Dashboard "Start Free Trial")
   async function handleStartTrial() {
     setTrialLoading(true);
     setTrialError('');
-    
     try {
       const supabase = supabaseClient();
       const { data: { user } } = await supabase.auth.getUser();
-      
       if (!user) {
-        setTrialError('You must be logged in to start a trial');
+        setTrialError('Please sign in first.');
         return;
       }
-
-      // Get company ID
       const { data: company } = await supabase
         .from('companies')
         .select('id')
         .eq('user_id', user.id)
         .maybeSingle();
-
       if (!company) {
-        setTrialError('Company not found. Please complete company setup first.');
+        setTrialError('Company not found. Complete company setup first.');
         return;
       }
-
-      // Call trial activation API (no payment required)
       const res = await fetch('/api/trial/activate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          company_id: company.id,
-          user_id: user.id,
-        }),
+        body: JSON.stringify({ company_id: company.id, user_id: user.id }),
       });
-
       const data = await res.json();
-
       if (!res.ok) {
         setTrialError(data.error || 'Failed to start trial');
         return;
       }
-
-      // Refresh subscription data
       await refreshSubscription();
       setTrialError('');
-    } catch (err: any) {
-      setTrialError(err.message || 'Failed to start trial');
+    } catch (err: unknown) {
+      setTrialError(String(err));
     } finally {
       setTrialLoading(false);
     }
   }
 
-  // Handle Cancel Trial
+  // Handle Cancel Trial (trial API only - separate from subscription)
   async function handleCancelTrial() {
     if (!window.confirm('Are you sure you want to cancel your trial? You will lose access at the end of the trial period.')) {
       return;
@@ -334,10 +286,9 @@ export default function Page() {
     setTrialError('');
 
     try {
-      const res = await fetch('/api/billing/subscription/cancel', {
+      const res = await fetch('/api/trial/cancel', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ at_period_end: false }),
       });
 
       const data = await res.json();
@@ -356,27 +307,28 @@ export default function Page() {
     }
   }
 
-  // Handle Resume Trial
-  async function handleResumeTrial() {
+  // Handle Resume - CANCELLED/PAUSED comes from company_subscriptions (paid); use billing API. Trial cancel uses trial API (no resume for trial).
+  async function handleResume() {
     setTrialLoading(true);
     setTrialError('');
 
     try {
       const res = await fetch('/api/billing/subscription/resume', {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
       });
 
       const data = await res.json();
 
       if (!res.ok) {
-        setTrialError(data.error || 'Failed to resume trial');
+        setTrialError(data.error || 'Failed to resume');
         return;
       }
 
       await refreshSubscription();
       setTrialError('');
     } catch (err: any) {
-      setTrialError(err.message || 'Failed to resume trial');
+      setTrialError(err.message || 'Failed to resume');
     } finally {
       setTrialLoading(false);
     }
@@ -399,108 +351,14 @@ export default function Page() {
         </p>
       </div>
 
-      {/* PRIORITY-3: Trial & Usage Summary (Read-Only) */}
-      {!subscriptionLoading && subscription && (
-        <div className="bg-white border border-gray-200 rounded-2xl shadow-sm">
-          <div className="p-8 space-y-6">
-            <div>
-              <h2 className="text-xl font-medium">Trial & Usage Summary</h2>
-              <p className="text-sm text-gray-500 mt-1">
-                Read-only view of your trial status and usage. No actions available here.
-              </p>
-            </div>
-
-            <div className="grid md:grid-cols-2 gap-6">
-              {/* Trial Status */}
-              <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                <h3 className="text-sm font-semibold text-gray-700 mb-3">Trial Status</h3>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Status:</span>
-                    <span className="font-medium">
-                      {(subscription.status === 'TRIAL' || subscription.status === 'trialing') ? 'Active' : 
-                       subscription.status === 'CANCELLED' ? 'Ended' : 
-                       subscription.status === 'PAUSED' ? 'Paused' : 
-                       'N/A'}
-                    </span>
-                  </div>
-                  {subscription.trial_end && (
-                    <>
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Trial End Date:</span>
-                        <span className="font-medium">
-                          {new Date(subscription.trial_end).toLocaleDateString('en-IN', {
-                            day: 'numeric',
-                            month: 'long',
-                            year: 'numeric'
-                          })}
-                        </span>
-                      </div>
-                      {subscription.status === 'TRIAL' && (
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">Days Remaining:</span>
-                          <span className="font-medium text-green-700">
-                            {Math.max(0, Math.ceil((new Date(subscription.trial_end).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)))}
-                          </span>
-                        </div>
-                      )}
-                    </>
-                  )}
-                  {(subscription as any).created_at && (
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Trial Start Date:</span>
-                      <span className="font-medium">
-                        {new Date((subscription as any).created_at).toLocaleDateString('en-IN', {
-                          day: 'numeric',
-                          month: 'long',
-                          year: 'numeric'
-                        })}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Usage Summary */}
-              <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                <h3 className="text-sm font-semibold text-gray-700 mb-3">Usage Summary</h3>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Total Usage:</span>
-                    <span className="font-medium">
-                      {usageSummary?.total_usage?.toLocaleString('en-IN') || 0} labels
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Indicative Cost:</span>
-                    <span className="font-medium text-blue-700">
-                      {(subscription.status === 'TRIAL' || subscription.status === 'trialing') 
-                        ? 'Free (Trial)' 
-                        : usageSummary?.indicative_cost 
-                          ? `₹${usageSummary.indicative_cost.toLocaleString('en-IN')}` 
-                          : 'N/A'}
-                    </span>
-                  </div>
-                  {(subscription.status === 'TRIAL' || subscription.status === 'trialing') && (
-                    <p className="text-xs text-gray-500 mt-2 pt-2 border-t border-gray-200">
-                      During trial, usage is unlimited. Cost shown is for reference only.
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Trial Status Section - PRIMARY */}
+      {/* Trial Management - Cancel/Resume only. Start trial & Upgrade on Dashboard. */}
       {!subscriptionLoading && (
         <div className="bg-white border border-gray-200 rounded-2xl shadow-sm">
           <div className="p-8 space-y-6">
             <div>
-              <h2 className="text-xl font-medium">Trial Status</h2>
+              <h2 className="text-xl font-medium">Trial Management</h2>
               <p className="text-sm text-gray-500 mt-1">
-                Manage your 15-day free trial. No payment required.
+                Start, cancel, or resume your trial. Subscribe from Pricing page.
               </p>
             </div>
 
@@ -510,26 +368,15 @@ export default function Page() {
               </div>
             )}
 
-            {/* Trial NOT Started */}
-            {!subscription || (subscription.status !== 'TRIAL' && subscription.status !== 'trialing') ? (
-              <div className="space-y-4">
-                <div className="p-6 bg-blue-50 border-2 border-blue-200 rounded-lg">
-                  <h3 className="text-lg font-semibold text-blue-900 mb-2">
-                    Start Your 15-Day Free Trial
-                  </h3>
-                  <p className="text-sm text-blue-800 mb-4">
-                    Get unlimited access to all features for 15 days. No payment required. No credit card needed.
-                  </p>
-                  <Button
-                    onClick={handleStartTrial}
-                    disabled={trialLoading}
-                    className="bg-blue-600 hover:bg-blue-700 text-white"
-                  >
-                    {trialLoading ? 'Starting Trial...' : 'Start 15-Day Free Trial'}
-                  </Button>
-                </div>
+            {/* Paid subscription - go to Billing */}
+            {subscription?.status === 'ACTIVE' || subscription?.status === 'EXPIRED' ? (
+              <div className="p-6 bg-gray-50 border border-gray-200 rounded-lg">
+                <p className="text-gray-600">You have an active subscription. Manage billing in the Billing page.</p>
+                <Button asChild variant="outline" className="mt-3">
+                  <Link href="/dashboard/billing">Go to Billing</Link>
+                </Button>
               </div>
-            ) : (subscription.status === 'TRIAL' || subscription.status === 'trialing') ? (
+            ) : (subscription?.status === 'TRIAL' || subscription?.status === 'trialing') ? (
               /* Trial ACTIVE */
               <div className="space-y-4">
                 <div className="flex items-center justify-between p-4 bg-green-50 border-2 border-green-200 rounded-lg">
@@ -567,31 +414,31 @@ export default function Page() {
                   </Button>
                 </div>
               </div>
-            ) : subscription.status === 'CANCELLED' || subscription.status === 'PAUSED' ? (
-              /* Trial CANCELLED/PAUSED */
+            ) : subscription && (subscription.status === 'CANCELLED' || subscription.status === 'PAUSED') ? (
+              /* Trial/Subscription CANCELLED/PAUSED - Resume or Upgrade */
               <div className="space-y-4">
                 <div className="flex items-center justify-between p-4 bg-orange-50 border-2 border-orange-200 rounded-lg">
                   <div>
                     <div className="flex items-center gap-2 mb-2">
                       <Badge className="bg-orange-600 text-white">
-                        Trial {subscription.status === 'CANCELLED' ? 'Cancelled' : 'Paused'}
+                        {subscription?.status === 'CANCELLED' ? 'Cancelled' : 'Paused'}
                       </Badge>
                     </div>
                     <div className="text-sm text-orange-700">
-                      {subscription.status === 'CANCELLED' 
-                        ? 'Your trial has been cancelled.'
-                        : 'Your trial has been paused.'}
+                      {subscription?.status === 'CANCELLED' 
+                        ? 'Your trial or subscription has been cancelled.'
+                        : 'Your trial or subscription has been paused.'}
                     </div>
                   </div>
                 </div>
 
                 <div className="flex gap-3">
                   <Button
-                    onClick={handleResumeTrial}
+                    onClick={handleResume}
                     disabled={trialLoading}
                     className="bg-blue-600 hover:bg-blue-700 text-white"
                   >
-                    {trialLoading ? 'Resuming...' : 'Resume Trial'}
+                    {trialLoading ? 'Resuming...' : 'Resume'}
                   </Button>
                   <Button
                     onClick={() => router.push('/pricing')}
@@ -601,7 +448,27 @@ export default function Page() {
                   </Button>
                 </div>
               </div>
-            ) : null}
+            ) : (
+              /* No trial - Start trial here (user came from Dashboard) or Subscribe on Pricing */
+              <div className="p-6 bg-blue-50 border-2 border-blue-200 rounded-lg">
+                <h3 className="text-lg font-semibold text-blue-900 mb-2">Start Your 15-Day Free Trial</h3>
+                <p className="text-sm text-blue-800 mb-4">
+                  Get unlimited access for 15 days. No payment required. No credit card needed.
+                </p>
+                <div className="flex flex-wrap gap-3">
+                  <Button
+                    onClick={handleStartTrial}
+                    disabled={trialLoading}
+                    className="bg-blue-600 hover:bg-blue-700"
+                  >
+                    {trialLoading ? 'Starting...' : 'Start 15-Day Free Trial'}
+                  </Button>
+                  <Button asChild variant="outline">
+                    <Link href="/pricing">Subscribe to Plan</Link>
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

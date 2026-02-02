@@ -108,7 +108,7 @@ export default function PricingPage() {
   const [cart, setCart] = React.useState<Record<string, number>>({});
   const [checkoutLoading, setCheckoutLoading] = React.useState(false);
   const [checkoutMessage, setCheckoutMessage] = React.useState<string | null>(null);
-  const [trialMessage, setTrialMessage] = React.useState<string | null>(null);
+  const [subscriptionMessage, setSubscriptionMessage] = React.useState<string | null>(null);
   const [plans, setPlans] = React.useState<Plan[]>([]);
   const [addOns, setAddOns] = React.useState<AddOnAPI[]>([]);
   const [loadingPlans, setLoadingPlans] = React.useState(true);
@@ -126,18 +126,6 @@ export default function PricingPage() {
   const [subscriptionCouponCode, setSubscriptionCouponCode] = React.useState('');
   const [cartCouponCode, setCartCouponCode] = React.useState('');
 
-  // Phase 7: Backend-calculated amount preview (subscription and cart)
-  type SubscriptionPreview = {
-    finalAmount: number;
-    basePrice: number;
-    discountAmount: number;
-    couponDiscountAmount: number;
-    taxAmount: number;
-    hasGST: boolean;
-    breakdown: { base: number; discount: number; coupon: number; subtotalAfterCoupon: number; tax: number; total: number };
-  };
-  const [previewByPlan, setPreviewByPlan] = React.useState<Record<string, SubscriptionPreview | null>>({});
-  const [previewLoading, setPreviewLoading] = React.useState(false);
   type CartPreview = { subtotalInr: number; couponDiscountInr: number; orderAmountInr: number; hasCoupon: boolean };
   const [cartPreview, setCartPreview] = React.useState<CartPreview | null>(null);
   const [cartPreviewLoading, setCartPreviewLoading] = React.useState(false);
@@ -200,60 +188,6 @@ export default function PricingPage() {
     } catch (_) {}
   }, [cart]);
 
-  // Phase 7: Fetch subscription amount preview for each plan (selected cycle + coupon)
-  React.useEffect(() => {
-    if (!companyId || !plans.length) {
-      setPreviewByPlan({});
-      return;
-    }
-    const planKeys = ['starter', 'growth', 'enterprise'] as const;
-    let cancelled = false;
-    setPreviewLoading(true);
-    (async () => {
-      const cycle = selectedBillingCycle === 'yearly' ? 'yearly' : 'monthly';
-      const results: Record<string, SubscriptionPreview | null> = {};
-      await Promise.all(
-        planKeys.map(async (planKey) => {
-          if (cancelled) return;
-          try {
-            const res = await fetch('/api/billing/calculate-amount', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              credentials: 'include',
-              body: JSON.stringify({
-                plan: planKey,
-                billing_cycle: cycle,
-                ...(subscriptionCouponCode.trim() ? { coupon_code: subscriptionCouponCode.trim() } : {}),
-              }),
-            });
-            const data = await res.json().catch(() => ({}));
-            if (cancelled) return;
-            if (data.success && data.finalAmount != null) {
-              results[planKey] = {
-                finalAmount: data.finalAmount,
-                basePrice: data.basePrice,
-                discountAmount: data.discountAmount ?? 0,
-                couponDiscountAmount: data.couponDiscountAmount ?? 0,
-                taxAmount: data.taxAmount ?? 0,
-                hasGST: data.hasGST ?? false,
-                breakdown: data.breakdown ?? {},
-              };
-            } else {
-              results[planKey] = null;
-            }
-          } catch {
-            if (!cancelled) results[planKey] = null;
-          }
-        })
-      );
-      if (!cancelled) setPreviewByPlan(results);
-      setPreviewLoading(false);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [companyId, plans.length, selectedBillingCycle, subscriptionCouponCode]);
-
   React.useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -268,7 +202,11 @@ export default function PricingPage() {
         let subscriptionStatusFromApi: string | null = null;
         let subscriptionData: any = null;
         try {
-          const subRes = await fetch('/api/user/subscription', { cache: 'no-store' });
+          const subRes = await fetch('/api/user/subscription', { cache: 'no-store', credentials: 'include' });
+          if (subRes.status === 401) {
+            if (!cancelled) router.replace('/auth/signin?redirect=/pricing');
+            return;
+          }
           if (subRes.ok) {
             const subBody = await subRes.json();
             companyIdFromApi = subBody.company_id ?? null;
@@ -295,9 +233,6 @@ export default function PricingPage() {
             setCompany({
               id: companyIdFromApi,
               subscription_status: subscriptionStatusFromApi,
-              trial_started_at: subscriptionData?.is_trial ? subscriptionData?.created_at : null,
-              trial_ends_at: subscriptionData?.is_trial ? subscriptionData?.trial_end : null,
-              trial_status: subscriptionData?.is_trial ? 'active' : null,
             });
             setCompanyId(companyIdFromApi);
             setSubscription(subscriptionData);
@@ -310,7 +245,7 @@ export default function PricingPage() {
         // Fallback: direct company fetch (owner only; correct column names)
         const { data: company } = await supabase
           .from("companies")
-          .select("id, subscription_status, trial_started_at, trial_ends_at, trial_status, discount_type, discount_value, discount_applies_to")
+          .select("id, subscription_status, discount_type, discount_value, discount_applies_to")
           .eq("user_id", user.id)
           .maybeSingle();
 
@@ -337,7 +272,7 @@ export default function PricingPage() {
       } catch (err) {
         if (!cancelled) {
           console.error('[Pricing] Failed to load company:', err);
-          setCompanyLoadError('Could not load company. Please refresh the page or complete company setup.');
+          setCompanyLoadError('Could not load company. If you\'ve completed setup, go to Dashboard first, then return here to subscribe.');
           setCompanyId(null);
           setCompany(null);
         }
@@ -349,78 +284,14 @@ export default function PricingPage() {
     };
   }, []);
 
-  /* ---------- START FREE TRIAL (NO PAYMENT) ---------- */
-  async function startFreeTrial() {
-    setTrialMessage(null);
-
-    // Check if user needs to set up company first
-    if (!companyId) {
-      setTrialMessage('Please complete company setup first.');
-      router.push('/dashboard/company-setup');
-      return;
-    }
-
-    // If trial or subscription already exists, send to billing
-    if (company?.subscription_status) {
-      setTrialMessage('Trial or subscription already active.');
-      router.push('/dashboard/billing');
-      return;
-    }
-
-    setTrialMessage('Activating your free trial...');
-
-    try {
-      // Activate trial WITHOUT payment
-      const activateRes = await fetch('/api/trial/activate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          company_id: companyId,
-        }),
-      });
-
-      const activateBody = await activateRes.json();
-
-      if (activateRes.ok) {
-        setTrialMessage('Free trial activated! Redirecting...');
-        
-        // Refresh auth session
-        await supabaseClient().auth.refreshSession();
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        // Redirect to dashboard
-        router.push('/dashboard');
-      } else {
-        setTrialMessage(activateBody?.error || 'Failed to activate trial. Please try again.');
-        console.error('Trial activation error:', activateBody);
-      }
-    } catch (err) {
-      setTrialMessage('Failed to activate trial. Please try again.');
-      console.error('Activation error:', err);
-    }
-  }
-
-  const trialEligible = Boolean(companyId && !company?.subscription_status);
-  const trialDisabledReason = !companyId
-    ? 'Complete company setup to start your free trial.'
-    : company?.subscription_status
-    ? 'Trial already active. Manage subscription in Billing.'
-    : null;
-
-  /* ---------- SUBSCRIBE TO PLAN (UPGRADE FROM TRIAL) ---------- */
+  /* ---------- SUBSCRIBE TO PLAN (PAYMENT ONLY) ---------- */
   async function subscribeToPlan(plan: Plan) {
-    setTrialMessage(null);
+    setSubscriptionMessage(null);
     setCheckoutMessage(null);
-
-    if (!companyId) {
-      setTrialMessage('Please complete company setup first.');
-      router.push('/dashboard/company-setup');
-      return;
-    }
 
     const ok = await loadRazorpay();
     if (!ok) {
-      setTrialMessage('Razorpay failed to load. Please refresh and try again.');
+      setSubscriptionMessage('Razorpay failed to load. Please refresh and try again.');
       return;
     }
 
@@ -433,10 +304,9 @@ export default function PricingPage() {
     // Send selected billing cycle so backend uses correct Razorpay plan (monthly vs annual)
     const billingCycle = plan.billing_cycle === 'yearly' ? 'yearly' : 'monthly';
 
-    setTrialMessage('Processing subscription...');
-    
+    setSubscriptionMessage('Processing subscription...');
+
     try {
-      // Create/upgrade subscription via API (with explicit billing cycle)
       const res = await fetch('/api/billing/subscription/upgrade', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -448,14 +318,18 @@ export default function PricingPage() {
       });
 
       const body = await res.json();
+      if (res.status === 401) {
+        router.replace('/auth/signin?redirect=/pricing');
+        return;
+      }
       if (!res.ok) {
-        setTrialMessage(body?.error || 'Failed to create subscription. Please try again.');
+        setSubscriptionMessage(body?.error || 'Failed to create subscription. Please try again.');
         console.error('Subscription upgrade error:', body);
         return;
       }
 
       if (!body.subscription || !body.subscription.id) {
-        setTrialMessage('Subscription created but payment link not available. Please contact support.');
+        setSubscriptionMessage('Subscription created but payment link not available. Please contact support.');
         return;
       }
 
@@ -463,11 +337,11 @@ export default function PricingPage() {
       const keyId = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
 
       if (!keyId) {
-        setTrialMessage('Razorpay key not configured. Please contact support.');
+        setSubscriptionMessage('Razorpay key not configured. Please contact support.');
         return;
       }
 
-      setTrialMessage(null); // Clear message before opening payment
+      setSubscriptionMessage(null);
 
       // Open Razorpay subscription payment modal
       if (subscriptionData.short_url) {
@@ -482,27 +356,27 @@ export default function PricingPage() {
           description: `Subscribe to ${plan.name} Plan`,
           handler: async (response: any) => {
             try {
-              setTrialMessage('Payment successful! Updating subscription...');
+              setSubscriptionMessage('Payment successful! Updating subscription...');
               // Refresh session and redirect to billing
               await supabaseClient().auth.refreshSession();
               await new Promise(resolve => setTimeout(resolve, 1000));
               router.push('/dashboard/billing');
             } catch (err) {
-              setTrialMessage('Payment successful. Please refresh the page to see your subscription.');
+              setSubscriptionMessage('Payment successful. Please refresh the page to see your subscription.');
             }
           },
           modal: {
             ondismiss: () => {
-              setTrialMessage('Payment cancelled. You can try again anytime.');
+              setSubscriptionMessage('Payment cancelled. You can try again anytime.');
             },
           },
           theme: { color: '#0052CC' },
         }).open();
       } else {
-        setTrialMessage('Payment link not available. Please contact support.');
+        setSubscriptionMessage('Payment link not available. Please contact support.');
       }
     } catch (err: any) {
-      setTrialMessage(err?.message || 'Failed to process subscription. Please try again.');
+      setSubscriptionMessage(err?.message || 'Failed to process subscription. Please try again.');
       console.error('Subscription error:', err);
     }
   }
@@ -783,19 +657,23 @@ export default function PricingPage() {
         <div className="max-w-7xl mx-auto px-6 pb-2">
           <div className="rounded-lg p-3 text-sm border bg-amber-50 border-amber-200 text-amber-900">
             {companyLoadError}
-            <Link href="/dashboard/company-setup" className="ml-2 font-medium underline">Complete company setup →</Link>
+            <span className="ml-2">
+              <Link href="/dashboard" className="font-medium underline">Go to Dashboard</Link>
+              <span className="mx-1">·</span>
+              <Link href="/dashboard/company-setup" className="font-medium underline">Company setup</Link>
+            </span>
           </div>
         </div>
       )}
 
-      {trialMessage && (
+      {subscriptionMessage && (
         <div className="max-w-7xl mx-auto px-6 pb-2">
           <div className={`rounded-lg p-3 text-sm border ${
-            trialMessage.includes('activated') || trialMessage.includes('success')
+            subscriptionMessage.includes('successful') || subscriptionMessage.includes('success')
               ? 'bg-green-50 border-green-200 text-green-800'
               : 'bg-red-50 border-red-200 text-red-800'
           }`}>
-            {trialMessage}
+            {subscriptionMessage}
           </div>
         </div>
       )}
@@ -856,21 +734,6 @@ export default function PricingPage() {
               </div>
             </div>
 
-            {/* Compact trial CTA - not a big button */}
-            {trialEligible && (
-              <div className="mb-6 text-center">
-                <span className="text-slate-600 text-sm">New here? </span>
-                <button
-                  type="button"
-                  onClick={startFreeTrial}
-                  className="text-sm font-medium text-blue-600 hover:text-blue-700 hover:underline"
-                >
-                  Start 15-day free trial
-                </button>
-                <span className="text-slate-500 text-sm"> (no card required)</span>
-              </div>
-            )}
-
             <div className="grid md:grid-cols-3 gap-8">
               {(() => {
                 // Group by plan name: monthly and yearly are separate subscription options
@@ -930,9 +793,6 @@ export default function PricingPage() {
 
                   const cycleLabel = planForCycle.billing_cycle === 'yearly' ? 'Annual' : 'Monthly';
                   const actionLabel = `Subscribe to ${name} (${cycleLabel})`;
-                  const planKey = name.toLowerCase().replace(/\s+/g, '_');
-                  const previewKey = planKey === 'starter' ? 'starter' : planKey === 'growth' ? 'growth' : planKey === 'enterprise' ? 'enterprise' : planKey;
-                  const preview = companyId && previewByPlan[previewKey];
 
                   return (
                     <PlanCard
@@ -945,10 +805,6 @@ export default function PricingPage() {
                       highlight={name.toLowerCase().includes('growth') || name.toLowerCase().includes('popular')}
                       actionLabel={actionLabel}
                       onAction={() => subscribeToPlan(planForCycle)}
-                      disabled={false}
-                      disabledReason={null}
-                      youPayPreview={preview ? { finalAmount: preview.finalAmount, isMonthly: isMonthly, breakdown: preview.breakdown, hasGST: preview.hasGST } : undefined}
-                      previewLoading={previewLoading}
                     />
                   );
                 });
@@ -1256,9 +1112,7 @@ export default function PricingPage() {
               Payment & Trial Policy
             </h3>
             <ul className="space-y-2">
-              <li>• 15-day free trial requires no payment or credit card.</li>
-              <li>• No charges are applied during the trial period.</li>
-              <li>• Subscription billing starts automatically after trial expiry.</li>
+              <li>• Start your 15-day free trial from Settings after company setup.</li>
               <li>• Add-ons are charged only when explicitly enabled by the user.</li>
               <li>• All prices are exclusive of applicable GST.</li>
               <li>• Payments are processed securely via Razorpay.</li>
@@ -1300,11 +1154,7 @@ function PlanCard({
   savings,
   actionLabel,
   onAction,
-  disabled = false,
-  disabledReason,
   highlight = false,
-  youPayPreview,
-  previewLoading = false,
 }: {
   title: string;
   price: string | React.ReactNode;
@@ -1313,13 +1163,8 @@ function PlanCard({
   savings: string;
   actionLabel: string;
   onAction: () => void;
-  disabled?: boolean;
-  disabledReason?: string | null;
   highlight?: boolean;
-  youPayPreview?: { finalAmount: number; isMonthly: boolean; breakdown: { base?: number; discount?: number; coupon?: number; subtotalAfterCoupon?: number; tax?: number; total?: number }; hasGST: boolean };
-  previewLoading?: boolean;
 }) {
-  const hasBreakdown = youPayPreview?.breakdown && (Number(youPayPreview.breakdown.discount ?? 0) > 0 || Number(youPayPreview.breakdown.coupon ?? 0) > 0 || Number(youPayPreview.breakdown.tax ?? 0) > 0);
   return (
     <div
       className={`rounded-2xl p-8 border ${
@@ -1342,45 +1187,16 @@ function PlanCard({
         {savings}
       </div>
 
-      {/* Phase 7: You pay (incl. discount & tax) - matches Razorpay and invoice */}
-      {previewLoading && (
-        <div className="mt-4 text-sm text-slate-500">Calculating final amount…</div>
-      )}
-      {!previewLoading && youPayPreview && (
-        <div className="mt-4 p-3 bg-slate-50 rounded-lg border border-slate-200">
-          <div className="text-sm font-semibold text-slate-800">
-            You pay: ₹{youPayPreview.finalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            {youPayPreview.isMonthly ? ' / month' : ' / year'}
-          </div>
-          {hasBreakdown && youPayPreview.breakdown && (
-            <ul className="mt-2 text-xs text-slate-600 space-y-0.5">
-              {youPayPreview.breakdown.base != null && <li>Base: ₹{Number(youPayPreview.breakdown.base).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</li>}
-              {Number(youPayPreview.breakdown.discount ?? 0) > 0 && <li>Discount: -₹{Number(youPayPreview.breakdown.discount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</li>}
-              {Number(youPayPreview.breakdown.coupon ?? 0) > 0 && <li>Coupon: -₹{Number(youPayPreview.breakdown.coupon).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</li>}
-              {Number(youPayPreview.breakdown.tax ?? 0) > 0 && youPayPreview.hasGST && <li>GST (18%): +₹{Number(youPayPreview.breakdown.tax).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</li>}
-              <li className="font-medium text-slate-800">Total: ₹{Number(youPayPreview.breakdown.total ?? youPayPreview.finalAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</li>
-            </ul>
-          )}
-        </div>
-      )}
-
       <button
         onClick={onAction}
-        disabled={disabled}
         className={`mt-8 w-full py-3 rounded-lg font-semibold transition ${
-          disabled
-            ? "bg-slate-200 text-slate-500 cursor-not-allowed"
-            : highlight
+          highlight
             ? "bg-blue-600 text-white hover:bg-blue-700"
             : "border border-slate-300 hover:bg-blue-600 hover:text-white hover:border-blue-600"
         }`}
       >
         {actionLabel}
       </button>
-
-      {disabledReason && (
-        <p className="mt-3 text-xs text-slate-600">{disabledReason}</p>
-      )}
     </div>
   );
 }

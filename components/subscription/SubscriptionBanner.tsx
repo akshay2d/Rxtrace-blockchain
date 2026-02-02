@@ -17,7 +17,7 @@ export function SubscriptionBanner() {
   const daysUntilTrialEnd = trialEnd ? Math.ceil((trialEnd.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)) : null;
 
   const isTrial = status === 'TRIAL' || status === 'trialing';
-  // Trial expiring soon (≤ 7 days)
+  // Trial expiring soon (≤ 7 days) - trial messaging only
   if (isTrial && daysUntilTrialEnd !== null && daysUntilTrialEnd <= 7 && daysUntilTrialEnd > 0) {
     return (
       <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6">
@@ -29,11 +29,16 @@ export function SubscriptionBanner() {
             </h3>
             <p className="text-sm text-yellow-800 mt-1">
               Your trial ends in {daysUntilTrialEnd} day{daysUntilTrialEnd !== 1 ? 's' : ''}. 
-              Choose a subscription plan to continue using RxTrace.
+              Subscribe to a plan to continue using RxTrace.
             </p>
-            <Link href="/pricing" className="text-sm font-medium text-yellow-900 underline mt-2 inline-block">
-              View Plans →
-            </Link>
+            <div className="flex gap-4 mt-2">
+              <Link href="/dashboard/settings" className="text-sm font-medium text-yellow-900 underline">
+                Manage Trial →
+              </Link>
+              <Link href="/pricing" className="text-sm font-medium text-yellow-900 underline">
+                Subscribe →
+              </Link>
+            </div>
           </div>
         </div>
       </div>

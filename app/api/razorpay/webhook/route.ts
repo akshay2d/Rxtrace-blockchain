@@ -2922,7 +2922,8 @@ export async function POST(req: Request) {
       else if (status === 'expired') subscriptionStatus = 'EXPIRED';
 
       // PHASE-2: Find company by subscription ID with validation
-      const { data: company, error: companyFetchError } = await admin
+      let company: { id: string } | null = null;
+      const { data: companyBySubId, error: companyFetchError } = await admin
         .from('companies')
         .select('id')
         .eq('razorpay_subscription_id', subId)
@@ -2930,6 +2931,27 @@ export async function POST(req: Request) {
 
       if (companyFetchError) {
         throw new Error(`PHASE-2: Failed to fetch company: ${companyFetchError.message}`);
+      }
+      company = companyBySubId;
+
+      // Recovery: If company not found (e.g. "payment gateway created but DB failed"), try notes.company_id
+      if (!company && subscriptionEntity.notes?.company_id) {
+        const notesCompanyId = String(subscriptionEntity.notes.company_id).trim();
+        if (isValidUUID(notesCompanyId)) {
+          const { data: companyByNotes, error: notesErr } = await admin
+            .from('companies')
+            .select('id')
+            .eq('id', notesCompanyId)
+            .maybeSingle();
+          if (!notesErr && companyByNotes) {
+            company = companyByNotes;
+            logWithContext('info', 'PHASE-2: Recovered company from subscription notes (payment-gateway-created-DB-failed)', {
+              correlationId,
+              companyId: company.id,
+              subscriptionId: subId,
+            });
+          }
+        }
       }
 
       if (company) {

@@ -67,24 +67,7 @@ export default function SignIn() {
           return;
         }
 
-        // Blocker 1 fix: Use canonical resolver (owner + seat) via API instead of owner-only companies fetch
-        const subRes = await fetch('/api/user/subscription', { cache: 'no-store' });
-        const subBody = await subRes.json().catch(() => ({}));
-        const companyId = subBody.company_id ?? null;
-        const subscriptionStatus = subBody.subscription_status ?? null;
-
-        if (!companyId) {
-          router.push('/dashboard/company-setup');
-          return;
-        }
-
-        const status = String(subscriptionStatus ?? '').toLowerCase();
-        const allowed = new Set(['trial', 'trialing', 'active', 'paid', 'live']);
-        if (!allowed.has(status)) {
-          router.push('/pricing');
-          return;
-        }
-
+        // Production fix: Send user to dashboard; middleware decides redirect (company-setup if no company / profile not completed, pricing if subscription expired). Avoids wrong redirect to company-setup when resolution API returns null for users who already completed setup.
         router.push('/dashboard');
       } else {
         console.error('No user data returned');

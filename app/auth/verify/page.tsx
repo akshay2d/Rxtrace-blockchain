@@ -140,8 +140,8 @@ function VerifyOTPContent() {
         }
       }
 
-      // 3. Redirect directly to company setup
-      router.replace('/dashboard/company-setup');
+      // 3. Redirect to dashboard; middleware will send to company-setup if no company (new user) or allow access if already set up
+      router.replace('/dashboard');
     } catch (error) {
       console.error('Verification error:', error);
       setError('An unexpected error occurred. Please try again.');

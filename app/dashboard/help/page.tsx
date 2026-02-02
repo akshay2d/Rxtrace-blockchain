@@ -77,7 +77,7 @@ const faqData = {
   billing: [
     {
       question: 'Is the free trial really free?',
-      answer: 'Yes! The 15-day free trial requires no payment, no credit card, and no authorization charge. Simply click "Start Free Trial" to begin using all features immediately.',
+      answer: 'Yes! The 15-day free trial requires no payment, no credit card, and no authorization charge. Start your trial from Settings after company setup.',
     },
     {
       question: 'How are scans billed?',
@@ -93,7 +93,7 @@ const faqData = {
     },
     {
       question: 'How do I view my invoices?',
-      answer: 'All invoices, including trial activation invoices, are available in the Billing & Wallet section. You can view, download, and export invoice history.',
+      answer: 'Invoices are available in the Billing page after you subscribe. You can view, download, and export invoice history.',
     },
   ],
   audit: [
