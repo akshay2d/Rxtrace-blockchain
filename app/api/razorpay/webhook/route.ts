@@ -2914,12 +2914,12 @@ export async function POST(req: Request) {
 
       // PHASE-2: Admin already fetched above for idempotency check
       
-      // Map Razorpay status to our status
-      let subscriptionStatus: 'TRIAL' | 'ACTIVE' | 'PAUSED' | 'CANCELLED' | 'EXPIRED' = 'ACTIVE';
-      if (status === 'active') subscriptionStatus = 'ACTIVE';
-      else if (status === 'cancelled' || status === 'completed') subscriptionStatus = 'CANCELLED';
-      else if (status === 'paused') subscriptionStatus = 'PAUSED';
-      else if (status === 'expired') subscriptionStatus = 'EXPIRED';
+      // Map Razorpay status to our status (lowercase for company_subscriptions enum)
+      let subscriptionStatus: 'active' | 'cancelled' | 'paused' | 'expired' = 'active';
+      if (status === 'active') subscriptionStatus = 'active';
+      else if (status === 'cancelled' || status === 'completed') subscriptionStatus = 'cancelled';
+      else if (status === 'paused') subscriptionStatus = 'paused';
+      else if (status === 'expired') subscriptionStatus = 'expired';
 
       // PHASE-2: Find company by subscription ID with validation
       let company: { id: string } | null = null;
@@ -3012,10 +3012,12 @@ export async function POST(req: Request) {
           // PHASE-2: Find plan by razorpay_plan_id with validation
           const planId = subscriptionEntity.plan_id ? String(subscriptionEntity.plan_id) : null;
           let plan_id: string | null = null;
+          let planNameForCode = '';
+          let billing_cycle = 'monthly';
           if (planId) {
             const { data: plan, error: planFetchError } = await admin
               .from('subscription_plans')
-              .select('id')
+              .select('id, name, billing_cycle')
               .eq('razorpay_plan_id', planId)
               .maybeSingle();
             
@@ -3024,6 +3026,8 @@ export async function POST(req: Request) {
             }
             
             plan_id = plan?.id || null;
+            planNameForCode = (plan as any)?.name ?? '';
+            billing_cycle = (plan as any)?.billing_cycle ?? 'monthly';
             
             // PHASE-2: Validate plan ID if found
             if (plan_id && !isValidUUID(plan_id)) {
@@ -3032,11 +3036,15 @@ export async function POST(req: Request) {
           }
 
           if (plan_id) {
+            const planName = planNameForCode;
+            const plan_code = planName ? String(planName).toLowerCase().replace(/\s+/g, '_') : 'starter_monthly';
             const { error: insertError } = await admin
               .from('company_subscriptions')
               .insert({
                 company_id: company.id,
                 plan_id,
+                plan_code,
+                billing_cycle,
                 razorpay_subscription_id: subId,
                 status: subscriptionStatus,
                 current_period_end: currentEnd,

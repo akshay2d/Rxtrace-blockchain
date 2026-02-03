@@ -72,15 +72,15 @@ export async function GET(req: Request) {
           discount_applies_to
         )
       `)
-          .in('status', ['ACTIVE', 'TRIAL']);
+          .in('status', ['active', 'ACTIVE', 'trial', 'TRIAL']);
 
         if (revError) throw revError;
 
         let mrr = 0;
         let arr = 0;
         (activeSubs || []).forEach((sub: any) => {
-          if (sub.status === 'TRIAL') {
-            return; // Skip TRIAL - no revenue
+          if (sub.status === 'TRIAL' || sub.status === 'trial') {
+            return; // Skip trial - no revenue
           }
 
           const plan = Array.isArray(sub.subscription_plans)
@@ -145,7 +145,7 @@ export async function GET(req: Request) {
         // Count distinct active companies
         const activeCompanyIds = new Set(
           (subscriptions || [])
-            .filter((s: any) => s.status === 'ACTIVE' || s.status === 'TRIAL')
+            .filter((s: any) => ['ACTIVE', 'active', 'TRIAL', 'trial'].includes(s.status))
             .map((s: any) => s.company_id)
         );
         const activeCompanyCount = activeCompanyIds.size;

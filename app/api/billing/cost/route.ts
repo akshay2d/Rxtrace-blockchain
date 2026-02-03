@@ -86,7 +86,7 @@ export async function GET() {
       .from('company_subscriptions')
       .select('plan_id, subscription_plans(base_price)')
       .eq('company_id', companyId)
-      .in('status', ['ACTIVE', 'PAUSED'])
+      .in('status', ['active', 'ACTIVE', 'paused', 'PAUSED'])
       .maybeSingle();
 
     const planPrice = subRow?.subscription_plans

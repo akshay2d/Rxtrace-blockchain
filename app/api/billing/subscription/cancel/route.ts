@@ -78,7 +78,7 @@ export async function POST(req: Request) {
     const { error: updateError } = await supabase
       .from('company_subscriptions')
       .update({
-        status: atPeriodEnd ? 'ACTIVE' : 'CANCELLED',
+        status: atPeriodEnd ? 'active' : 'cancelled',
         updated_at: new Date().toISOString(),
       })
       .eq('id', subscription.id);

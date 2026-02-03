@@ -29,7 +29,7 @@ export async function GET(req: Request) {
         ),
         companies!inner(company_name)
       `)
-      .in('status', ['ACTIVE', 'TRIAL', 'PAUSED', 'CANCELLED']);
+      .in('status', ['active', 'ACTIVE', 'trial', 'TRIAL', 'paused', 'PAUSED', 'cancelled', 'CANCELLED']);
 
     if (subError) throw subError;
 

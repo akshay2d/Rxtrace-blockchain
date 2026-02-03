@@ -55,6 +55,24 @@ export function razorpaySubscriptionPlanAvailability(): Record<string, boolean> 
   };
 }
 
+/** Returns the set of valid paid plan IDs from env. Used to detect old trial plan. */
+export function getValidPaidPlanIds(): Set<string> {
+  const ids = new Set<string>();
+  const vars = [
+    'RAZORPAY_SUBSCRIPTION_PLAN_ID_STARTER_MONTHLY',
+    'RAZORPAY_SUBSCRIPTION_PLAN_ID_STARTER_ANNUAL',
+    'RAZORPAY_SUBSCRIPTION_PLAN_ID_GROWTH_MONTHLY',
+    'RAZORPAY_SUBSCRIPTION_PLAN_ID_GROWTH_ANNUAL',
+    'RAZORPAY_SUBSCRIPTION_PLAN_ID_ENTERPRISE_MONTHLY',
+    'RAZORPAY_SUBSCRIPTION_PLAN_ID_ENTERPRISE_QUARTERLY',
+  ];
+  for (const v of vars) {
+    const id = process.env[v];
+    if (id && String(id).trim()) ids.add(String(id).trim());
+  }
+  return ids;
+}
+
 export function getRazorpayKeys(): { keyId: string; keySecret: string } {
   const keyId = process.env.RAZORPAY_KEY_ID ?? process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
   const keySecret = process.env.RAZORPAY_KEY_SECRET;

@@ -47,7 +47,7 @@ async function handleTrialActivation(company_id: string, user_id: string) {
     .from('company_subscriptions')
     .select('id')
     .eq('company_id', company_id)
-    .in('status', ['ACTIVE', 'PAUSED'])
+    .in('status', ['active', 'ACTIVE', 'paused', 'PAUSED'])
     .maybeSingle();
 
   if (paidSub) {

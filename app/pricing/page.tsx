@@ -119,9 +119,6 @@ export default function PricingPage() {
   } | null>(null);
   const [companyLoadError, setCompanyLoadError] = React.useState<string | null>(null);
 
-  // Billing cycle selection: monthly, annual, quarterly (separate subscription options)
-  const [selectedBillingCycle, setSelectedBillingCycle] = React.useState<'monthly' | 'yearly' | 'quarterly'>('monthly');
-
   // Coupon codes (admin-created, assigned to company): optional at checkout
   const [subscriptionCouponCode, setSubscriptionCouponCode] = React.useState('');
   const [cartCouponCode, setCartCouponCode] = React.useState('');
@@ -322,7 +319,8 @@ export default function PricingPage() {
         return;
       }
       if (!res.ok) {
-        setSubscriptionMessage(body?.error || 'Failed to create subscription. Please try again.');
+        const detail = body?.details ? ` (${body.details})` : '';
+        setSubscriptionMessage((body?.error || 'Failed to create subscription. Please try again.') + detail);
         console.error('Subscription upgrade error:', body);
         return;
       }
@@ -689,46 +687,8 @@ export default function PricingPage() {
           </div>
         ) : (
           <>
-            {/* Billing cycle + coupon row */}
-            <div className="flex flex-wrap items-center justify-center gap-4 mb-8">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">Billing</span>
-                <div className="inline-flex rounded-md border border-slate-200 bg-slate-50/80 p-0.5">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedBillingCycle('monthly')}
-                    className={`px-3 py-1.5 rounded text-xs font-medium transition ${
-                      selectedBillingCycle === 'monthly'
-                        ? 'bg-white text-slate-800 shadow-sm border border-slate-200'
-                        : 'text-slate-600 hover:text-slate-800'
-                    }`}
-                  >
-                    Monthly
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedBillingCycle('yearly')}
-                    className={`px-3 py-1.5 rounded text-xs font-medium transition ${
-                      selectedBillingCycle === 'yearly'
-                        ? 'bg-white text-slate-800 shadow-sm border border-slate-200'
-                        : 'text-slate-600 hover:text-slate-800'
-                    }`}
-                  >
-                    Annual
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedBillingCycle('quarterly')}
-                    className={`px-3 py-1.5 rounded text-xs font-medium transition ${
-                      selectedBillingCycle === 'quarterly'
-                        ? 'bg-white text-slate-800 shadow-sm border border-slate-200'
-                        : 'text-slate-600 hover:text-slate-800'
-                    }`}
-                  >
-                    Quarterly
-                  </button>
-                </div>
-              </div>
+            {/* Coupon row */}
+            <div className="flex flex-wrap items-center justify-center gap-4 mb-6">
               <div className="flex items-center gap-2">
                 <label htmlFor="subscription-coupon" className="text-xs text-slate-500 whitespace-nowrap">
                   Coupon (optional)
@@ -744,94 +704,39 @@ export default function PricingPage() {
               </div>
             </div>
 
-            <div className="grid md:grid-cols-3 gap-8">
-              {(() => {
-                // Group by plan name: monthly, yearly, quarterly
-                const byName: Record<string, { monthly?: Plan; yearly?: Plan; quarterly?: Plan }> = {};
-                for (const p of plans) {
-                  if (!byName[p.name]) byName[p.name] = {};
-                  if (p.billing_cycle === 'monthly') byName[p.name].monthly = p;
-                  if (p.billing_cycle === 'yearly') byName[p.name].yearly = p;
-                  if (p.billing_cycle === 'quarterly') byName[p.name].quarterly = p;
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {plans.map((plan) => {
+                const isMonthly = plan.billing_cycle === 'monthly';
+                const isQuarterly = plan.billing_cycle === 'quarterly';
+                const periodLabel = isMonthly ? '/ month' : isQuarterly ? '/ quarter' : '/ year';
+                const discount = calculateDiscountedPrice(plan.base_price, companyDiscount);
+                let price: string | React.ReactNode = `₹${plan.base_price.toLocaleString('en-IN')}${periodLabel}`;
+                if (discount?.hasDiscount) {
+                  price = (
+                    <span>
+                      <span className="line-through text-gray-500 mr-1 text-sm">₹{plan.base_price.toLocaleString('en-IN')}</span>
+                      <span className="text-green-600 font-semibold">₹{discount.discountedPrice.toLocaleString('en-IN')}</span>
+                      <span className="text-gray-600 text-sm">{periodLabel}</span>
+                    </span>
+                  );
                 }
-                const planGroups = Object.entries(byName).map(([name, group]) => ({ name, ...group }));
+                const items = plan.items.map(item => (item.value ? `${item.label}: ${item.value}` : item.label));
+                const cycleLabel = isMonthly ? 'Monthly' : isQuarterly ? 'Quarterly' : 'Annual';
 
-                return planGroups.map(({ name, monthly, yearly, quarterly }) => {
-                  const planForCycle =
-                    selectedBillingCycle === 'monthly'
-                      ? monthly ?? yearly ?? quarterly
-                      : selectedBillingCycle === 'yearly'
-                      ? yearly ?? monthly ?? quarterly
-                      : quarterly ?? yearly ?? monthly;
-                  if (!planForCycle) return null;
-
-                  const monthlyDiscount = monthly ? calculateDiscountedPrice(monthly.base_price, companyDiscount) : null;
-                  const yearlyDiscount = yearly ? calculateDiscountedPrice(yearly.base_price, companyDiscount) : null;
-                  const quarterlyDiscount = quarterly ? calculateDiscountedPrice(quarterly.base_price, companyDiscount) : null;
-
-                  const isMonthly = selectedBillingCycle === 'monthly';
-                  const isQuarterly = selectedBillingCycle === 'quarterly';
-                  const discount = isMonthly ? monthlyDiscount : isQuarterly ? quarterlyDiscount : yearlyDiscount;
-                  const basePrice = planForCycle.base_price;
-
-                  const periodLabel = isMonthly ? '/ month' : isQuarterly ? '/ quarter' : '/ year';
-                  let price: string | React.ReactNode = `₹${basePrice.toLocaleString('en-IN')}${periodLabel}`;
-                  if (discount?.hasDiscount) {
-                    price = (
-                      <span>
-                        <span className="line-through text-gray-500 mr-2">
-                          ₹{basePrice.toLocaleString('en-IN')}
-                        </span>
-                        <span className="text-green-600 font-bold">
-                          ₹{discount.discountedPrice.toLocaleString('en-IN')}
-                        </span>
-                        <span className="text-gray-600">{periodLabel}</span>
-                      </span>
-                    );
-                  }
-
-                  const otherCycleLabel = isMonthly && yearly
-                    ? `or ₹${(yearlyDiscount?.discountedPrice ?? yearly.base_price).toLocaleString('en-IN')} / year`
-                    : !isMonthly && !isQuarterly && monthly
-                    ? `or ₹${(monthlyDiscount?.discountedPrice ?? monthly.base_price).toLocaleString('en-IN')} / month`
-                    : isQuarterly && yearly
-                    ? `or ₹${(yearlyDiscount?.discountedPrice ?? yearly.base_price).toLocaleString('en-IN')} / year`
-                    : '';
-
-                  const savings =
-                    yearly && monthly && selectedBillingCycle === 'yearly'
-                      ? `Save ₹${((monthly.base_price * 12) - yearly.base_price).toLocaleString('en-IN')} vs monthly`
-                      : yearly && monthly && selectedBillingCycle === 'monthly'
-                      ? `Switch to annual to save ₹${((monthly.base_price * 12) - yearly.base_price).toLocaleString('en-IN')} / year`
-                      : '';
-
-                  const items = planForCycle.items.map(item =>
-                    item.value ? `${item.label}: ${item.value}` : item.label
-                  );
-
-                  const cycleLabel =
-                    planForCycle.billing_cycle === 'yearly'
-                      ? 'Annual'
-                      : planForCycle.billing_cycle === 'quarterly'
-                      ? 'Quarterly'
-                      : 'Monthly';
-                  const actionLabel = `Subscribe to ${name} (${cycleLabel})`;
-
-                  return (
-                    <PlanCard
-                      key={name}
-                      title={name}
-                      price={price}
-                      yearly={otherCycleLabel}
-                      savings={savings}
-                      items={items}
-                      highlight={name.toLowerCase().includes('growth') || name.toLowerCase().includes('popular')}
-                      actionLabel={actionLabel}
-                      onAction={() => subscribeToPlan(planForCycle)}
-                    />
-                  );
-                });
-              })()}
+                return (
+                  <PlanCard
+                    key={`${plan.id}-${plan.billing_cycle}`}
+                    title={plan.name}
+                    price={price}
+                    yearly=""
+                    savings=""
+                    items={items}
+                    highlight={plan.name.toLowerCase().includes('growth') || plan.name.toLowerCase().includes('popular')}
+                    actionLabel={`Subscribe (${cycleLabel})`}
+                    onAction={() => subscribeToPlan(plan)}
+                  />
+                );
+              })}
             </div>
           </>
         )}
@@ -1186,29 +1091,27 @@ function PlanCard({
 }) {
   return (
     <div
-      className={`rounded-2xl p-8 border ${
+      className={`rounded-xl p-4 border transition ${
         highlight
-          ? "border-blue-600 bg-white"
-          : "border-slate-200 bg-white"
+          ? "border-blue-500 bg-blue-50/50 shadow-sm"
+          : "border-slate-200 bg-white hover:border-slate-300"
       }`}
     >
-      <h3 className="text-2xl font-bold">{title}</h3>
-      <div className="mt-4 text-3xl font-bold">{price}</div>
-      <div className="text-slate-600">{yearly}</div>
+      <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
+      <div className="mt-2 text-xl font-bold text-slate-800">{price}</div>
+      {yearly ? <div className="mt-1 text-xs text-slate-500">{yearly}</div> : null}
 
-      <ul className="mt-6 space-y-2 text-slate-600">
-        {items.map((item) => (
-          <li key={item}>✔ {item}</li>
+      <ul className="mt-3 space-y-1 text-sm text-slate-600">
+        {items.slice(0, 4).map((item) => (
+          <li key={item} className="flex items-start gap-1">✔ <span>{item}</span></li>
         ))}
       </ul>
 
-      <div className="mt-6 text-sm text-emerald-700 font-semibold">
-        {savings}
-      </div>
+      {savings ? <div className="mt-2 text-xs text-emerald-600 font-medium">{savings}</div> : null}
 
       <button
         onClick={onAction}
-        className={`mt-8 w-full py-3 rounded-lg font-semibold transition ${
+        className={`mt-4 w-full py-2 rounded-lg text-sm font-medium transition ${
           highlight
             ? "bg-blue-600 text-white hover:bg-blue-700"
             : "border border-slate-300 hover:bg-blue-600 hover:text-white hover:border-blue-600"

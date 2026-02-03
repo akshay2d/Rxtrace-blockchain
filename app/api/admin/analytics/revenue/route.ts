@@ -55,7 +55,7 @@ export async function GET(req: Request) {
           base_price
         )
       `)
-      .in('status', ['ACTIVE', 'TRIAL']);
+      .in('status', ['active', 'ACTIVE', 'trial', 'TRIAL']);
 
     if (subError) throw subError;
 

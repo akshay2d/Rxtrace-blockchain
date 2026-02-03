@@ -59,7 +59,7 @@ export async function POST(req: Request) {
       const { error: updateError } = await supabase
         .from('company_subscriptions')
         .update({
-          status: 'TRIAL',
+          status: 'trial',
           updated_at: new Date().toISOString(),
         })
         .eq('id', subscription.id);
@@ -77,7 +77,7 @@ export async function POST(req: Request) {
     const { error: updateError } = await supabase
       .from('company_subscriptions')
       .update({
-        status: 'ACTIVE',
+        status: 'active',
         updated_at: new Date().toISOString(),
       })
       .eq('id', subscription.id);

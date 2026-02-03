@@ -360,7 +360,7 @@ export async function PUT(req: Request) {
         .from("company_subscriptions")
         .select("company_id")
         .eq("plan_id", id)
-        .in("status", ["ACTIVE", "TRIAL"]);
+        .in("status", ["active", "ACTIVE", "trial", "TRIAL"]);
       
       // Update billing_usage quota fields if limits changed
       if (activeSubscriptions && activeSubscriptions.length > 0) {

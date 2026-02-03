@@ -186,15 +186,15 @@ export async function POST(req: Request) {
 
         let razorpay_subscription_id: string | null = null;
 
-        // Create Razorpay subscription if plan has razorpay_plan_id
-        if (plan.razorpay_plan_id && company.razorpay_customer_id) {
+        // Create Razorpay subscription ONLY for paid (non-trial) assignments.
+        // Trial is company-level; old trial flow created ₹5 Razorpay subs—removed.
+        if (plan.razorpay_plan_id && company.razorpay_customer_id && !trialEnd) {
           try {
             const razorpay = getRazorpay();
             const subscription = await razorpay.subscriptions.create({
               plan_id: plan.razorpay_plan_id,
               customer_notify: 1,
               total_count: 12, // 12 months
-              start_at: trialEnd ? Math.floor(new Date(trialEnd).getTime() / 1000) : undefined,
             });
             razorpay_subscription_id = subscription.id;
           } catch (razorpayErr: any) {
@@ -207,7 +207,7 @@ export async function POST(req: Request) {
           company_id,
           plan_id,
           razorpay_subscription_id,
-          status: trialEnd ? "TRIAL" : "ACTIVE",
+          status: trialEnd ? "trial" : "active",
           trial_end: trialEnd,
           current_period_end: trialEnd || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
         };
@@ -401,7 +401,7 @@ export async function PUT(req: Request) {
             }
           }
         } else if (action === "resume") {
-          newStatus = "ACTIVE";
+          newStatus = "active";
           if (subscription.razorpay_subscription_id) {
             try {
               const razorpay = getRazorpay();
@@ -411,7 +411,7 @@ export async function PUT(req: Request) {
             }
           }
         } else if (action === "cancel") {
-          newStatus = "CANCELLED";
+          newStatus = "cancelled";
           if (subscription.razorpay_subscription_id) {
             try {
               const razorpay = getRazorpay();
@@ -423,7 +423,7 @@ export async function PUT(req: Request) {
         } else if (action === "extend_trial" && trial_days) {
           const newTrialEnd = new Date(Date.now() + trial_days * 24 * 60 * 60 * 1000).toISOString();
           updates.trial_end = newTrialEnd;
-          if (subscription.status === "TRIAL") {
+          if (subscription.status === "TRIAL" || subscription.status === "trial") {
             updates.current_period_end = newTrialEnd;
           }
         }

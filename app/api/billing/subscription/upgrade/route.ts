@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
-import { createRazorpayClient, razorpaySubscriptionPlanIdFor } from '@/lib/razorpay/server';
+import { createRazorpayClient, razorpaySubscriptionPlanIdFor, getValidPaidPlanIds } from '@/lib/razorpay/server';
 import { calculateFinalAmount } from '@/lib/billing/tax';
 import { resolveCompanyForUser } from '@/lib/company/resolve';
 
@@ -84,6 +84,32 @@ export async function POST(req: Request) {
     const company = resolved.company as Record<string, unknown>;
     let subscriptionId = company?.razorpay_subscription_id as string | undefined;
 
+    // Only reuse existing razorpay_subscription_id if (a) company has paid subscription AND
+    // (b) the Razorpay subscription uses one of our 6 paid plans. Old trial (₹5) plan must not be reused.
+    if (subscriptionId) {
+      const { data: paidSub } = await supabase
+        .from('company_subscriptions')
+        .select('id')
+        .eq('company_id', companyId)
+        .in('status', ['active', 'ACTIVE', 'paused', 'PAUSED'])
+        .maybeSingle();
+      if (!paidSub) {
+        subscriptionId = undefined;
+      } else {
+        const razorpay = createRazorpayClient();
+        try {
+          const existing = await (razorpay.subscriptions as any).fetch(subscriptionId);
+          const existingPlanId = (existing as any)?.plan_id;
+          const validIds = getValidPaidPlanIds();
+          if (!existingPlanId || !validIds.has(String(existingPlanId).trim())) {
+            subscriptionId = undefined;
+          }
+        } catch {
+          subscriptionId = undefined;
+        }
+      }
+    }
+
     // Fetch plan (id + base_price) for validation and company_subscriptions.plan_id
     // Map tier+cycle to fixed plan names: Starter Monthly, Starter Yearly, Growth Monthly, Growth Yearly, Enterprise Monthly, Enterprise Quarterly
     const tier = requestedPlan.trim().toLowerCase();
@@ -108,7 +134,6 @@ export async function POST(req: Request) {
       .select('id, base_price')
       .eq('name', planNameForDb)
       .eq('billing_cycle', billingCycleDb)
-      .eq('is_active', true)
       .maybeSingle();
 
     const basePlanPrice = Number(planRow?.base_price ?? 0);
@@ -192,7 +217,8 @@ export async function POST(req: Request) {
     let subscription: any;
 
     const isAnnual = billingCycleDb === 'yearly';
-    const totalCount = isAnnual ? 100 : 120;
+    const isQuarterly = billingCycleDb === 'quarterly';
+    const totalCount = isAnnual ? 100 : isQuarterly ? 40 : 120;
 
     if (!subscriptionId) {
       const startAtSeconds = Math.floor((Date.now() + 60_000) / 1000);
@@ -226,14 +252,20 @@ export async function POST(req: Request) {
 
       // Blocker 1: Persist paid subscription to company_subscriptions (upsert: insert or update on company_id).
       const periodEnd = new Date();
-      periodEnd.setMonth(periodEnd.getMonth() + (isAnnual ? 12 : 1));
+      const monthsToAdd = isAnnual ? 12 : isQuarterly ? 3 : 1;
+      periodEnd.setMonth(periodEnd.getMonth() + monthsToAdd);
       const nowIso = new Date().toISOString();
+      const planCode = planNameForDb.toLowerCase().replace(/\s+/g, '_');
       const subRow: Record<string, unknown> = {
         company_id: companyId,
         plan_id: planIdDb,
-        status: 'ACTIVE',
+        plan_code: planCode,
+        billing_cycle: billingCycleDb,
+        status: 'active',
         razorpay_subscription_id: subscriptionId,
         current_period_end: periodEnd.toISOString(),
+        is_trial: false,
+        created_at: nowIso,
         updated_at: nowIso,
       };
 
@@ -294,7 +326,7 @@ export async function POST(req: Request) {
       const { error: companyUpdateErr } = await supabase
         .from('companies')
         .update({
-          subscription_plan: requestedPlan,
+          subscription_plan: planNameForDb,
           razorpay_subscription_id: subscription?.id ?? subscriptionId,
           razorpay_plan_id: subscription?.plan_id ?? planId,
           razorpay_subscription_status: subscription?.status ?? null,
@@ -314,11 +346,14 @@ export async function POST(req: Request) {
         .eq('company_id', companyId)
         .maybeSingle();
       if (existingSub?.id) {
+        const planCode = planNameForDb.toLowerCase().replace(/\s+/g, '_');
         await supabase
           .from('company_subscriptions')
           .update({
             plan_id: planIdDb,
-            status: 'ACTIVE',
+            plan_code: planCode,
+            billing_cycle: billingCycleDb,
+            status: 'active',
             razorpay_subscription_id: subscription?.id ?? subscriptionId,
             updated_at: new Date().toISOString(),
           })
