@@ -11,7 +11,14 @@ export async function POST(req: Request) {
     const { error: adminError } = await requireAdmin();
     if (adminError) return adminError;
     const supabase = getSupabaseAdmin();
-    const validPlanIds = getValidPaidPlanIds();
+    const { data: validPlanRows } = await supabase
+      .from('subscription_plans')
+      .select('razorpay_plan_id')
+      .not('razorpay_plan_id', 'is', null);
+    const validPlanIdsFromDb = new Set(
+      (validPlanRows ?? []).map((r: any) => r?.razorpay_plan_id).filter(Boolean).map((s: string) => String(s).trim())
+    );
+    const validPlanIds = validPlanIdsFromDb.size > 0 ? validPlanIdsFromDb : getValidPaidPlanIds();
 
     const { data: companies, error: companiesError } = await supabase
       .from('companies')

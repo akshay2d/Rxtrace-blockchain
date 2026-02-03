@@ -65,6 +65,8 @@ export default function AdminDashboard() {
   const [subscriptionStats, setSubscriptionStats] = useState<SubscriptionStats | null>(null);
   const [fixingSubscriptions, setFixingSubscriptions] = useState(false);
   const [fixMessage, setFixMessage] = useState<string | null>(null);
+  const [syncingPlans, setSyncingPlans] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
   useEffect(() => {
     fetchData();
@@ -177,6 +179,7 @@ export default function AdminDashboard() {
               onClick={async () => {
                 setFixingSubscriptions(true);
                 setFixMessage(null);
+                setSyncMessage(null);
                 try {
                   const res = await fetch('/api/admin/fix-missing-subscriptions', { method: 'POST' });
                   const data = await res.json();
@@ -206,14 +209,58 @@ export default function AdminDashboard() {
                 </>
               )}
             </Button>
+            <div className="flex flex-col gap-2 mt-4">
+              <div>
+                <p className="text-sm text-amber-800 font-medium mb-1">Sync Razorpay Plan IDs</p>
+                <p className="text-xs text-amber-700 max-w-2xl">
+                  Copies env vars to <code className="bg-amber-200/70 px-1 rounded">subscription_plans.razorpay_plan_id</code>.
+                  Run after updating env with correct Razorpay plan IDs (fixes ₹5 trial plan issue).
+                </p>
+              </div>
+              <Button
+                onClick={async () => {
+                  setSyncingPlans(true);
+                  setSyncMessage(null);
+                  setFixMessage(null);
+                  try {
+                    const res = await fetch('/api/admin/sync-razorpay-plan-ids', { method: 'POST' });
+                    const data = await res.json();
+                    if (data.success) {
+                      setSyncMessage(`✅ ${data.message}`);
+                    } else {
+                      setSyncMessage(`❌ Error: ${data.error}`);
+                    }
+                  } catch (err: any) {
+                    setSyncMessage(`❌ Error: ${err.message}`);
+                  } finally {
+                    setSyncingPlans(false);
+                  }
+                }}
+                disabled={syncingPlans}
+                className="bg-amber-600 hover:bg-amber-700"
+              >
+                {syncingPlans ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                    Syncing...
+                  </>
+                ) : (
+                  <>
+                    <Wrench className="w-4 h-4 mr-2" />
+                    Sync Razorpay Plan IDs
+                  </>
+                )}
+              </Button>
+            </div>
           </div>
-          {fixMessage && (
+          {(fixMessage || syncMessage) && (
             <div className={`mt-4 p-3 rounded-lg text-sm ${
-              fixMessage.includes('✅') 
-                ? 'bg-green-100 text-green-800 border border-green-300' 
+              (fixMessage || syncMessage)?.includes('✅')
+                ? 'bg-green-100 text-green-800 border border-green-300'
                 : 'bg-red-100 text-red-800 border border-red-300'
             }`}>
-              {fixMessage}
+              {fixMessage && <div>{fixMessage}</div>}
+              {syncMessage && <div className={fixMessage ? 'mt-2' : ''}>{syncMessage}</div>}
             </div>
           )}
         </CardContent>
