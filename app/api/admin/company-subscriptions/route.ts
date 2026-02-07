@@ -187,14 +187,13 @@ export async function POST(req: Request) {
         let razorpay_subscription_id: string | null = null;
 
         // Create Razorpay subscription ONLY for paid (non-trial) assignments.
-        // Trial is company-level; old trial flow created ₹5 Razorpay subs—removed.
+        // Trial is company-level; do NOT create Razorpay subscription for trials.
         if (plan.razorpay_plan_id && company.razorpay_customer_id && !trialEnd) {
           try {
             const razorpay = getRazorpay();
             const subscription = await razorpay.subscriptions.create({
               plan_id: plan.razorpay_plan_id,
               customer_notify: 1,
-              total_count: 12, // 12 months
             });
             razorpay_subscription_id = subscription.id;
           } catch (razorpayErr: any) {

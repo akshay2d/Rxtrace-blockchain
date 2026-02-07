@@ -15,15 +15,15 @@ export async function POST(req: NextRequest) {
       email,
       phone,
       pan,
-      gst_number,
+      gst,
       business_category,
       business_type,
     } = await req.json();
 
-    // Validate required fields (PAN is optional, not mandatory)
-    if (!user_id || !company_name || !contact_person_name || !firm_type || !address || !email || !phone || !business_category || !business_type) {
+    // Validate required fields
+    if (!user_id || !company_name || !contact_person_name || !firm_type || !address || !email || !phone || !pan || !business_category || !business_type) {
       return NextResponse.json(
-        { error: 'Missing required fields' },
+        { error: 'Missing required fields. PAN card is mandatory.' },
         { status: 400 }
       );
     }
@@ -47,19 +47,16 @@ export async function POST(req: NextRequest) {
 
     // Validate business fields
     const validCategories = ['pharma', 'food', 'dairy', 'logistics'];
-    const validTypes = ['manufacturer', 'distributor', 'wholesaler', 'exporter', 'importer', 'cf_agent'];
+    const validTypes = ['manufacturer', 'exporter', 'distributor', 'wholesaler'];
     
-    // Normalize business_type to lowercase
-    const normalizedBusinessType = business_type?.toLowerCase().trim();
-    
-    if (!validCategories.includes(business_category?.toLowerCase().trim())) {
+    if (!validCategories.includes(business_category)) {
       return NextResponse.json(
         { error: 'Invalid business category' },
         { status: 400 }
       );
     }
 
-    if (!normalizedBusinessType || !validTypes.includes(normalizedBusinessType)) {
+    if (!validTypes.includes(business_type)) {
       return NextResponse.json(
         { error: 'Invalid business type' },
         { status: 400 }
@@ -89,14 +86,14 @@ export async function POST(req: NextRequest) {
         user_id,
         company_name: company_name.trim(),
         contact_person_name: contact_person_name.trim(),
-        firm_type: firm_type.toLowerCase().trim(),
+        firm_type,
         address: address.trim(),
         email: email.toLowerCase().trim(),
         phone: phone.trim(),
         pan: pan.toUpperCase().trim(),
-        gst_number: gst_number ? gst_number.toUpperCase().trim() : null,
-        business_category: business_category.toLowerCase().trim(),
-        business_type: normalizedBusinessType,
+        gst: gst ? gst.toUpperCase().trim() : null,
+        business_category,
+        business_type,
         subscription_status: null,
         created_at: new Date().toISOString(),
       })

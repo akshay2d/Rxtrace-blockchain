@@ -124,7 +124,7 @@ export async function POST(req: Request) {
     }
 
     // Fetch plan (id + base_price) for validation and company_subscriptions.plan_id
-    // Map tier+cycle to fixed plan names: Starter Monthly, Starter Yearly, Growth Monthly, Growth Yearly, Enterprise Monthly, Enterprise Quarterly
+    // Map tier+cycle to fixed plan names: Starter Monthly, Starter Yearly, Growth Monthly, Growth Yearly
     const tier = requestedPlan.trim().toLowerCase();
     const cycle = billingCycleDb;
     const planNameMap: Record<string, string> = {
@@ -132,13 +132,12 @@ export async function POST(req: Request) {
       'starter_yearly': 'Starter Yearly',
       'growth_monthly': 'Growth Monthly',
       'growth_yearly': 'Growth Yearly',
-      'enterprise_monthly': 'Enterprise Monthly',
-      'enterprise_quarterly': 'Enterprise Quarterly',
+      // Enterprise plans removed
     };
     const planNameForDb = planNameMap[`${tier}_${cycle}`] ?? null;
     if (!planNameForDb) {
       return NextResponse.json(
-        { error: `Plan "${requestedPlan}" with cycle "${cycle}" not supported. Use Starter Monthly/Yearly, Growth Monthly/Yearly, Enterprise Monthly/Quarterly.` },
+        { error: `Plan "${requestedPlan}" with cycle "${cycle}" not supported. Use Starter Monthly/Yearly, Growth Monthly/Yearly.` },
         { status: 400 }
       );
     }
@@ -235,16 +234,11 @@ export async function POST(req: Request) {
     const razorpay = createRazorpayClient();
     let subscription: any;
 
-    const isAnnual = billingCycleDb === 'yearly';
-    const isQuarterly = billingCycleDb === 'quarterly';
-    const totalCount = isAnnual ? 100 : isQuarterly ? 40 : 120;
-
     if (!subscriptionId) {
       const startAtSeconds = Math.floor((Date.now() + 60_000) / 1000);
 
       subscription = await razorpay.subscriptions.create({
         plan_id: planIdForRazorpay,
-        total_count: totalCount,
         customer_notify: 1,
         start_at: startAtSeconds,
         ...(offerId ? { offer_id: offerId } : {}),
@@ -271,7 +265,7 @@ export async function POST(req: Request) {
 
       // Blocker 1: Persist paid subscription to company_subscriptions (upsert: insert or update on company_id).
       const periodEnd = new Date();
-      const monthsToAdd = isAnnual ? 12 : isQuarterly ? 3 : 1;
+      const monthsToAdd = billingCycleDb === 'yearly' ? 12 : 1;
       periodEnd.setMonth(periodEnd.getMonth() + monthsToAdd);
       const nowIso = new Date().toISOString();
       const planCode = planNameForDb.toLowerCase().replace(/\s+/g, '_');

@@ -2,12 +2,17 @@ import Razorpay from 'razorpay';
 import { normalizePlanType } from '@/lib/billing/period';
 import type { PlanType } from '@/lib/billingConfig';
 
-export type BillingCycle = 'monthly' | 'annual' | 'quarterly';
+// Razorpay only supports monthly and yearly billing cycles
+export type BillingCycle = 'monthly' | 'yearly';
+
+/* ---------------------------------- */
+/* Helpers                            */
+/* ---------------------------------- */
 
 function normalizeBillingCycle(raw: unknown): BillingCycle {
   const value = String(raw ?? '').trim().toLowerCase();
-  if (value === 'annual' || value === 'year' || value === 'yearly') return 'annual';
-  if (value === 'quarterly' || value === 'quarter' || value === 'qtr') return 'quarterly';
+  if (value === 'annual' || value === 'year' || value === 'yearly') return 'yearly';
+  // Quarterly is not supported by Razorpay - default to monthly
   return 'monthly';
 }
 
@@ -15,13 +20,10 @@ function parsePlanAndCycle(raw: unknown): { planType: PlanType; cycle: BillingCy
   const value = String(raw ?? '').trim().toLowerCase();
   const parts = value.split(/[_-]/g).filter(Boolean);
 
-  // Supported inputs:
-  // - "starter" (defaults to monthly)
-  // - "starter_monthly" / "starter_annual"
-  // - "growth-yearly"
   const maybeCycle = parts.length > 1 ? parts[parts.length - 1] : null;
   const cycle = maybeCycle ? normalizeBillingCycle(maybeCycle) : 'monthly';
-  const planPart = parts.length > 1 && cycle !== 'monthly' ? parts.slice(0, -1).join('_') : parts[0];
+  const planPart =
+    parts.length > 1 && cycle !== 'monthly' ? parts.slice(0, -1).join('_') : parts[0];
 
   const planType = normalizePlanType(planPart);
   if (!planType) throw new Error('Invalid plan');
@@ -29,53 +31,97 @@ function parsePlanAndCycle(raw: unknown): { planType: PlanType; cycle: BillingCy
   return { planType, cycle };
 }
 
-const ENV_BY_PLAN_AND_CYCLE: Record<PlanType, Partial<Record<BillingCycle, string>>> = {
+/* ---------------------------------- */
+/* Razorpay Plan IDs (FROM ENV)        */
+/* ---------------------------------- */
+
+function requiredEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) throw new Error(`Missing required env var: ${name}`);
+  return value;
+}
+
+const APPROVED_RAZORPAY_PLAN_IDS: Record<
+  'starter' | 'growth',
+  Record<BillingCycle, string>
+> = {
   starter: {
-    monthly: 'RAZORPAY_SUBSCRIPTION_PLAN_ID_STARTER_MONTHLY',
-    annual: 'RAZORPAY_SUBSCRIPTION_PLAN_ID_STARTER_ANNUAL',
+    monthly: requiredEnv('RAZORPAY_PLAN_STARTER_MONTHLY'),
+    yearly: requiredEnv('RAZORPAY_PLAN_STARTER_YEARLY'),
   },
   growth: {
-    monthly: 'RAZORPAY_SUBSCRIPTION_PLAN_ID_GROWTH_MONTHLY',
-    annual: 'RAZORPAY_SUBSCRIPTION_PLAN_ID_GROWTH_ANNUAL',
-  },
-  enterprise: {
-    monthly: 'RAZORPAY_SUBSCRIPTION_PLAN_ID_ENTERPRISE_MONTHLY',
-    quarterly: 'RAZORPAY_SUBSCRIPTION_PLAN_ID_ENTERPRISE_QUARTERLY',
+    monthly: requiredEnv('RAZORPAY_PLAN_GROWTH_MONTHLY'),
+    yearly: requiredEnv('RAZORPAY_PLAN_GROWTH_YEARLY'),
   },
 };
 
+const APPROVED_PLAN_ID_SET = new Set<string>(
+  Object.values(APPROVED_RAZORPAY_PLAN_IDS)
+    .flatMap((p) => Object.values(p))
+);
+
+/* ---------------------------------- */
+/* Plan Normalizers                    */
+/* ---------------------------------- */
+
+function normalizePlanTypeFromName(name: unknown): PlanType | null {
+  const value = String(name ?? '').trim().toLowerCase();
+  if (value.includes('starter')) return 'starter';
+  if (value.includes('growth')) return 'growth';
+  return null;
+}
+
+function normalizeBillingCycleFromName(name: unknown): BillingCycle {
+  const value = String(name ?? '').trim().toLowerCase();
+  if (value.includes('year') || value.includes('yearly')) return 'yearly';
+  // Quarterly not supported - default to monthly
+  return 'monthly';
+}
+
+/* ---------------------------------- */
+/* Public APIs                         */
+/* ---------------------------------- */
+
 export function razorpaySubscriptionPlanAvailability(): Record<string, boolean> {
   return {
-    starter_monthly: Boolean(process.env.RAZORPAY_SUBSCRIPTION_PLAN_ID_STARTER_MONTHLY),
-    growth_monthly: Boolean(process.env.RAZORPAY_SUBSCRIPTION_PLAN_ID_GROWTH_MONTHLY),
-    enterprise_monthly: Boolean(process.env.RAZORPAY_SUBSCRIPTION_PLAN_ID_ENTERPRISE_MONTHLY),
-    starter_annual: Boolean(process.env.RAZORPAY_SUBSCRIPTION_PLAN_ID_STARTER_ANNUAL),
-    growth_annual: Boolean(process.env.RAZORPAY_SUBSCRIPTION_PLAN_ID_GROWTH_ANNUAL),
-    enterprise_quarterly: Boolean(process.env.RAZORPAY_SUBSCRIPTION_PLAN_ID_ENTERPRISE_QUARTERLY),
+    starter_monthly: true,
+    starter_yearly: true,
+    growth_monthly: true,
+    growth_yearly: true,
   };
 }
 
-/** Returns the set of valid paid plan IDs from env. Used to detect old trial plan. */
 export function getValidPaidPlanIds(): Set<string> {
-  const ids = new Set<string>();
-  const vars = [
-    'RAZORPAY_SUBSCRIPTION_PLAN_ID_STARTER_MONTHLY',
-    'RAZORPAY_SUBSCRIPTION_PLAN_ID_STARTER_ANNUAL',
-    'RAZORPAY_SUBSCRIPTION_PLAN_ID_GROWTH_MONTHLY',
-    'RAZORPAY_SUBSCRIPTION_PLAN_ID_GROWTH_ANNUAL',
-    'RAZORPAY_SUBSCRIPTION_PLAN_ID_ENTERPRISE_MONTHLY',
-    'RAZORPAY_SUBSCRIPTION_PLAN_ID_ENTERPRISE_QUARTERLY',
-  ];
-  for (const v of vars) {
-    const id = process.env[v];
-    if (id && String(id).trim()) ids.add(String(id).trim());
-  }
-  return ids;
+  return new Set(APPROVED_PLAN_ID_SET);
 }
+
+export function isApprovedRazorpayPlanId(planId: unknown): boolean {
+  const value = String(planId ?? '').trim();
+  return value.length > 0 && APPROVED_PLAN_ID_SET.has(value);
+}
+
+export function approvedRazorpayPlanIdForName(
+  name: unknown,
+  billingCycle?: unknown
+): string | null {
+  const planType = normalizePlanTypeFromName(name);
+  if (!planType) return null;
+
+  const cycle = billingCycle
+    ? normalizeBillingCycle(billingCycle)
+    : normalizeBillingCycleFromName(name);
+
+  return APPROVED_RAZORPAY_PLAN_IDS[planType]?.[cycle] ?? null;
+}
+
+/* ---------------------------------- */
+/* Razorpay Client                     */
+/* ---------------------------------- */
 
 export function getRazorpayKeys(): { keyId: string; keySecret: string } {
   const keyId = process.env.RAZORPAY_KEY_ID ?? process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
   const keySecret = process.env.RAZORPAY_KEY_SECRET;
+
   if (!keyId || !keySecret) {
     throw new Error('Razorpay not configured (RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET)');
   }
@@ -87,24 +133,35 @@ export function createRazorpayClient(): Razorpay {
   return new Razorpay({ key_id: keyId, key_secret: keySecret });
 }
 
-export function razorpaySubscriptionPlanIdFor(planRaw: string, cycleRaw?: unknown): string {
-  const parsed = cycleRaw ? { planType: normalizePlanType(planRaw), cycle: normalizeBillingCycle(cycleRaw) } : parsePlanAndCycle(planRaw);
-  const planType = (parsed as any).planType as PlanType | null;
-  const cycle = (parsed as any).cycle as BillingCycle;
+/* ---------------------------------- */
+/* Subscription Resolution             */
+/* ---------------------------------- */
+
+export function razorpaySubscriptionPlanIdFor(
+  planRaw: string,
+  cycleRaw?: unknown
+): string {
+  const parsed = cycleRaw
+    ? { planType: normalizePlanType(planRaw), cycle: normalizeBillingCycle(cycleRaw) }
+    : parsePlanAndCycle(planRaw);
+
+  const { planType, cycle } = parsed as { planType: PlanType | null; cycle: BillingCycle };
 
   if (!planType) throw new Error('Invalid plan');
 
-  const envVar = ENV_BY_PLAN_AND_CYCLE[planType][cycle];
-  if (!envVar) {
-    throw new Error(`Unsupported billing cycle "${cycle}" for plan "${planType}"`);
+  const planId = APPROVED_RAZORPAY_PLAN_IDS[planType]?.[cycle];
+  if (!planId) {
+    throw new Error(`Missing approved Razorpay plan id for ${planType} ${cycle}`);
   }
 
-  const planId = process.env[envVar];
-  if (!planId) throw new Error(`Missing Razorpay plan id env var ${envVar}`);
   return planId;
 }
 
-export function parseSubscriptionPlanKey(raw: unknown): { planType: PlanType; cycle: BillingCycle; key: string } {
+export function parseSubscriptionPlanKey(
+  raw: unknown
+): { planType: PlanType; cycle: BillingCycle; key: string } {
   const { planType, cycle } = parsePlanAndCycle(raw);
   return { planType, cycle, key: `${planType}_${cycle}` };
 }
+
+

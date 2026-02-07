@@ -6,11 +6,10 @@ export const runtime = 'nodejs';
 
 const PLAN_ENV_MAP: Array<{ name: string; billing_cycle: string; envVar: string }> = [
   { name: 'Starter Monthly', billing_cycle: 'monthly', envVar: 'RAZORPAY_SUBSCRIPTION_PLAN_ID_STARTER_MONTHLY' },
-  { name: 'Starter Yearly', billing_cycle: 'yearly', envVar: 'RAZORPAY_SUBSCRIPTION_PLAN_ID_STARTER_ANNUAL' },
   { name: 'Growth Monthly', billing_cycle: 'monthly', envVar: 'RAZORPAY_SUBSCRIPTION_PLAN_ID_GROWTH_MONTHLY' },
-  { name: 'Growth Yearly', billing_cycle: 'yearly', envVar: 'RAZORPAY_SUBSCRIPTION_PLAN_ID_GROWTH_ANNUAL' },
-  { name: 'Enterprise Monthly', billing_cycle: 'monthly', envVar: 'RAZORPAY_SUBSCRIPTION_PLAN_ID_ENTERPRISE_MONTHLY' },
-  { name: 'Enterprise Quarterly', billing_cycle: 'quarterly', envVar: 'RAZORPAY_SUBSCRIPTION_PLAN_ID_ENTERPRISE_QUARTERLY' },
+    { name: 'Starter Yearly', billing_cycle: 'yearly', envVar: 'RAZORPAY_SUBSCRIPTION_PLAN_ID_STARTER_YEARLY' },
+    { name: 'Growth Yearly', billing_cycle: 'yearly', envVar: 'RAZORPAY_SUBSCRIPTION_PLAN_ID_GROWTH_YEARLY' },
+  // Enterprise plans removed
 ];
 
 /**

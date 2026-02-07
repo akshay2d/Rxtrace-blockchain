@@ -138,7 +138,7 @@ export default function AdminSubscriptionsPage() {
         <Card className="border-dashed border-2 border-[#0052CC]/30 bg-[#0052CC]/5">
           <CardContent className="flex flex-col items-center justify-center py-12">
             <p className="text-lg font-medium text-gray-700 mb-1">No subscription plans yet</p>
-            <p className="text-sm text-gray-500">Run the database migration to seed the 6 fixed plans (Starter Monthly/Yearly, Growth Monthly/Yearly, Enterprise Monthly/Quarterly).</p>
+            <p className="text-sm text-gray-500">Run the database migration to seed the 4 fixed plans (Starter Monthly/Yearly, Growth Monthly/Yearly).</p>
           </CardContent>
         </Card>
       )}

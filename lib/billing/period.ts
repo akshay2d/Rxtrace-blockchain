@@ -6,7 +6,7 @@ export function normalizePlanType(raw: unknown): PlanType | null {
 
   if (base === 'starter' || base === 'free' || base === 'trial') return 'starter';
   if (base === 'professional' || base === 'pro' || base === 'growth') return 'growth';
-  if (base === 'enterprise') return 'enterprise';
+  // Enterprise plan removed
   return null;
 }
 

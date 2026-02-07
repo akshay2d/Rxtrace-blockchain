@@ -8,19 +8,10 @@ import {
   measurePerformance,
   recordRouteMetric,
 } from "@/lib/observability";
-import Razorpay from "razorpay";
+import { approvedRazorpayPlanIdForName } from "@/lib/razorpay/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-function getRazorpay() {
-  const keyId = process.env.RAZORPAY_KEY_ID ?? process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
-  const keySecret = process.env.RAZORPAY_KEY_SECRET;
-  if (!keyId || !keySecret) {
-    throw new Error("Razorpay not configured");
-  }
-  return new Razorpay({ key_id: keyId, key_secret: keySecret });
-}
 
 // GET: List all subscription plans. PHASE-10: Added observability.
 export async function GET() {
@@ -74,7 +65,29 @@ export async function GET() {
           })
         );
 
-        return { plans: plansWithItems };
+        // Enforce approved Razorpay plan IDs (Starter/Growth monthly/yearly only)
+        const correctedPlans = [];
+        for (const plan of plansWithItems) {
+          const expectedPlanId = approvedRazorpayPlanIdForName(plan.name, plan.billing_cycle);
+          if (expectedPlanId) {
+            if (plan.razorpay_plan_id !== expectedPlanId) {
+              await supabase
+                .from("subscription_plans")
+                .update({ razorpay_plan_id: expectedPlanId })
+                .eq("id", plan.id);
+              plan.razorpay_plan_id = expectedPlanId;
+            }
+          } else if (plan.razorpay_plan_id) {
+            await supabase
+              .from("subscription_plans")
+              .update({ razorpay_plan_id: null })
+              .eq("id", plan.id);
+            plan.razorpay_plan_id = null;
+          }
+          correctedPlans.push(plan);
+        }
+
+        return { plans: correctedPlans };
       },
       { correlationId, route: '/api/admin/subscription-plans', method: 'GET', userId }
     );
@@ -150,26 +163,9 @@ export async function POST(req: Request) {
     const { result: planData, duration } = await measurePerformance(
       'admin.subscription-plans.create',
       async () => {
-        // Create Razorpay plan
-        let razorpay_plan_id: string | null = null;
-        try {
-          const razorpay = getRazorpay();
-          const period: "monthly" | "yearly" = billing_cycle === "monthly" ? "monthly" : "yearly";
-          const interval = 1;
-          
-          const razorpayPlan = await razorpay.plans.create({
-            period,
-            interval,
-            item: {
-              name: `${name} (${billing_cycle})`,
-              amount: Math.round(base_price * 100), // Convert to paise
-              currency: "INR",
-            },
-          });
-          razorpay_plan_id = razorpayPlan.id;
-        } catch (razorpayErr: any) {
-          console.error("Razorpay plan creation failed:", razorpayErr);
-          // Continue without Razorpay plan ID - can be synced later
+        const razorpay_plan_id = approvedRazorpayPlanIdForName(name, billing_cycle);
+        if (!razorpay_plan_id) {
+          throw new Error("Only Starter/Growth monthly or yearly plans are supported for Razorpay subscriptions");
         }
 
         // Create plan in database
@@ -304,6 +300,10 @@ export async function PUT(req: Request) {
         if (base_price !== undefined) updates.base_price = base_price;
         if (display_order !== undefined) updates.display_order = display_order;
         if (is_active !== undefined) updates.is_active = is_active;
+        const effectiveName = name ?? currentPlan.name;
+        const effectiveCycle = billing_cycle ?? currentPlan.billing_cycle;
+        const enforcedPlanId = approvedRazorpayPlanIdForName(effectiveName, effectiveCycle);
+        updates.razorpay_plan_id = enforcedPlanId ?? null;
 
         const { data: plan, error } = await supabase
           .from("subscription_plans")

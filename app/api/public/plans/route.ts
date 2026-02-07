@@ -4,14 +4,12 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Whitelist: only these 6 plans appear on Pricing page
+// Whitelist: only these 4 paid plans appear in API
 const FIXED_PLANS: Array<{ name: string; billing_cycle: string }> = [
   { name: "Starter Monthly", billing_cycle: "monthly" },
   { name: "Starter Yearly", billing_cycle: "yearly" },
   { name: "Growth Monthly", billing_cycle: "monthly" },
   { name: "Growth Yearly", billing_cycle: "yearly" },
-  { name: "Enterprise Monthly", billing_cycle: "monthly" },
-  { name: "Enterprise Quarterly", billing_cycle: "quarterly" },
 ];
 
 // GET: Public API - Fetch active subscription plans (whitelist: 6 fixed plans only)

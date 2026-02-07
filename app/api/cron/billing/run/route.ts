@@ -59,7 +59,6 @@ export async function POST(req: Request) {
 
           subscription = await (razorpay.subscriptions as any).create({
             plan_id: planId,
-            total_count: 120,
             customer_notify: 1,
             start_at: startAtSeconds,
             notes: { company_id: companyId, plan: normalizedPlan, source: 'cron_post_trial' },

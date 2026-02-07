@@ -15,10 +15,15 @@ export async function POST(req: Request) {
       .from('subscription_plans')
       .select('razorpay_plan_id')
       .not('razorpay_plan_id', 'is', null);
+    const approvedPlanIds = getValidPaidPlanIds();
     const validPlanIdsFromDb = new Set(
-      (validPlanRows ?? []).map((r: any) => r?.razorpay_plan_id).filter(Boolean).map((s: string) => String(s).trim())
+      (validPlanRows ?? [])
+        .map((r: any) => r?.razorpay_plan_id)
+        .filter(Boolean)
+        .map((s: string) => String(s).trim())
+        .filter((s: string) => approvedPlanIds.has(s))
     );
-    const validPlanIds = validPlanIdsFromDb.size > 0 ? validPlanIdsFromDb : getValidPaidPlanIds();
+    const validPlanIds = validPlanIdsFromDb.size > 0 ? validPlanIdsFromDb : approvedPlanIds;
 
     const { data: companies, error: companiesError } = await supabase
       .from('companies')
@@ -51,7 +56,7 @@ export async function POST(req: Request) {
 
       if (existing) continue;
 
-      // Skip if Razorpay subscription is old trial (₹5) plan—not one of our 6 paid plans
+      // Skip if Razorpay subscription is old trial (₹5) plan—not one of our approved paid plans
       const rpSubId = (company as any).razorpay_subscription_id;
       if (rpSubId) {
         try {
@@ -72,20 +77,30 @@ export async function POST(req: Request) {
       }
 
       const rawPlan = (company as any).subscription_plan ?? 'Starter';
-      const planNameMap: Record<string, string> = { Starter: 'Starter Monthly', Growth: 'Growth Monthly', Enterprise: 'Enterprise Monthly' };
+      const planNameMap: Record<string, string> = { Starter: 'Starter Monthly', Growth: 'Growth Monthly' };
       const planName = planNameMap[rawPlan] ?? rawPlan;
+      const planNameLower = String(planName).toLowerCase();
+      if (planNameLower.includes('enterprise')) {
+        errors.push(`Company ${company.id}: Enterprise plans are not enabled for Razorpay subscriptions`);
+        continue;
+      }
+      if (!planNameLower.includes('starter') && !planNameLower.includes('growth')) {
+        errors.push(`Company ${company.id}: unsupported plan "${planName}" (raw: ${rawPlan})`);
+        continue;
+      }
       const { data: planRow } = await supabase
         .from('subscription_plans')
         .select('id, name')
         .eq('name', planName)
         .eq('billing_cycle', 'monthly')
+        .in('razorpay_plan_id', Array.from(validPlanIds))
         .eq('is_active', true)
         .limit(1)
         .maybeSingle();
 
       const planIdDb = (planRow as any)?.id;
       if (!planIdDb) {
-        errors.push(`Company ${company.id}: no plan found for ${planName} (raw: ${rawPlan})`);
+        errors.push(`Company ${company.id}: no valid plan found for ${planName} (raw: ${rawPlan})`);
         continue;
       }
 

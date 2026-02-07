@@ -57,19 +57,7 @@ export const PRICING = {
       quarterly_base: 135000,
       annual_base: 500000,
     },
-    enterprise: {
-      name: "Enterprise",
-      max_handsets: 999999,
-      max_seats: 10,
-      unit_labels_quota: 10000000,
-      box_labels_quota: 1000000,
-      carton_labels_quota: 100000,
-      pallet_labels_quota: 10000,
-      default_credit_limit: 100000,
-      monthly_base: 200000,
-      quarterly_base: 500000,
-      annual_base: 2000000,
-    },
+    // Enterprise plan removed
   },
 } as const;
 
