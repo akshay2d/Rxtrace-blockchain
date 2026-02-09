@@ -5,11 +5,10 @@ import { requireAdmin } from '@/lib/auth/admin';
 export const runtime = 'nodejs';
 
 const PLAN_ENV_MAP: Array<{ name: string; billing_cycle: string; envVar: string }> = [
-  { name: 'Starter Monthly', billing_cycle: 'monthly', envVar: 'RAZORPAY_SUBSCRIPTION_PLAN_ID_STARTER_MONTHLY' },
-  { name: 'Growth Monthly', billing_cycle: 'monthly', envVar: 'RAZORPAY_SUBSCRIPTION_PLAN_ID_GROWTH_MONTHLY' },
-    { name: 'Starter Yearly', billing_cycle: 'yearly', envVar: 'RAZORPAY_SUBSCRIPTION_PLAN_ID_STARTER_YEARLY' },
-    { name: 'Growth Yearly', billing_cycle: 'yearly', envVar: 'RAZORPAY_SUBSCRIPTION_PLAN_ID_GROWTH_YEARLY' },
-  // Enterprise plans removed
+  { name: 'Starter Monthly', billing_cycle: 'monthly', envVar: 'RAZORPAY_PLAN_STARTER_MONTHLY' },
+  { name: 'Starter Yearly', billing_cycle: 'yearly', envVar: 'RAZORPAY_PLAN_STARTER_YEARLY' },
+  { name: 'Growth Monthly', billing_cycle: 'monthly', envVar: 'RAZORPAY_PLAN_GROWTH_MONTHLY' },
+  { name: 'Growth Yearly', billing_cycle: 'yearly', envVar: 'RAZORPAY_PLAN_GROWTH_YEARLY' },
 ];
 
 /**

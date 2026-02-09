@@ -4,7 +4,7 @@ import { createContext, useContext, useEffect, useState, ReactNode } from 'react
 import { useRouter } from 'next/navigation';
 import { supabaseClient } from '@/lib/supabase/client';
 
-type SubscriptionStatus = 'TRIAL' | 'trialing' | 'ACTIVE' | 'PAUSED' | 'CANCELLED' | 'EXPIRED' | null;
+type SubscriptionStatus = 'TRIAL' | 'trialing' | 'ACTIVE' | 'PAUSED' | 'CANCELLED' | 'EXPIRED' | 'PENDING' | null;
 
 type Subscription = {
   id: string;
@@ -74,9 +74,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       setAddOns(data.add_ons || []);
       setDiscounts(data.discounts || []);
 
-      // Check if company access is disabled (FROZEN status)
       if (data.subscription) {
-        // Check company wallet status for freeze
         const supabase = supabaseClient();
         const { data: company } = await supabase
           .from('companies')
@@ -92,7 +90,6 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
             .maybeSingle();
 
           if (wallet?.status === 'FROZEN') {
-            // Force logout
             await supabase.auth.signOut();
             router.push('/auth/signin?message=Account access has been disabled. Please contact support.');
             return;
@@ -111,32 +108,23 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     fetchSubscription();
     const interval = setInterval(fetchSubscription, 30000);
     return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchSubscription is stable; mount + interval only
   }, []);
 
   const isFeatureEnabled = (feature: string): boolean => {
-    // Allow code generation without subscription (pre-Phase 1 behavior)
     if (feature === 'code_generation') {
-      // If no subscription, allow access (legacy behavior - code generation was always available)
       if (!subscription) return true;
-      
-      // If subscription exists, check status
       const status = subscription.status;
-      if (status === 'PAUSED' || status === 'CANCELLED' || status === 'EXPIRED') {
+      if (status === 'PAUSED' || status === 'CANCELLED' || status === 'EXPIRED' || status === 'PENDING') {
         return false;
       }
       return status === 'TRIAL' || status === 'trialing' || status === 'ACTIVE';
     }
     
-    // For other features, require subscription
     if (!subscription) return false;
-    
     const status = subscription.status;
-    if (status === 'PAUSED' || status === 'CANCELLED' || status === 'EXPIRED') {
+    if (status === 'PAUSED' || status === 'CANCELLED' || status === 'EXPIRED' || status === 'PENDING') {
       return false;
     }
-
-    // Feature checks can be extended based on plan_items. Trial (plan_id null) is valid.
     return status === 'TRIAL' || status === 'trialing' || status === 'ACTIVE';
   };
 

@@ -12,7 +12,7 @@ const FIXED_PLANS: Array<{ name: string; billing_cycle: string }> = [
   { name: "Growth Yearly", billing_cycle: "yearly" },
 ];
 
-// GET: Public API - Fetch active subscription plans (whitelist: 6 fixed plans only)
+// GET: Public API - Fetch active subscription plans (whitelist: 4 fixed plans only)
 export async function GET() {
   try {
     const supabase = getSupabaseAdmin();
@@ -24,7 +24,7 @@ export async function GET() {
 
     if (error) throw error;
 
-    // Whitelist: only the 6 fixed plans (ignore is_active - these are the only plans we offer)
+    // Whitelist: only the 4 fixed plans (ignore is_active - these are the only plans we offer)
     const whitelisted = (plans || []).filter((p) => {
       const name = String(p.name || "").trim();
       const cycle = String(p.billing_cycle || "").toLowerCase();
@@ -46,6 +46,7 @@ export async function GET() {
           description: plan.description,
           billing_cycle: plan.billing_cycle,
           base_price: plan.base_price,
+          razorpay_plan_id: plan.razorpay_plan_id,
           items: (items || []).map(item => ({ label: item.label, value: item.value })),
         };
       })

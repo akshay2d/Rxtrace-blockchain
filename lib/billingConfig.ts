@@ -29,6 +29,8 @@ export const PRICING = {
   TAX_APPLIES_TO: ['subscription', 'addon'] as const,
 
   // Plan configurations
+  // DEPRECATED: Subscription prices moved to database.
+  // Use lib/billing/pricing.ts for price retrieval.
   // max_handsets: unlimited for all plans (handset activation has no limit)
   plans: {
     starter: {
@@ -40,9 +42,8 @@ export const PRICING = {
       carton_labels_quota: 2000,
       pallet_labels_quota: 500,
       default_credit_limit: 5000,
-      monthly_base: 18000,
-      quarterly_base: 50000,
-      annual_base: 200000,
+      // DEPRECATED: monthly_base: 9999 - use getPlanPrice('starter', 'monthly')
+      // DEPRECATED: yearly_base: 99990 - use getPlanPrice('starter', 'yearly')
     },
     growth: {
       name: "Growth",
@@ -53,11 +54,9 @@ export const PRICING = {
       carton_labels_quota: 20000,
       pallet_labels_quota: 2000,
       default_credit_limit: 20000,
-      monthly_base: 49000,
-      quarterly_base: 135000,
-      annual_base: 500000,
+      // DEPRECATED: monthly_base: 29999 - use getPlanPrice('growth', 'monthly')
+      // DEPRECATED: yearly_base: 299990 - use getPlanPrice('growth', 'yearly')
     },
-    // Enterprise plan removed
   },
 } as const;
 
