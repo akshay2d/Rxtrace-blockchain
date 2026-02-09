@@ -19,72 +19,55 @@ export default function CancellationPolicyPage() {
 
       {/* Content */}
       <div className="max-w-4xl mx-auto px-6 py-16">
-        <h1 className="text-4xl font-bold mb-4">Cancellation & Refund Policy</h1>
+        <h1 className="text-4xl font-bold mb-4">Cancellation Policy</h1>
         <p className="text-gray-600 mb-8">Last updated: {new Date().toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
 
         <div className="prose prose-slate max-w-none space-y-8">
           <section>
-            <h2 className="text-2xl font-semibold mb-4">Cancellation During Trial Period</h2>
+            <h2 className="text-2xl font-semibold mb-4">Free Trial Cancellation</h2>
             <p className="text-gray-700 mb-4">
-              You can cancel your subscription at any time during the 15-day free trial period. Cancellation during the trial period results in absolutely zero charges.
+              You can cancel your 15-day free trial at any time from your dashboard settings. 
+              Cancellation results in immediate loss of access to all features.
             </p>
             <ul className="list-disc list-inside space-y-2 text-gray-700">
-              <li>Cancel anytime before the trial period ends</li>
-              <li>No charges will be applied if cancelled during trial (no payment required for trial)</li>
-              <li>Access continues until the end of the trial period</li>
+              <li>Cancel anytime from Dashboard → Settings → Trial Management</li>
+              <li>Immediate effect - access is revoked right away</li>
+              <li>No charges - the trial is completely free</li>
+              <li>No questions asked</li>
             </ul>
           </section>
 
           <section>
-            <h2 className="text-2xl font-semibold mb-4">Cancellation After Trial</h2>
-            <p className="text-gray-700 mb-4">
-              After the trial period ends, you can cancel your subscription at any time from your dashboard. To avoid charges for the next billing cycle, cancel before the renewal date.
-            </p>
-            <ul className="list-disc list-inside space-y-2 text-gray-700">
-              <li>Cancel anytime from your dashboard (Billing → Cancel Subscription)</li>
-              <li>Cancel before the next billing cycle to avoid charges</li>
-              <li>Your subscription will remain active until the end of the current billing period</li>
-              <li>You will continue to have access to all features until the period ends</li>
-            </ul>
-          </section>
-
-          <section>
-            <h2 className="text-2xl font-semibold mb-4">How to Cancel</h2>
+            <h2 className="text-2xl font-semibold mb-4">How to Cancel Your Trial</h2>
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
               <ol className="list-decimal list-inside space-y-3 text-gray-700">
                 <li>Log in to your RxTrace dashboard</li>
-                <li>Navigate to the Billing page</li>
-                <li>Click on the &quot;Cancel Subscription&quot; button</li>
+                <li>Navigate to Settings</li>
+                <li>Find the Trial Management section</li>
+                <li>Click on "Cancel Trial"</li>
                 <li>Confirm your cancellation</li>
-                <li>You will receive a confirmation email</li>
               </ol>
             </div>
           </section>
 
           <section>
-            <h2 className="text-2xl font-semibold mb-4">Refund Policy</h2>
+            <h2 className="text-2xl font-semibold mb-4">No Charges or Refunds</h2>
             <p className="text-gray-700 mb-4">
-              RxTrace operates on a subscription model with the following refund terms:
+              Since the trial is completely free, there are no charges to refund:
             </p>
             <ul className="list-disc list-inside space-y-2 text-gray-700">
-              <li><strong>No refunds for partial months:</strong> If you cancel mid-cycle, you will continue to have access until the end of the current billing period, but no refund will be issued for the unused portion.</li>
-              <li><strong>Cancel before renewal:</strong> To avoid charges for the next billing cycle, cancel before the renewal date.</li>
-              <li><strong>Free trial:</strong> No payment is required to start the trial; cancellation during trial results in zero charges.</li>
-              <li><strong>Add-ons:</strong> Add-on charges are non-refundable once the billing cycle has started.</li>
+              <li>No payment information is collected during trial signup</li>
+              <li>No charges are applied during or after the trial</li>
+              <li>No refund policy applies since no payments are made</li>
             </ul>
           </section>
 
           <section>
-            <h2 className="text-2xl font-semibold mb-4">Reactivation</h2>
+            <h2 className="text-2xl font-semibold mb-4">Data Retention</h2>
             <p className="text-gray-700 mb-4">
-              If you cancel your subscription, you can reactivate it at any time. Reactivation will start a new billing cycle.
+              After trial cancellation, your account data is retained for a limited period. 
+              If you restart your trial within 30 days, your data will still be available.
             </p>
-            <ul className="list-disc list-inside space-y-2 text-gray-700">
-              <li>Reactivate from your dashboard at any time</li>
-              <li>A new billing cycle will begin upon reactivation</li>
-              <li>You will be charged according to your selected plan</li>
-              <li>All your data and settings will be restored</li>
-            </ul>
           </section>
 
           <section>

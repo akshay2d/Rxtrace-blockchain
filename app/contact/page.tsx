@@ -26,11 +26,11 @@ const faqs = [
   },
   {
     question: "How do I get started with RxTrace?",
-    answer: "You can book a demo through our website, and our team will walk you through the platform. After signup, you'll complete company verification and can start generating labels immediately with our subscription plans."
+    answer: "You can book a demo through our website, and our team will walk you through the platform. After signup, you'll complete company verification and can start generating labels immediately with our 15-day free trial."
   },
   {
     question: "What pricing plans are available?",
-    answer: "We offer flexible pricing based on your label generation needs. Visit our Pricing page or contact our sales team for a customized quote based on your volume requirements."
+    answer: "We offer a 15-day free trial with full access to all features. Visit our Pricing page for more details on continuing after your trial."
   },
   {
     question: "Is my data secure with RxTrace?",

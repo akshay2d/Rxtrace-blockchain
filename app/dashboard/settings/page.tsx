@@ -307,13 +307,14 @@ export default function Page() {
     }
   }
 
-  // Handle Resume - CANCELLED/PAUSED comes from company_subscriptions (paid); use billing API. Trial cancel uses trial API (no resume for trial).
+  // Handle Resume - Not applicable for trial on main branch (subscription API removed)
   async function handleResume() {
     setTrialLoading(true);
     setTrialError('');
 
     try {
-      const res = await fetch('/api/billing/subscription/resume', {
+      // Trial users can't resume from cancelled - they need to start a new trial
+      const res = await fetch('/api/trial/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -321,14 +322,14 @@ export default function Page() {
       const data = await res.json();
 
       if (!res.ok) {
-        setTrialError(data.error || 'Failed to resume');
+        setTrialError(data.error || 'Failed to start new trial');
         return;
       }
 
       await refreshSubscription();
       setTrialError('');
     } catch (err: any) {
-      setTrialError(err.message || 'Failed to resume');
+      setTrialError(err.message || 'Failed to start new trial');
     } finally {
       setTrialLoading(false);
     }
@@ -377,7 +378,7 @@ export default function Page() {
                 </Button>
               </div>
             ) : (subscription?.status === 'TRIAL' || subscription?.status === 'trialing') ? (
-              /* Trial ACTIVE */
+              {/* Trial ACTIVE */}
               <div className="space-y-4">
                 <div className="flex items-center justify-between p-4 bg-green-50 border-2 border-green-200 rounded-lg">
                   <div>
@@ -415,7 +416,7 @@ export default function Page() {
                 </div>
               </div>
             ) : subscription && (subscription.status === 'CANCELLED' || subscription.status === 'PAUSED') ? (
-              /* Trial/Subscription CANCELLED/PAUSED - Resume or Upgrade */
+                {/* Trial/Subscription CANCELLED/PAUSED - Start new trial */}
               <div className="space-y-4">
                 <div className="flex items-center justify-between p-4 bg-orange-50 border-2 border-orange-200 rounded-lg">
                   <div>
@@ -426,8 +427,8 @@ export default function Page() {
                     </div>
                     <div className="text-sm text-orange-700">
                       {subscription?.status === 'CANCELLED' 
-                        ? 'Your trial or subscription has been cancelled.'
-                        : 'Your trial or subscription has been paused.'}
+                        ? 'Your trial has been cancelled. Start a new trial to continue using RxTrace.'
+                        : 'Your trial has been paused.'}
                     </div>
                   </div>
                 </div>
@@ -438,18 +439,18 @@ export default function Page() {
                     disabled={trialLoading}
                     className="bg-blue-600 hover:bg-blue-700 text-white"
                   >
-                    {trialLoading ? 'Resuming...' : 'Resume'}
+                    {trialLoading ? 'Starting...' : 'Start New Trial'}
                   </Button>
                   <Button
                     onClick={() => router.push('/pricing')}
                     variant="outline"
                   >
-                    Upgrade Plan
+                    View Plans
                   </Button>
                 </div>
               </div>
             ) : (
-              /* No trial - Start trial here (user came from Dashboard) or Subscribe on Pricing */
+              {/* No trial - Start trial here */}
               <div className="p-6 bg-blue-50 border-2 border-blue-200 rounded-lg">
                 <h3 className="text-lg font-semibold text-blue-900 mb-2">Start Your 15-Day Free Trial</h3>
                 <p className="text-sm text-blue-800 mb-4">
@@ -464,7 +465,7 @@ export default function Page() {
                     {trialLoading ? 'Starting...' : 'Start 15-Day Free Trial'}
                   </Button>
                   <Button asChild variant="outline">
-                    <Link href="/pricing">Subscribe to Plan</Link>
+                    <Link href="/pricing">View Plans</Link>
                   </Button>
                 </div>
               </div>

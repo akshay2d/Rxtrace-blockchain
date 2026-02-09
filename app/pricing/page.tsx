@@ -3,135 +3,12 @@
 import React from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
-import { loadRazorpay } from "@/lib/razorpay";
-import { supabaseClient } from "@/lib/supabase/client";
 
 /* =========================================================
-   TYPES
-========================================================= */
-
-type BillingCycle = "monthly" | "yearly";
-
-type Plan = {
-  id: string;
-  name: string;
-  description: string | null;
-  billing_cycle: BillingCycle;
-  base_price: number;
-  items: Array<{ label: string; value: string | null }>;
-};
-
-/* =========================================================
-   PAGE
-========================================================= */
+   TRIAL-ONLY PRICING PAGE
+   ========================================================= */
 
 export default function PricingPage() {
-  const router = useRouter();
-
-  const [plans, setPlans] = React.useState<Plan[]>([]);
-  const [loadingPlans, setLoadingPlans] = React.useState(true);
-  const [message, setMessage] = React.useState<string | null>(null);
-
-  /* ---------------- Fetch public plans ---------------- */
-
-  React.useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch("/api/public/plans", { cache: "no-store" });
-        const body = await res.json();
-
-        if (body?.success) {
-          const filtered: Plan[] = (body.plans || []).filter((p: Plan) => {
-            const n = p.name.toLowerCase();
-            return (
-              (n.includes("starter") || n.includes("growth")) &&
-              (p.billing_cycle === "monthly" || p.billing_cycle === "yearly")
-            );
-          });
-          setPlans(filtered);
-        }
-      } catch (err) {
-        console.error("[Pricing] Failed to load plans", err);
-      } finally {
-        setLoadingPlans(false);
-      }
-    })();
-  }, []);
-
-  /* ---------------- Subscribe ---------------- */
-
-  async function subscribeToPlan(plan: Plan) {
-    setMessage(null);
-
-    const ok = await loadRazorpay();
-    if (!ok) {
-      setMessage("Razorpay failed to load.");
-      return;
-    }
-
-    const name = plan.name.toLowerCase();
-    const planType =
-      name.includes("starter")
-        ? "starter"
-        : name.includes("growth")
-        ? "growth"
-        : "enterprise";
-
-    if (planType === "enterprise") {
-      router.push("/contact");
-      return;
-    }
-
-    try {
-      const res = await fetch("/api/billing/subscription/upgrade", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          plan: planType,
-          billing_cycle: plan.billing_cycle, // monthly | yearly
-        }),
-      });
-
-      if (res.status === 401) {
-        router.replace("/auth/signin");
-        return;
-      }
-
-      const body = await res.json();
-      if (!res.ok || !body?.subscription?.id) {
-        setMessage(body?.error || "Failed to create subscription.");
-        return;
-      }
-
-      const key = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
-      if (!key) {
-        setMessage("Razorpay key not configured.");
-        return;
-      }
-
-      new (window as any).Razorpay({
-        key,
-        subscription_id: body.subscription.id,
-        name: "RxTrace",
-        description: `${plan.name} (${plan.billing_cycle})`,
-        handler: async () => {
-          await supabaseClient().auth.refreshSession();
-          router.push("/dashboard/billing");
-        },
-        modal: {
-          ondismiss: () => setMessage("Payment cancelled."),
-        },
-        theme: { color: "#2563eb" },
-      }).open();
-    } catch (err: any) {
-      setMessage(err?.message || "Subscription failed.");
-    }
-  }
-
-  /* ========================================================= */
-
   return (
     <main className="bg-white text-slate-900">
       {/* HEADER */}
@@ -142,123 +19,179 @@ export default function PricingPage() {
             <span className="font-semibold">RxTrace</span>
           </Link>
           <nav className="flex gap-6 text-sm">
-            <Link href="/pricing" className="text-blue-600">Pricing</Link>
+            <Link href="/services">Services</Link>
             <Link href="/contact">Contact</Link>
             <Link href="/auth/signin">Login</Link>
           </nav>
         </div>
       </header>
 
-      {/* HERO */}
-      <section className="bg-blue-600 text-white text-center py-12">
-        <h1 className="text-3xl font-semibold">Simple pricing. Full access.</h1>
-        <p className="mt-2 text-blue-100">
-          GS1-compliant · ERP-agnostic · Built for scale
+      {/* HERO - FREE TRIAL */}
+      <section className="bg-blue-600 text-white text-center py-16">
+        <h1 className="text-4xl font-bold">Start Free - No Credit Card Required</h1>
+        <p className="mt-4 text-blue-100 text-lg max-w-2xl mx-auto">
+          Get 15 days of full access to all RxTrace features. Generate GS1-compliant labels, 
+          trace your products through the supply chain, and more.
+        </p>
+        <div className="mt-8">
+          <Link 
+            href="/auth/signin" 
+            className="inline-block bg-white text-blue-600 px-8 py-3 rounded-lg font-semibold hover:bg-blue-50 transition"
+          >
+            Start Free Trial
+          </Link>
+        </div>
+        <p className="mt-4 text-sm text-blue-200">
+          No payment required • Full feature access • Cancel anytime
         </p>
       </section>
 
-      {message && (
-        <div className="max-w-5xl mx-auto px-6 mt-4">
-          <div className="border rounded-lg p-3 text-sm bg-red-50 border-red-200 text-red-800">
-            {message}
-          </div>
-        </div>
-      )}
-
-      {/* PLANS */}
-      <section className="max-w-7xl mx-auto px-6 py-16">
-        {loadingPlans ? (
-          <p className="text-center text-slate-600">Loading plans…</p>
-        ) : (
-          <div className="grid md:grid-cols-3 gap-6">
-            {plans.map((plan) => {
-              const period =
-                plan.billing_cycle === "monthly" ? "/ month" : "/ year";
-              const price = `₹${plan.base_price.toLocaleString("en-IN")}${period}`;
-              const items = plan.items.map((i) =>
-                i.value ? `${i.label}: ${i.value}` : i.label
-              );
-
-              return (
-                <PlanCard
-                  key={`${plan.id}-${plan.billing_cycle}`}
-                  title={`${plan.name} (${plan.billing_cycle === "monthly" ? "Monthly" : "Yearly"})`}
-                  price={price}
-                  items={items}
-                  highlight={plan.name.toLowerCase().includes("growth")}
-                  actionLabel="Subscribe"
-                  onAction={() => subscribeToPlan(plan)}
-                />
-              );
-            })}
-
-            {/* ENTERPRISE */}
-            <PlanCard
-              title="Enterprise"
-              price="Custom pricing"
-              items={[
-                "High-volume serialization",
-                "Custom aggregation",
-                "Dedicated support",
-                "Regulatory consulting",
-              ]}
-              actionLabel="Contact Us"
-              onAction={() => router.push("/contact")}
+      {/* TRIAL FEATURES */}
+      <section className="py-16 px-6">
+        <div className="max-w-4xl mx-auto">
+          <h2 className="text-2xl font-bold text-center mb-12">Everything Included in Free Trial</h2>
+          <div className="grid md:grid-cols-2 gap-8">
+            <FeatureCard 
+              title="Unlimited Label Generation"
+              description="Generate Unit, Box, Carton, and Pallet (SSCC) codes without any limits during your trial period."
+            />
+            <FeatureCard 
+              title="GS1 Compliance"
+              description="All labels meet GS1 standards for global supply chain interoperability."
+            />
+            <FeatureCard 
+              title="Supply Chain Tracking"
+              description="Track products from manufacturer to end consumer with full traceability."
+            />
+            <FeatureCard 
+              title="Multi-User Access"
+              description="Invite your team members and collaborate on label generation and tracking."
+            />
+            <FeatureCard 
+              title="ERP Integration"
+              description="Import codes from your ERP system and export generated labels."
+            />
+            <FeatureCard 
+              title="Mobile Scanning"
+              description="Use mobile devices to scan and verify products throughout the supply chain."
             />
           </div>
-        )}
+        </div>
+      </section>
+
+      {/* HOW IT WORKS */}
+      <section className="bg-gray-50 py-16 px-6">
+        <div className="max-w-4xl mx-auto text-center">
+          <h2 className="text-2xl font-bold mb-12">How to Start Your Free Trial</h2>
+          <div className="grid md:grid-cols-3 gap-8">
+            <StepCard 
+              number="1"
+              title="Create Account"
+              description="Sign up with your business email. No credit card required."
+            />
+            <StepCard 
+              number="2"
+              title="Verify Company"
+              description="Complete quick company verification to unlock full access."
+            />
+            <StepCard 
+              number="3"
+              title="Start Generating"
+              description="Generate GS1-compliant labels and track your products immediately."
+            />
+          </div>
+        </div>
+      </section>
+
+      {/* FAQ */}
+      <section className="py-16 px-6">
+        <div className="max-w-3xl mx-auto">
+          <h2 className="text-2xl font-bold text-center mb-12">Frequently Asked Questions</h2>
+          <div className="space-y-6">
+            <FAQItem 
+              question="Is the trial really free?"
+              answer="Yes! The 15-day trial is completely free. No credit card required, no charges will be made during or after the trial period unless you choose to subscribe."
+            />
+            <FAQItem 
+              question="What happens after the trial ends?"
+              answer="After the 15-day trial, you can continue using RxTrace by subscribing to one of our plans. Your data and settings will be preserved."
+            />
+            <FAQItem 
+              question="Can I cancel anytime?"
+              answer="Yes, you can cancel your trial at any time from your dashboard settings. No questions asked, no cancellation fees."
+            />
+            <FAQItem 
+              question="Is there a limit on label generation during trial?"
+              answer="No limits! Generate as many Unit, Box, Carton, and SSCC codes as you need during your trial period."
+            />
+          </div>
+        </div>
+      </section>
+
+      {/* CTA */}
+      <section className="bg-blue-600 text-white text-center py-16">
+        <h2 className="text-2xl font-bold">Ready to Get Started?</h2>
+        <p className="mt-4 text-blue-100">
+          Join thousands of businesses using RxTrace for supply chain traceability.
+        </p>
+        <div className="mt-8">
+          <Link 
+            href="/auth/signin" 
+            className="inline-block bg-white text-blue-600 px-8 py-3 rounded-lg font-semibold hover:bg-blue-50 transition"
+          >
+            Start Your Free Trial
+          </Link>
+        </div>
       </section>
 
       {/* FOOTER */}
-      <footer className="border-t py-10 text-center text-sm text-slate-500">
-        © {new Date().getFullYear()} RxTrace India. All rights reserved.
+      <footer className="border-t py-8 px-6">
+        <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
+          <div className="flex items-center gap-2">
+            <Image src="/logo.png" alt="RxTrace" width={24} height={24} />
+            <span className="font-semibold">RxTrace</span>
+          </div>
+          <nav className="flex gap-6 text-sm text-gray-600">
+            <Link href="/services">Services</Link>
+            <Link href="/contact">Contact</Link>
+            <Link href="/billing-policy">Billing Policy</Link>
+            <Link href="/cancellation-policy">Cancellation Policy</Link>
+          </nav>
+          <p className="text-sm text-gray-500">
+            © 2025 RxTrace. All rights reserved.
+          </p>
+        </div>
       </footer>
     </main>
   );
 }
 
-/* =========================================================
-   PLAN CARD
-========================================================= */
-
-function PlanCard({
-  title,
-  price,
-  items,
-  actionLabel,
-  onAction,
-  highlight = false,
-}: {
-  title: string;
-  price: string;
-  items: string[];
-  actionLabel: string;
-  onAction: () => void;
-  highlight?: boolean;
-}) {
+function FeatureCard({ title, description }: { title: string; description: string }) {
   return (
-    <div
-      className={`rounded-xl border p-5 ${
-        highlight ? "border-blue-500 bg-blue-50" : "border-slate-200"
-      }`}
-    >
-      <h3 className="text-lg font-semibold">{title}</h3>
-      <div className="mt-2 text-2xl font-bold">{price}</div>
-      <ul className="mt-4 space-y-1 text-sm text-slate-600">
-        {items.slice(0, 5).map((i) => (
-          <li key={i}>✔ {i}</li>
-        ))}
-      </ul>
-      <button
-        onClick={onAction}
-        className={`mt-5 w-full py-2 rounded-lg text-sm font-medium ${
-          highlight
-            ? "bg-blue-600 text-white hover:bg-blue-700"
-            : "border hover:bg-blue-600 hover:text-white"
-        }`}
-      >
-        {actionLabel}
-      </button>
+    <div className="bg-gray-50 p-6 rounded-lg">
+      <h3 className="font-semibold text-lg mb-2">{title}</h3>
+      <p className="text-gray-600">{description}</p>
+    </div>
+  );
+}
+
+function StepCard({ number, title, description }: { number: string; title: string; description: string }) {
+  return (
+    <div className="relative">
+      <div className="w-12 h-12 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold text-xl mx-auto mb-4">
+        {number}
+      </div>
+      <h3 className="font-semibold text-lg mb-2">{title}</h3>
+      <p className="text-gray-600">{description}</p>
+    </div>
+  );
+}
+
+function FAQItem({ question, answer }: { question: string; answer: string }) {
+  return (
+    <div className="border-b pb-6">
+      <h3 className="font-semibold text-lg mb-2">{question}</h3>
+      <p className="text-gray-600">{answer}</p>
     </div>
   );
 }
