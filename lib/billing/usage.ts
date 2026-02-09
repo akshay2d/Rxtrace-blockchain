@@ -190,6 +190,11 @@ export async function assertCompanyCanOperate(opts: {
   const { company } = await getCompanyBillingContext({ supabase, companyId });
   const status = String(company.subscription_status ?? '').toLowerCase();
 
+  // Trial accounts are always allowed to operate
+  if (status === 'trial') {
+    return;
+  }
+
   if (status === 'past_due') {
     const e: any = new Error('Subscription is past due. Please top-up / settle payment.');
     e.code = 'PAST_DUE';

@@ -33,6 +33,17 @@ export const PRICING = {
   // Use lib/billing/pricing.ts for price retrieval.
   // max_handsets: unlimited for all plans (handset activation has no limit)
   plans: {
+    trial: {
+      name: "Free Trial",
+      max_handsets: 999999,
+      max_seats: 1,
+      unit_labels_quota: null, // null = unlimited for trials
+      box_labels_quota: null,
+      carton_labels_quota: null,
+      pallet_labels_quota: null,
+      sscc_labels_quota: null, // null = unlimited for trials
+      default_credit_limit: 0,
+    },
     starter: {
       name: "Starter",
       max_handsets: 999999,
@@ -41,6 +52,7 @@ export const PRICING = {
       box_labels_quota: 20000,
       carton_labels_quota: 2000,
       pallet_labels_quota: 500,
+      sscc_labels_quota: 22500,
       default_credit_limit: 5000,
       // DEPRECATED: monthly_base: 9999 - use getPlanPrice('starter', 'monthly')
       // DEPRECATED: yearly_base: 99990 - use getPlanPrice('starter', 'yearly')
@@ -53,6 +65,7 @@ export const PRICING = {
       box_labels_quota: 200000,
       carton_labels_quota: 20000,
       pallet_labels_quota: 2000,
+      sscc_labels_quota: 222000,
       default_credit_limit: 20000,
       // DEPRECATED: monthly_base: 29999 - use getPlanPrice('growth', 'monthly')
       // DEPRECATED: yearly_base: 299990 - use getPlanPrice('growth', 'yearly')
@@ -61,7 +74,7 @@ export const PRICING = {
 } as const;
 
 // Type definitions
-export type PlanType = keyof typeof PRICING.plans;
+export type PlanType = 'trial' | 'starter' | 'growth';
 export type ScanType = "box" | "carton" | "pallet";
 
 // Helper functions
