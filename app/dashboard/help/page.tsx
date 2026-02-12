@@ -81,11 +81,11 @@ const faqData = {
     },
     {
       question: 'How are scans billed?',
-      answer: 'Unit-level scans are free. Box, carton, and pallet (SSCC) scans may be billed based on your subscription plan. Check your billing dashboard for usage details.',
+      answer: 'Unit-level scans are free. Box, carton, and pallet (SSCC) scans may be billed based on your pilot allocation. Check your pilot dashboard for usage details.',
     },
     {
       question: 'Can I purchase additional seats?',
-      answer: 'Yes. Seats can be purchased as add-ons from the Billing page. Each seat allows one additional user to access the system.',
+      answer: 'Yes. Seats can be purchased as add-ons from the Settings page. Each seat allows one additional user to access the system.',
     },
     {
       question: 'Are printers and ERP code ingestion billed separately?',
@@ -93,7 +93,7 @@ const faqData = {
     },
     {
       question: 'How do I view my invoices?',
-      answer: 'Invoices are available in the Billing page after you subscribe. You can view, download, and export invoice history.',
+      answer: 'Invoices are available in the Settings page during pilot access. You can view, download, and export invoice history.',
     },
   ],
   audit: [
@@ -111,7 +111,7 @@ const faqData = {
     },
     {
       question: 'How long is scan data retained?',
-      answer: 'Scan data is retained according to your subscription plan. Contact support for specific retention policies and archival options.',
+      answer: 'Scan data is retained according to your pilot allocation. Contact support for specific retention policies and archival options.',
     },
   ],
   compliance: [
@@ -192,7 +192,7 @@ export default function HelpSupportPage() {
       {/* Header */}
       <div>
         <h1 className="text-3xl font-semibold text-gray-900 mb-1.5">Help & Support</h1>
-        <p className="text-sm text-gray-600">Get assistance with technical issues, billing, and compliance</p>
+        <p className="text-sm text-gray-600">Get assistance with technical issues, pilot access, and compliance</p>
       </div>
 
       {/* Tawk.to Chat Widget - Only visible on this page */}
@@ -223,7 +223,7 @@ export default function HelpSupportPage() {
                 <TabsList className="grid w-full grid-cols-5 mb-6">
                   <TabsTrigger value="activation">Activation</TabsTrigger>
                   <TabsTrigger value="technical">Technical</TabsTrigger>
-                  <TabsTrigger value="billing">Billing</TabsTrigger>
+                  <TabsTrigger value="billing">Pilot Access</TabsTrigger>
                   <TabsTrigger value="audit">Audit</TabsTrigger>
                   <TabsTrigger value="compliance">Compliance</TabsTrigger>
                 </TabsList>
@@ -375,7 +375,7 @@ export default function HelpSupportPage() {
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="technical">Technical Issue</SelectItem>
-                          <SelectItem value="billing">Billing Query</SelectItem>
+                          <SelectItem value="billing">Pilot Access Query</SelectItem>
                           <SelectItem value="audit">Audit / Compliance</SelectItem>
                           <SelectItem value="general">General Question</SelectItem>
                         </SelectContent>
@@ -448,7 +448,7 @@ export default function HelpSupportPage() {
                   The chat widget is loaded on this page. Look for the chat icon in the bottom-right corner to start a conversation.
                 </p>
                 <p className="text-xs text-gray-500 mb-4">
-                  Available for: Technical issues, Billing queries, Audit & Compliance questions
+                  Available for: Technical issues, pilot access queries, Audit & Compliance questions
                 </p>
               </div>
             </CardContent>

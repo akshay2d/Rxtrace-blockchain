@@ -42,7 +42,7 @@ export default function Analytics() {
       <div>
         <div className="flex items-center gap-3 mb-6">
           <CreditCard className="h-8 w-8 text-[#0052CC]" />
-          <h1 className="text-4xl font-bold text-[#0052CC]">Billing & Plans</h1>
+          <h1 className="text-4xl font-bold text-[#0052CC]">Pilot Access</h1>
         </div>
 
         <Card className="p-8 bg-gradient-to-br from-blue-50 to-orange-50 border-2 border-orange-200">
@@ -66,10 +66,10 @@ export default function Analytics() {
 
             <div className="border-t pt-4 mt-6">
               <p className="text-gray-700 mb-4">
-                <strong>Note:</strong> Billing and payment integration will be available soon. 
+                <strong>Note:</strong> Paid billing is disabled during pilot. 
                 For now, enjoy your free trial with up to 1,000 labels.
               </p>
-              <Link href="/pricing">
+              <Link href="/contact">
                 <Button className="bg-orange-500 hover:bg-orange-600 text-white">
                   View All Plans
                 </Button>
@@ -81,7 +81,7 @@ export default function Analytics() {
         <div className="mt-6 p-6 bg-blue-50 border border-blue-200 rounded-lg">
           <h3 className="text-xl font-semibold text-[#0052CC] mb-2">Need More Labels?</h3>
           <p className="text-gray-700 mb-4">
-            Contact us for enterprise plans and custom solutions tailored to your business needs.
+            Contact sales for pilot onboarding and commercial rollout details.
           </p>
           <a href="mailto:sales@rxtrace.com">
             <Button variant="outline" className="border-[#0052CC] text-[#0052CC] hover:bg-[#0052CC] hover:text-white">

@@ -31,7 +31,7 @@ export default function BillingPanel() {
 
   return (
     <div className="p-6 max-w-4xl">
-      <h2 className="text-2xl font-semibold mb-4">Billing & Active Heads</h2>
+      <h2 className="text-2xl font-semibold mb-4">Pilot Usage & Active Heads</h2>
 
       {/* PRICING */}
       <div className="mb-6 p-4 rounded-2xl shadow-sm border">

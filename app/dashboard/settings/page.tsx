@@ -1,22 +1,14 @@
-"use client";
+'use client';
 
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { supabaseClient } from "@/lib/supabase/client";
-import { useSubscription } from "@/lib/hooks/useSubscription";
-import TaxSettingsPanel from "@/components/settings/TaxSettingsPanel";
-import PrinterSettingsPanel from "@/components/settings/PrinterSettingsPanel";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import Link from 'next/link';
+import { useSubscription } from '@/lib/hooks/useSubscription';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 
-type UserProfile = {
-  id: string;
-  email: string;
-  full_name: string | null;
-  phone?: string | null;
-};
+export default function SettingsPage() {
+  const { subscription, loading } = useSubscription();
 
+<<<<<<< ours
 type CompanyProfile = {
   id: string;
   company_name: string | null;
@@ -261,6 +253,37 @@ export default function Page() {
       {!companyLoading && (
         <PrinterSettingsPanel companyId={companyProfile?.id || null} />
       )}
+=======
+  if (loading) {
+    return <div className="p-6 text-gray-500">Loading trial details...</div>;
+  }
+
+  const active = subscription?.status === 'TRIAL' || subscription?.status === 'trialing';
+
+  return (
+    <div className="max-w-5xl mx-auto px-8 py-10 space-y-8">
+      <div>
+        <h1 className="text-3xl font-semibold tracking-tight">Settings</h1>
+        <p className="text-gray-500 mt-2">Trial and company configuration.</p>
+      </div>
+
+      <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-6 space-y-4">
+        <h2 className="text-xl font-medium">Trial</h2>
+        {active ? (
+          <div className="space-y-2">
+            <Badge className="bg-green-600 text-white">Trial Active</Badge>
+            <p className="text-sm text-gray-600">
+              Trial ends: {subscription?.trial_end ? new Date(subscription.trial_end).toLocaleDateString('en-IN') : 'N/A'}
+            </p>
+          </div>
+        ) : (
+          <p className="text-sm text-gray-600">No active trial for this account.</p>
+        )}
+        <Button asChild variant="outline">
+          <Link href="/dashboard/company-setup">Go to Company Setup</Link>
+        </Button>
+      </div>
+>>>>>>> theirs
     </div>
   );
 }

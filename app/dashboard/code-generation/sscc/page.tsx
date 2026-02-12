@@ -330,7 +330,7 @@ export default function SSCCCodeGenerationPage() {
     setLoading(true);
 
     if (!canGenerate) {
-      setError('Code generation is disabled. Please activate a subscription to use this feature.');
+      setError('Code generation is disabled. This feature is available only during an active trial in pilot mode.');
       setLoading(false);
       return;
     }
@@ -423,7 +423,7 @@ export default function SSCCCodeGenerationPage() {
     setCsvFile(file);
 
     if (!canGenerate) {
-      setError('Code generation is disabled. Please activate a subscription to use this feature.');
+      setError('Code generation is disabled. This feature is available only during an active trial in pilot mode.');
       return;
     }
 
@@ -553,10 +553,10 @@ export default function SSCCCodeGenerationPage() {
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
-            Code generation is disabled. Your subscription is {subscription?.status || 'inactive'}. 
-            Please activate a subscription to use this feature.
+            Code generation is disabled because trial access is not active. 
+            This feature is available only during an active trial in pilot mode.
             <Button asChild variant="link" className="p-0 ml-2 h-auto">
-              <Link href="/pricing">View Plans →</Link>
+              <Link href="/contact">Contact Sales →</Link>
             </Button>
           </AlertDescription>
         </Alert>

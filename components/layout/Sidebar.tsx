@@ -12,8 +12,6 @@ import {
   Search,
   ScanLine,
   FileText,
-  Users,
-  CreditCard,
   Settings,
   HelpCircle,
   ChevronLeft,
@@ -30,7 +28,6 @@ const MENU = [
   { label: "Trace Hierarchy", path: "/dashboard/search", icon: Boxes },
   { label: "Scan Logs", path: "/dashboard/scans", icon: ScanLine },
   { label: "Reports", path: "/dashboard/audit", icon: FileText },
-  { label: "Billing", path: "/dashboard/billing", icon: CreditCard },
   { label: "Help & Support", path: "/dashboard/help", icon: HelpCircle },
   { label: "Settings", path: "/dashboard/settings", icon: Settings },
 ];

@@ -45,14 +45,14 @@ export default function Header() {
         const nameInitial = (String((user.user_metadata as any)?.full_name ?? "").trim().charAt(0) || "").toUpperCase();
         const initial = nameInitial || emailInitial || "A";
 
-        const res = await fetch("/api/billing/subscription", { cache: "no-store" });
+        const res = await fetch("/api/company/profile/update", { method: "GET", cache: "no-store" });
         const body = await res.json().catch(() => ({}));
 
         if (cancelled) return;
 
         if (res.ok) {
           setState({
-            companyName: body?.company?.company_name ?? null,
+            companyName: body?.company_name ?? null,
             profileInitial: initial,
             userEmail: user.email ?? null,
           });

@@ -17,11 +17,11 @@ export default function Page() {
   return (
     <div className="max-w-5xl mx-auto px-8 py-10">
       <h1 className="text-3xl font-semibold mb-4">
-        Billing & Invoice Report
+        Pilot Usage Report
       </h1>
 
       <p className="text-gray-500 mb-6">
-        Download usage-based billing summary.
+        Download pilot usage summary.
       </p>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
@@ -46,7 +46,7 @@ export default function Page() {
       </div>
 
       <a href={exportHref} className="btn-primary">
-        Export Billing CSV
+        Export Usage CSV
       </a>
     </div>
   );

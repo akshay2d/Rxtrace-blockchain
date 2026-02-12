@@ -1,4 +1,5 @@
 {
     "git.ignoreLimitWarning": true,
-    "chatgpt.openOnStartup": true
+    "chatgpt.openOnStartup": true,
+    "CodeGPT.apiKey": "OpenAI"
 }

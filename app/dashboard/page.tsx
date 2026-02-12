@@ -181,7 +181,7 @@ export default function DashboardPage() {
           title="Wallet Balance"
           value={kpi.walletBalance}
           icon={Wallet}
-          href="/dashboard/billing"
+          href="/dashboard/settings"
         />
         <KpiCard
           title="Active Seats"
@@ -197,10 +197,10 @@ export default function DashboardPage() {
         />
       </div>
 
-      {/* Realtime label generation (current billing period) */}
+      {/* Realtime label generation (current trial period) */}
       <div>
         <h2 className="text-lg font-semibold text-slate-900">Label Generation (Realtime)</h2>
-        <p className="text-sm text-gray-600 mt-1">Shows labels generated in the current trial/subscription period.</p>
+        <p className="text-sm text-gray-600 mt-1">Shows labels generated in the current trial period.</p>
 
         <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <KpiCard title="Unit Labels" value={kpi.unitLabels} icon={QrCode} />
