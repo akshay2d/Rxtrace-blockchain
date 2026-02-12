@@ -1,164 +1,46 @@
-'use client';
+"use client";
 
-import Link from 'next/link';
-import { useSubscription } from '@/lib/hooks/useSubscription';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useSubscription } from "@/lib/hooks/useSubscription";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import TaxSettingsPanel from "@/components/settings/TaxSettingsPanel";
+import PrinterSettingsPanel from "@/components/settings/PrinterSettingsPanel";
+import { supabaseClient } from "@/lib/supabase/client";
 
 export default function SettingsPage() {
-  const { subscription, loading } = useSubscription();
-
-<<<<<<< ours
-type CompanyProfile = {
-  id: string;
-  company_name: string | null;
-  pan: string | null;
-  gst_number: string | null;
-  address: string | null;
-  email: string | null;
-  user_id: string;
-  profile_completed?: boolean | null;
-};
-
-export default function Page() {
   const router = useRouter();
-  const { subscription, loading: subscriptionLoading, refresh } = useSubscription();
-
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [userLoading, setUserLoading] = useState(true);
-  const [userSaving, setUserSaving] = useState(false);
-  const [userFormData, setUserFormData] = useState({ full_name: "", phone: "" });
-  const [userError, setUserError] = useState("");
-  const [userSuccess, setUserSuccess] = useState("");
-
-  const [companyProfile, setCompanyProfile] = useState<CompanyProfile | null>(null);
-  const [companyLoading, setCompanyLoading] = useState(true);
-  const [companyFormData, setCompanyFormData] = useState({
-    company_name: "",
-    pan: "",
-    gst: "",
-    address: "",
-  });
+  const { subscription, loading, refresh } = useSubscription();
 
   const [trialLoading, setTrialLoading] = useState(false);
   const [trialError, setTrialError] = useState("");
+  const [companyId, setCompanyId] = useState<string | null>(null);
 
-  // ---------------------------
-  // Fetch User Profile
-  // ---------------------------
-  useEffect(() => {
-    async function fetchUser() {
+  // Fetch company once on mount
+  useState(() => {
+    async function loadCompany() {
       const supabase = supabaseClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        setUserLoading(false);
-        return;
-      }
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
-      const { data: profile } = await supabase
-        .from("user_profiles")
-        .select("id,email,full_name")
-        .eq("id", user.id)
-        .maybeSingle();
-
-      if (profile) {
-        setUserProfile(profile);
-        setUserFormData({
-          full_name: profile.full_name || "",
-          phone: "",
-        });
-      } else {
-        setUserProfile({
-          id: user.id,
-          email: user.email || "",
-          full_name: user.user_metadata?.full_name || null,
-        });
-      }
-
-      setUserLoading(false);
-    }
-
-    fetchUser();
-  }, []);
-
-  // ---------------------------
-  // Fetch Company
-  // ---------------------------
-  useEffect(() => {
-    async function fetchCompany() {
-      const supabase = supabaseClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        setCompanyLoading(false);
-        return;
-      }
+      if (!user) return;
 
       const { data } = await supabase
         .from("companies")
-        .select("*")
+        .select("id")
         .eq("user_id", user.id)
         .maybeSingle();
 
-      if (data) {
-        setCompanyProfile(data);
-        setCompanyFormData({
-          company_name: data.company_name || "",
-          pan: data.pan || "",
-          gst: data.gst_number || "",
-          address: data.address || "",
-        });
+      if (data?.id) {
+        setCompanyId(data.id);
       }
-
-      setCompanyLoading(false);
     }
 
-    fetchCompany();
-  }, []);
-
-  // ---------------------------
-  // Trial
-  // ---------------------------
-  async function handleStartTrial() {
-    setTrialLoading(true);
-    setTrialError("");
-
-    try {
-      const res = await fetch("/api/trial/activate", { method: "POST" });
-      const data = await res.json();
-
-      if (!res.ok) {
-        setTrialError(data.error || "Failed to start trial");
-        return;
-      }
-
-      await refresh();
-    } catch (err: any) {
-      setTrialError(err.message);
-    } finally {
-      setTrialLoading(false);
-    }
-  }
-
-  async function handleCancelTrial() {
-    setTrialLoading(true);
-    setTrialError("");
-
-    try {
-      const res = await fetch("/api/trial/cancel", { method: "POST" });
-      const data = await res.json();
-
-      if (!res.ok) {
-        setTrialError(data.error || "Failed to cancel trial");
-        return;
-      }
-
-      await refresh();
-    } catch (err: any) {
-      setTrialError(err.message);
-    } finally {
-      setTrialLoading(false);
-    }
-  }
+    loadCompany();
+  });
 
   const daysLeft =
     subscription?.trial_end
@@ -172,118 +54,149 @@ export default function Page() {
         )
       : 0;
 
-  // ============================
-  // UI
-  // ============================
+  async function handleStartTrial() {
+    setTrialLoading(true);
+    setTrialError("");
+
+    try {
+      const res = await fetch("/api/trial/activate", {
+        method: "POST",
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setTrialError(data.error || "Failed to start trial");
+        return;
+      }
+
+      await refresh();
+    } catch (err: any) {
+      setTrialError(err.message || "Error starting trial");
+    } finally {
+      setTrialLoading(false);
+    }
+  }
+
+  async function handleCancelTrial() {
+    setTrialLoading(true);
+    setTrialError("");
+
+    try {
+      const res = await fetch("/api/trial/cancel", {
+        method: "POST",
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setTrialError(data.error || "Failed to cancel trial");
+        return;
+      }
+
+      await refresh();
+    } catch (err: any) {
+      setTrialError(err.message || "Error cancelling trial");
+    } finally {
+      setTrialLoading(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="p-6 text-gray-500">
+        Loading trial details...
+      </div>
+    );
+  }
+
+  const trialActive =
+    subscription?.status === "TRIAL" ||
+    subscription?.status === "trialing";
 
   return (
     <div className="max-w-5xl mx-auto px-8 py-10 space-y-8">
-      <h1 className="text-3xl font-semibold">Settings</h1>
+      {/* Header */}
+      <div>
+        <h1 className="text-3xl font-semibold tracking-tight">
+          Settings
+        </h1>
+        <p className="text-gray-500 mt-2">
+          Pilot configuration and system setup.
+        </p>
+      </div>
 
       {/* Trial Section */}
-      {!subscriptionLoading && (
-        <div className="bg-white border rounded-2xl p-8 space-y-6">
-          <h2 className="text-xl font-medium">Trial Management</h2>
+      <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-6 space-y-4">
+        <h2 className="text-xl font-medium">Trial</h2>
 
-          {trialError && (
-            <div className="text-red-600 text-sm">{trialError}</div>
-          )}
+        {trialError && (
+          <div className="text-red-600 text-sm">{trialError}</div>
+        )}
 
-          {subscription?.trial_end ? (
-            <div className="space-y-4">
-              <Badge className="bg-green-600 text-white">
-                Trial Active
-              </Badge>
+        {trialActive ? (
+          <div className="space-y-3">
+            <Badge className="bg-green-600 text-white">
+              Trial Active
+            </Badge>
 
-              <div className="text-xl font-bold">
-                {daysLeft} {daysLeft === 1 ? "day" : "days"} left
-              </div>
+            <p className="text-sm text-gray-600">
+              {daysLeft} {daysLeft === 1 ? "day" : "days"} left
+            </p>
 
-              <div className="flex gap-3">
-                <Button
-                  variant="outline"
-                  onClick={handleCancelTrial}
-                  disabled={trialLoading}
-                >
-                  {trialLoading ? "Cancelling..." : "Cancel Trial"}
-                </Button>
-
-                <Button onClick={() => router.push("/pricing")}>
-                  View Plans
-                </Button>
-              </div>
-            </div>
-          ) : (
             <Button
-              onClick={handleStartTrial}
+              variant="outline"
+              onClick={handleCancelTrial}
               disabled={trialLoading}
             >
-              {trialLoading ? "Starting..." : "Start Free Trial"}
+              {trialLoading ? "Cancelling..." : "Cancel Trial"}
             </Button>
-          )}
-        </div>
-      )}
+          </div>
+        ) : (
+          <Button
+            onClick={handleStartTrial}
+            disabled={trialLoading}
+          >
+            {trialLoading ? "Starting..." : "Start Free Trial"}
+          </Button>
+        )}
+      </div>
 
       {/* ERP Ingestion */}
-      <div className="bg-white border rounded-2xl p-8 space-y-4">
-        <h2 className="text-xl font-medium">ERP Code Ingestion</h2>
+      <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-6 space-y-4">
+        <h2 className="text-xl font-medium">
+          ERP Code Ingestion
+        </h2>
         <p className="text-sm text-gray-600">
           Import ERP-generated serialization data via CSV upload.
         </p>
 
         <Link
           href="/dashboard/settings/erp-integration"
-          className="inline-flex px-4 py-2 bg-blue-600 text-white rounded-md"
+          className="inline-flex px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition"
         >
           Go to ERP Ingestion →
         </Link>
       </div>
 
       {/* Tax Settings */}
-      {!companyLoading && (
-        <TaxSettingsPanel
-          companyId={companyProfile?.id || ""}
-          profileCompleted={companyProfile?.profile_completed === true}
-          initialPan={companyFormData.pan}
-          initialGstNumber={companyFormData.gst}
-        />
+      {companyId && (
+        <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-6">
+          <TaxSettingsPanel
+            companyId={companyId}
+            profileCompleted={true}
+            initialPan=""
+            initialGstNumber=""
+          />
+        </div>
       )}
 
       {/* Printer Settings */}
-      {!companyLoading && (
-        <PrinterSettingsPanel companyId={companyProfile?.id || null} />
+      {companyId && (
+        <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-6">
+          <PrinterSettingsPanel companyId={companyId} />
+        </div>
       )}
-=======
-  if (loading) {
-    return <div className="p-6 text-gray-500">Loading trial details...</div>;
-  }
-
-  const active = subscription?.status === 'TRIAL' || subscription?.status === 'trialing';
-
-  return (
-    <div className="max-w-5xl mx-auto px-8 py-10 space-y-8">
-      <div>
-        <h1 className="text-3xl font-semibold tracking-tight">Settings</h1>
-        <p className="text-gray-500 mt-2">Trial and company configuration.</p>
-      </div>
-
-      <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-6 space-y-4">
-        <h2 className="text-xl font-medium">Trial</h2>
-        {active ? (
-          <div className="space-y-2">
-            <Badge className="bg-green-600 text-white">Trial Active</Badge>
-            <p className="text-sm text-gray-600">
-              Trial ends: {subscription?.trial_end ? new Date(subscription.trial_end).toLocaleDateString('en-IN') : 'N/A'}
-            </p>
-          </div>
-        ) : (
-          <p className="text-sm text-gray-600">No active trial for this account.</p>
-        )}
-        <Button asChild variant="outline">
-          <Link href="/dashboard/company-setup">Go to Company Setup</Link>
-        </Button>
-      </div>
->>>>>>> theirs
     </div>
   );
 }
