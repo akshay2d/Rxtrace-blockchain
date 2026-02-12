@@ -12,7 +12,6 @@
     "lint": "next lint",
     "test": "vitest --passWithNoTests",
     "test:watch": "vitest --watch",
-    "test:ui": "vitest --ui",
     "test:coverage": "vitest --coverage",
     "postinstall": "prisma generate"
   },
@@ -32,17 +31,18 @@
     "@radix-ui/react-toast": "^1.2.15",
     "@sentry/nextjs": "^10.34.0",
     "@supabase/ssr": "^0.5.2",
-    "@supabase/supabase-js": "^2.84.0",
+    "@supabase/supabase-js": "^2.89.0",
+
     "autoprefixer": "10.4.15",
     "bwip-js": "^4.8.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
-    "eslint": "8.49.0",
-    "eslint-config-next": "13.5.1",
     "file-saver": "^2.0.5",
-    "framer-motion": "^12.23.24",
+    "framer-motion": "^12.23.26",
     "jsonwebtoken": "^9.0.3",
+    "jspdf": "^3.0.4",
+    "jszip": "^3.10.1",
     "lucide-react": "^0.554.0",
     "next": "^14.2.35",
     "next-auth": "^5.0.0-beta.30",
@@ -54,23 +54,25 @@
     "postcss": "8.4.30",
     "prisma": "^6.19.1",
     "qrcode": "^1.5.4",
+    "qrcode.react": "^4.2.0",
     "react": "18.2.0",
+    "react-datamatrix-svg": "^1.0.7",
     "react-dom": "18.2.0",
-    "react-hook-form": "^7.66.1",
+    "react-hook-form": "^7.69.0",
     "recharts": "^3.6.0",
     "sharp": "^0.34.5",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.4.0",
     "tailwindcss": "3.3.3",
     "tailwindcss-animate": "^1.0.7",
-    "zod": "^4.1.13"
+    "zod": "^4.2.1"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
     "@types/react": "^18.3.28",
     "@types/react-dom": "^18.3.7",
     "typescript": "^5.9.3",
-    "vitest": "^2.1.8",
-    "tsx": "^4.19.2"
+    "vitest": "^2.1.9",
+    "tsx": "^4.21.0"
   }
 }
