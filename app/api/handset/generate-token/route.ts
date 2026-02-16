@@ -2,84 +2,77 @@ import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/app/lib/prisma";
-import { resolveCompanyIdFromRequest } from "@/lib/company/resolve";
+import { requireUserSession } from "@/lib/auth/session";
 
+const MAX_TOKENS_PER_USER = 10;
 const TOKEN_ATTEMPTS = 5;
 
-function buildActivationToken() {
-  const randomDigits = crypto.randomInt(100000, 1000000);
+function buildTokenNumber() {
+  const randomDigits = crypto.randomInt(0, 1000000);
   return `RX-${randomDigits.toString().padStart(6, "0")}`;
 }
 
 export async function POST(req: Request) {
   try {
-    const payload = (await req.json().catch(() => ({}))) as { company_id?: string };
-    const requestedCompanyId = payload.company_id;
+    const auth = await requireUserSession();
+    if ("error" in auth) return auth.error;
 
-    const resolvedCompanyId = await resolveCompanyIdFromRequest(req);
-    if (!resolvedCompanyId) {
-      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
-    }
-
-    if (requestedCompanyId && requestedCompanyId !== resolvedCompanyId) {
-      return NextResponse.json(
-        { success: false, error: "Mismatched company_id" },
-        { status: 403 }
-      );
-    }
-
-    const companyId = requestedCompanyId || resolvedCompanyId;
-
-    const settingsRow = await prisma.company_active_heads.findUnique({
-      where: { company_id: companyId },
-      select: { heads: true },
+    const userId = auth.userId;
+    const activeTokens = await prisma.token.count({
+      where: {
+        userId,
+        status: "ACTIVE",
+      },
     });
-    const heads = (settingsRow?.heads as any) ?? {};
-    const activationEnabled =
-      heads?.scanner_activation_enabled === undefined ? true : Boolean(heads.scanner_activation_enabled);
 
-    if (!activationEnabled) {
+    if (activeTokens >= MAX_TOKENS_PER_USER) {
       return NextResponse.json(
-        { success: false, error: "Activation disabled by admin" },
-        { status: 403 }
+        { success: false, error: `Maximum of ${MAX_TOKENS_PER_USER} active tokens reached` },
+        { status: 400 }
       );
     }
+
+    const expiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
     for (let attempt = 0; attempt < TOKEN_ATTEMPTS; attempt++) {
-      const token = buildActivationToken();
+      const tokenNumber = buildTokenNumber();
       try {
-        const record = await prisma.handset_tokens.create({
+        const token = await prisma.token.create({
           data: {
-            company_id: companyId,
-            token,
-            high_scan: true,
-            used: false,
-            disabled: false,
+            userId,
+            tokenNumber,
+            expiry,
           },
         });
 
         return NextResponse.json({
           success: true,
-          token: record.token,
+          token: token.tokenNumber,
+          generatedAt: token.generatedAt.toISOString(),
+          expiry: token.expiry.toISOString(),
+          status: token.status,
+          activationCount: token.activationCount,
+          maxActivations: token.maxActivations,
         });
-      } catch (error: any) {
+      } catch (err: any) {
         if (
-          error instanceof Prisma.PrismaClientKnownRequestError &&
-          error.code === "P2002"
+          err instanceof Prisma.PrismaClientKnownRequestError &&
+          err.code === "P2002"
         ) {
           continue;
         }
-        throw error;
+        throw err;
       }
     }
 
     return NextResponse.json(
-      { success: false, error: "Unable to generate a unique token right now" },
+      { success: false, error: "Failed to generate a unique token, please retry" },
       { status: 500 }
     );
-  } catch (err: any) {
+  } catch (error: any) {
+    console.error("Generate token error:", error);
     return NextResponse.json(
-      { success: false, error: err.message || "Failed to generate token" },
+      { success: false, error: error.message || "Failed to generate token" },
       { status: 500 }
     );
   }

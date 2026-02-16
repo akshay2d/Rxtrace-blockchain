@@ -1,40 +1,46 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
-import { resolveCompanyIdFromRequest } from "@/lib/company/resolve";
+import { requireUserSession } from "@/lib/auth/session";
 
 export async function POST(req: Request) {
   try {
-    const payload = (await req.json().catch(() => ({}))) as { token?: string };
-    const { token } = payload;
+    const auth = await requireUserSession();
+    if ("error" in auth) return auth.error;
 
-    if (!token) {
-      return NextResponse.json({ success: false, error: "token required" }, { status: 400 });
+    const payload = (await req.json().catch(() => ({}))) as { tokenNumber?: string };
+    if (!payload.tokenNumber) {
+      return NextResponse.json(
+        { success: false, error: "tokenNumber required" },
+        { status: 400 }
+      );
     }
 
-    const companyId = await resolveCompanyIdFromRequest(req);
-    if (!companyId) {
-      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
-    }
-
-    const tokenRecord = await prisma.handset_tokens.findUnique({
-      where: { token },
+    const tokenRecord = await prisma.token.findFirst({
+      where: {
+        tokenNumber: payload.tokenNumber,
+        userId: auth.userId,
+      },
     });
 
-    if (!tokenRecord || tokenRecord.company_id !== companyId) {
-      return NextResponse.json({ success: false, error: "Token not found" }, { status: 404 });
+    if (!tokenRecord) {
+      return NextResponse.json(
+        { success: false, error: "Token not found" },
+        { status: 404 }
+      );
     }
 
-    if (tokenRecord.disabled) {
+    if (tokenRecord.status === "DISABLED") {
       return NextResponse.json({ success: true, message: "Token already disabled" });
     }
 
-    await prisma.handset_tokens.update({
-      where: { token },
-      data: { disabled: true },
+    await prisma.token.update({
+      where: { id: tokenRecord.id },
+      data: { status: "DISABLED" },
     });
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, token: tokenRecord.tokenNumber });
   } catch (err: any) {
+    console.error("Disable token error:", err);
     return NextResponse.json(
       { success: false, error: err?.message || "Failed to disable token" },
       { status: 500 }

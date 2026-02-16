@@ -1,28 +1,56 @@
 import { NextResponse } from "next/server";
-import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { prisma } from "@/app/lib/prisma";
+import { requireUserSession } from "@/lib/auth/session";
 
 export async function POST(req: Request) {
   try {
-    const supabase = getSupabaseAdmin();
+    const auth = await requireUserSession();
+    if ("error" in auth) return auth.error;
+
     const { handset_id } = await req.json();
-
     if (!handset_id) {
-      return NextResponse.json({ error: "handset_id required" }, { status: 400 });
+      return NextResponse.json({ success: false, error: "handset_id required" }, { status: 400 });
     }
 
-    const { data: handset, error } = await supabase
-      .from("handsets")
-      .update({ status: "INACTIVE" })
-      .eq("id", handset_id)
-      .select()
-      .single();
+    const result = await prisma.$transaction(async (tx) => {
+      const handset = await tx.handset.findUnique({
+        where: { id: handset_id },
+        include: { token: true },
+      });
 
-    if (error || !handset) {
-      return NextResponse.json({ error: error?.message || "Handset not found" }, { status: 404 });
-    }
+      if (!handset || handset.userId !== auth.userId) {
+        throw new Error("Handset not found");
+      }
 
-    return NextResponse.json({ success: true, handset });
+      if (!handset.active) {
+        return { handset, adjustedTokenCount: handset.token.activationCount };
+      }
+
+      const newCount = Math.max(0, handset.token.activationCount - 1);
+
+      await tx.token.update({
+        where: { id: handset.tokenId },
+        data: { activationCount: newCount },
+      });
+
+      const updatedHandset = await tx.handset.update({
+        where: { id: handset.id },
+        data: { active: false },
+      });
+
+      return { handset: updatedHandset, adjustedTokenCount: newCount };
+    });
+
+    return NextResponse.json({
+      success: true,
+      handset: result.handset,
+      activationCount: result.adjustedTokenCount,
+    });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message || String(err) }, { status: 500 });
+    console.error("Deactivate handset error:", err);
+    return NextResponse.json(
+      { success: false, error: err?.message || "Failed to deactivate handset" },
+      { status: 400 }
+    );
   }
 }

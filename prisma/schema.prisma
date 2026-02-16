@@ -231,6 +231,42 @@ model sscc_counters {
   @@schema("public")
 }
 
+enum TokenStatus {
+  ACTIVE
+  DISABLED
+  @@schema("public")
+}
+
+model Token {
+  id              String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId          String
+  tokenNumber     String        @unique
+  generatedAt     DateTime      @default(now()) @db.Timestamptz(6)
+  expiry          DateTime      @db.Timestamptz(6)
+  status          TokenStatus   @default(ACTIVE)
+  activationCount Int           @default(0)
+  maxActivations  Int           @default(10)
+  handsets        Handset[]
+
+  @@index([userId], map: "idx_tokens_user_id")
+  @@schema("public")
+}
+
+model Handset {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String
+  deviceName  String
+  tokenId     String
+  activatedAt DateTime @default(now()) @db.Timestamptz(6)
+  active      Boolean  @default(true)
+
+  token Token @relation(fields: [tokenId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([userId], map: "idx_handsets_user_id")
+  @@index([tokenId], map: "idx_handsets_token_id")
+  @@schema("public")
+}
+
 model pallets {
   id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   company_id      String       @db.Uuid

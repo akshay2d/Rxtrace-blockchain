@@ -1,116 +1,77 @@
 import { NextResponse } from "next/server";
 import jwt from "jsonwebtoken";
 import { prisma } from "@/app/lib/prisma";
+import { requireUserSession } from "@/lib/auth/session";
 
 export async function POST(req: Request) {
   try {
+    const auth = await requireUserSession();
+    if ("error" in auth) return auth.error;
+
     const payload = (await req.json().catch(() => ({}))) as {
-      token?: string;
-      device_fingerprint?: string;
+      tokenNumber?: string;
+      deviceName?: string;
     };
-    const { token, device_fingerprint } = payload;
+    const { tokenNumber, deviceName } = payload;
 
-    if (!token || !device_fingerprint) {
+    if (!tokenNumber || !deviceName) {
       return NextResponse.json(
-        { success: false, error: "token and device_fingerprint required" },
+        { success: false, error: "tokenNumber and deviceName required" },
         { status: 400 }
-      );
-    }
-
-    const tokenRecord = await prisma.handset_tokens.findUnique({
-      where: { token },
-    });
-
-    if (!tokenRecord) {
-      return NextResponse.json(
-        { success: false, error: "Invalid activation token" },
-        { status: 400 }
-      );
-    }
-
-    if (tokenRecord.disabled) {
-      return NextResponse.json(
-        { success: false, error: "Token has been disabled" },
-        { status: 400 }
-      );
-    }
-
-    if (tokenRecord.used) {
-      return NextResponse.json(
-        { success: false, error: "Token already redeemed" },
-        { status: 400 }
-      );
-    }
-
-    if (!tokenRecord.high_scan) {
-      return NextResponse.json(
-        { success: false, error: "Token not authorized for high scan" },
-        { status: 400 }
-      );
-    }
-
-    const settingsRow = await prisma.company_active_heads.findUnique({
-      where: { company_id: tokenRecord.company_id },
-      select: { heads: true },
-    });
-    const heads = (settingsRow?.heads as any) ?? {};
-    const activationEnabled =
-      heads?.scanner_activation_enabled === undefined ? true : Boolean(heads.scanner_activation_enabled);
-
-    if (!activationEnabled) {
-      return NextResponse.json(
-        { success: false, error: "Activation disabled by admin" },
-        { status: 403 }
       );
     }
 
     const now = new Date();
-    let handset = await prisma.handsets.findUnique({
-      where: { device_fingerprint },
-    });
+    const userId = auth.userId;
 
-    if (handset && handset.company_id !== tokenRecord.company_id) {
-      return NextResponse.json(
-        { success: false, error: "Device fingerprint already claimed by another company" },
-        { status: 403 }
-      );
-    }
-
-    if (handset) {
-      handset = await prisma.handsets.update({
-        where: { id: handset.id },
-        data: {
-          company_id: tokenRecord.company_id,
-          high_scan_enabled: true,
-          status: "ACTIVE",
-          activated_at: now,
+    const result = await prisma.$transaction(async (tx) => {
+      const tokenRecord = await tx.token.findFirst({
+        where: {
+          tokenNumber,
+          userId,
         },
       });
-    } else {
-      handset = await prisma.handsets.create({
+
+      if (!tokenRecord) {
+        throw new Error("Invalid activation token");
+      }
+
+      if (tokenRecord.status !== "ACTIVE") {
+        throw new Error("Token is not active");
+      }
+
+      if (tokenRecord.expiry <= now) {
+        throw new Error("Token has expired");
+      }
+
+      if (tokenRecord.activationCount >= tokenRecord.maxActivations) {
+        throw new Error("Token activation limit reached");
+      }
+
+      const handset = await tx.handset.create({
         data: {
-          company_id: tokenRecord.company_id,
-          device_fingerprint,
-          high_scan_enabled: true,
-          status: "ACTIVE",
-          activated_at: now,
+          userId,
+          deviceName,
+          tokenId: tokenRecord.id,
+          activatedAt: now,
+          active: true,
         },
       });
-    }
 
-    await prisma.handset_tokens.update({
-      where: { token },
-      data: {
-        used: true,
-        activated_at: now,
-        activated_handset: handset.id,
-      },
+      await tx.token.update({
+        where: { id: tokenRecord.id },
+        data: {
+          activationCount: { increment: 1 },
+        },
+      });
+
+      return { handset, token: tokenRecord };
     });
 
     const jwtToken = jwt.sign(
       {
-        handset_id: handset.id,
-        company_id: handset.company_id,
+        handset_id: result.handset.id,
+        user_id: userId,
         role: "HIGH_SCAN",
       },
       process.env.JWT_SECRET!,
@@ -120,14 +81,16 @@ export async function POST(req: Request) {
     return NextResponse.json({
       success: true,
       jwt: jwtToken,
-      high_scan: true,
+      token: result.token.tokenNumber,
+      handset_id: result.handset.id,
+      activated_at: result.handset.activatedAt.toISOString(),
     });
   } catch (err: any) {
     console.error("Handset activation error:", err);
 
     return NextResponse.json(
       { success: false, error: err?.message || "Activation failed" },
-      { status: 500 }
+      { status: 400 }
     );
   }
 }
