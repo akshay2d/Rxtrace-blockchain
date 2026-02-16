@@ -4,7 +4,11 @@ import { prisma } from "@/app/lib/prisma";
 
 export async function POST(req: Request) {
   try {
-    const { token, device_fingerprint } = await req.json();
+    const payload = (await req.json().catch(() => ({}))) as {
+      token?: string;
+      device_fingerprint?: string;
+    };
+    const { token, device_fingerprint } = payload;
 
     if (!token || !device_fingerprint) {
       return NextResponse.json(
@@ -13,9 +17,8 @@ export async function POST(req: Request) {
       );
     }
 
-    /* 1️⃣ Validate activation token */
     const tokenRecord = await prisma.handset_tokens.findUnique({
-      where: { token }
+      where: { token },
     });
 
     if (!tokenRecord) {
@@ -25,73 +28,105 @@ export async function POST(req: Request) {
       );
     }
 
-    // Token is considered "disabled" when admin turns OFF scanning.
-    // It should remain reusable for multiple handsets while scanning is ON.
-    if (tokenRecord.used) {
+    if (tokenRecord.disabled) {
       return NextResponse.json(
-        { success: false, error: "Token disabled" },
+        { success: false, error: "Token has been disabled" },
         { status: 400 }
       );
     }
 
-    /* 1️⃣b Respect activation_enabled master switch */
+    if (tokenRecord.used) {
+      return NextResponse.json(
+        { success: false, error: "Token already redeemed" },
+        { status: 400 }
+      );
+    }
+
+    if (!tokenRecord.high_scan) {
+      return NextResponse.json(
+        { success: false, error: "Token not authorized for high scan" },
+        { status: 400 }
+      );
+    }
+
     const settingsRow = await prisma.company_active_heads.findUnique({
       where: { company_id: tokenRecord.company_id },
       select: { heads: true },
     });
     const heads = (settingsRow?.heads as any) ?? {};
     const activationEnabled =
-      heads?.scanner_activation_enabled === undefined ? true : !!heads.scanner_activation_enabled;
+      heads?.scanner_activation_enabled === undefined ? true : Boolean(heads.scanner_activation_enabled);
+
     if (!activationEnabled) {
       return NextResponse.json(
-        { success: false, error: 'Activation disabled by admin' },
+        { success: false, error: "Activation disabled by admin" },
         { status: 403 }
       );
     }
 
-    /* 2️⃣ Check for duplicate device fingerprint */
-    const existing = await prisma.handsets.findUnique({
-      where: { device_fingerprint }
+    const now = new Date();
+    let handset = await prisma.handsets.findUnique({
+      where: { device_fingerprint },
     });
 
-    if (existing) {
+    if (handset && handset.company_id !== tokenRecord.company_id) {
       return NextResponse.json(
-        { success: false, error: "Device already registered" },
-        { status: 400 }
+        { success: false, error: "Device fingerprint already claimed by another company" },
+        { status: 403 }
       );
     }
 
-    /* 3️⃣ Register handset (no seat required) */
-    const handset = await prisma.handsets.create({
+    if (handset) {
+      handset = await prisma.handsets.update({
+        where: { id: handset.id },
+        data: {
+          company_id: tokenRecord.company_id,
+          high_scan_enabled: true,
+          status: "ACTIVE",
+          activated_at: now,
+        },
+      });
+    } else {
+      handset = await prisma.handsets.create({
+        data: {
+          company_id: tokenRecord.company_id,
+          device_fingerprint,
+          high_scan_enabled: true,
+          status: "ACTIVE",
+          activated_at: now,
+        },
+      });
+    }
+
+    await prisma.handset_tokens.update({
+      where: { token },
       data: {
-        company_id: tokenRecord.company_id,
-        device_fingerprint,
-        high_scan_enabled: tokenRecord.high_scan,
-        status: "ACTIVE"
-      }
+        used: true,
+        activated_at: now,
+        activated_handset: handset.id,
+      },
     });
 
-    /* 4️⃣ Issue JWT for scanner app */
     const jwtToken = jwt.sign(
       {
         handset_id: handset.id,
         company_id: handset.company_id,
-        high_scan: handset.high_scan_enabled
+        role: "HIGH_SCAN",
       },
       process.env.JWT_SECRET!,
-      { expiresIn: "90d" }
+      { expiresIn: "180d" }
     );
 
     return NextResponse.json({
       success: true,
       jwt: jwtToken,
-      high_scan: handset.high_scan_enabled
+      high_scan: true,
     });
   } catch (err: any) {
     console.error("Handset activation error:", err);
 
     return NextResponse.json(
-      { success: false, error: err.message || "Activation failed" },
+      { success: false, error: err?.message || "Activation failed" },
       { status: 500 }
     );
   }

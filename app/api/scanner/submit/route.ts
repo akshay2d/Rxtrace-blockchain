@@ -20,6 +20,13 @@ export async function POST(req: Request) {
 
     const { role, company_id, handset_id } = decoded;
 
+    if (role !== "HIGH_SCAN") {
+      return NextResponse.json(
+        { success: false, error: "High scan authentication required" },
+        { status: 403 }
+      );
+    }
+
     // Master scanning switch (separate from activation/token generation)
     const { data: headsRow } = await supabase
       .from('company_active_heads')
@@ -40,21 +47,18 @@ export async function POST(req: Request) {
       .eq('id', handset_id)
       .maybeSingle();
 
-    if (!handset || handset.company_id !== company_id || handset.status !== 'ACTIVE') {
+    if (
+      !handset ||
+      handset.company_id !== company_id ||
+      handset.status !== 'ACTIVE' ||
+      !handset.high_scan_enabled
+    ) {
       return NextResponse.json({ success: false, error: 'Handset not active' }, { status: 403 });
     }
 
     const { scannedValue, scanType } = await req.json();
     if (!scanType || !scannedValue)
       return NextResponse.json({ success: false, error: "scanType & scannedValue required" });
-
-    // 🔒 Permission enforcement
-    if (role === "UNIT_ONLY" && scanType !== "unit") {
-      return NextResponse.json({
-        success: false,
-        error: "Activation required for box/carton/pallet scanning",
-      }, { status: 403 });
-    }
 
     const amount = SCAN_COST[scanType] ?? 0;
 
