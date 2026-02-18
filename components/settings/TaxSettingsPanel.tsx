@@ -7,6 +7,7 @@ type TaxSettingsPanelProps = {
   profileCompleted: boolean;
   initialPan?: string;
   initialGstNumber?: string;
+  onSave?: (pan: string | null, gstNumber: string | null) => void;
 };
 
 /**
@@ -52,6 +53,7 @@ export default function TaxSettingsPanel({
 
       setMessage({ type: 'success', text: 'Billing details saved successfully' });
       setTimeout(() => setMessage(null), 3000);
+      onSave?.(pan.trim().toUpperCase() || null, gstNumber.trim().toUpperCase() || null);
     } catch (err: any) {
       setMessage({ type: 'error', text: err.message || 'Failed to save billing details' });
     } finally {
