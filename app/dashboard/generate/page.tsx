@@ -48,6 +48,8 @@ type BatchRow = {
   codeType: CodeType;
 };
 
+const MAX_CODE_QUANTITY = 10000;
+
 // ---------- helpers ----------
 function generateGTIN(prefix = '890'): string {
   const remainingDigits = 13 - prefix.length;
@@ -259,6 +261,10 @@ export default function Page() {
   const [skuSavedMsg, setSkuSavedMsg] = useState<string>('');
   const [csvUploading, setCsvUploading] = useState(false);
 
+  const quantityTooSmall = form.quantity < 1;
+  const quantityExceedsLimit = form.quantity > MAX_CODE_QUANTITY;
+  const isQuantityValid = !quantityTooSmall && !quantityExceedsLimit;
+
   useEffect(() => {
     (async () => {
       const { data: { user } } = await supabaseClient().auth.getUser();
@@ -360,6 +366,14 @@ export default function Page() {
     }
     
     setError(null);
+    if (!isQuantityValid) {
+      setError(
+        quantityTooSmall
+          ? 'Quantity must be at least 1.'
+          : `Maximum ${MAX_CODE_QUANTITY.toLocaleString()} codes per request.`
+      );
+      return;
+    }
     
     // Generate multiple unit labels based on quantity
     const newRows: BatchRow[] = [];
@@ -572,9 +586,21 @@ export default function Page() {
                       type="number"
                       min="1"
                       value={form.quantity}
-                      onChange={e => update('quantity', parseInt(e.target.value) || 1)}
+                      max={MAX_CODE_QUANTITY}
+                      onChange={e => {
+                        const raw = parseInt(e.target.value, 10);
+                        update('quantity', Number.isNaN(raw) ? 1 : raw);
+                      }}
                       className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
                     />
+                    <p className="text-xs text-slate-500 mt-2">
+                      Maximum {MAX_CODE_QUANTITY.toLocaleString()} QR/DataMatrix codes per request.
+                    </p>
+                    {quantityExceedsLimit && (
+                      <p className="text-xs text-red-600 mt-1">
+                        Reduce quantity to {MAX_CODE_QUANTITY.toLocaleString()} or fewer before adding to batch.
+                      </p>
+                    )}
                   </div>
                 </div>
                 <div>
@@ -591,13 +617,17 @@ export default function Page() {
 
             {/* Actions */}
             <div className="flex gap-3">
-              <button type="submit" className="flex-1 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium shadow-sm hover:shadow-md">
+              <button
+                type="submit"
+                className="flex-1 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium shadow-sm hover:shadow-md"
+              >
                 Build Payload
               </button>
               <button
                 type="button"
                 onClick={handleAddToBatch}
-                className="flex-1 px-6 py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition font-medium shadow-sm hover:shadow-md"
+                disabled={!isQuantityValid}
+                className="flex-1 px-6 py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition font-medium shadow-sm hover:shadow-md disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 Add to Batch
               </button>
