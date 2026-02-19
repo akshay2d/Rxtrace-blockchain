@@ -58,7 +58,7 @@ export default function CompaniesManagement() {
       if (error) throw error;
       let trialMap = new Map<string, { trial_status: Company['trial_status']; trial_end: string | null }>();
       try {
-        const res = await fetch('/api/admin/companies');
+        const res = await fetch('/api/admin/companies', { credentials: 'include' });
         if (res.ok) {
           const payload = await res.json();
           (payload.companies || []).forEach((row: any) => {
@@ -127,13 +127,14 @@ export default function CompaniesManagement() {
     }
 
     try {
-      const supabase = supabaseClient();
-      const { error } = await supabase
-        .from('companies')
-        .delete()
-        .eq('id', company.id);
-
-      if (error) throw error;
+      const response = await fetch(`/api/admin/companies/${company.id}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.error || result.message || `Failed (${response.status})`);
+      }
       alert('Company deleted successfully!');
       fetchCompanies();
     } catch (error: any) {
@@ -166,6 +167,7 @@ export default function CompaniesManagement() {
     try {
       const response = await fetch('/api/admin/trial/reset', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           company_id: resetTarget.id,

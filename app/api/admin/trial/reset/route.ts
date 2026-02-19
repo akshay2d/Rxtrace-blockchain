@@ -72,7 +72,9 @@ export async function POST(req: NextRequest) {
 
     const { data: companyRow, error: companyError } = await admin
       .from("companies")
-      .select("id")
+      .select(
+        "id, company_name, trial_status, trial_start_date, trial_end_date, trial_started_at, trial_ends_at, trial_activated_at"
+      )
       .eq("id", companyId)
       .maybeSingle();
 
@@ -93,7 +95,39 @@ export async function POST(req: NextRequest) {
       throw deleteError;
     }
 
-    if (!trialRows || trialRows.length === 0) {
+    const hadLegacyTrialData =
+      !!companyRow.trial_status ||
+      !!companyRow.trial_start_date ||
+      !!companyRow.trial_end_date ||
+      !!companyRow.trial_started_at ||
+      !!companyRow.trial_ends_at ||
+      !!companyRow.trial_activated_at;
+
+    const { error: legacyResetError } = await admin
+      .from("companies")
+      .update({
+        trial_status: null,
+        trial_start_date: null,
+        trial_end_date: null,
+        trial_started_at: null,
+        trial_ends_at: null,
+        trial_activated_at: null,
+      })
+      .eq("id", companyId);
+
+    if (legacyResetError) {
+      throw legacyResetError;
+    }
+
+    const deletedTrialsCount = trialRows?.length ?? 0;
+
+    console.log("[trial-reset] reset result", {
+      companyId,
+      deletedTrialsCount,
+      hadLegacyTrialData,
+    });
+
+    if (deletedTrialsCount === 0 && !hadLegacyTrialData) {
       return NextResponse.json(
         { error: "No trial found for this company" },
         { status: 404 }
@@ -114,6 +148,8 @@ export async function POST(req: NextRequest) {
       success: true,
       message: "Trial reset successfully",
       company_id: companyId,
+      deleted_trials: deletedTrialsCount,
+      legacy_trial_cleared: hadLegacyTrialData,
     });
   } catch (error: any) {
     console.error("[trial-reset] route error", {
