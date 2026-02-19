@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/app/lib/prisma";
 import { resolveCompanyIdFromRequest } from "@/lib/company/resolve";
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 export async function POST(req: Request) {
   try {
+    const supabase = getSupabaseAdmin();
     const payload = (await req.json().catch(() => ({}))) as {
       handset_id?: string;
       enabled?: boolean;
@@ -22,15 +23,27 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
     }
 
-    const handset = await prisma.handsets.findUnique({ where: { id: handset_id } });
+    const { data: handset, error: handsetError } = await supabase
+      .from("handsets")
+      .select("id, company_id")
+      .eq("id", handset_id)
+      .maybeSingle();
+    if (handsetError) {
+      return NextResponse.json({ success: false, error: handsetError.message }, { status: 500 });
+    }
     if (!handset || handset.company_id !== companyId) {
       return NextResponse.json({ success: false, error: "Handset not found" }, { status: 404 });
     }
 
-    const updated = await prisma.handsets.update({
-      where: { id: handset_id },
-      data: { high_scan_enabled: Boolean(enabled) },
-    });
+    const { data: updated, error: updateError } = await supabase
+      .from("handsets")
+      .update({ high_scan_enabled: Boolean(enabled) })
+      .eq("id", handset_id)
+      .select("*")
+      .single();
+    if (updateError) {
+      return NextResponse.json({ success: false, error: updateError.message }, { status: 500 });
+    }
 
     return NextResponse.json({ success: true, handset: updated });
   } catch (err: any) {

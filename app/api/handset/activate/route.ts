@@ -2,13 +2,14 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import jwt from "jsonwebtoken";
-import { prisma } from "@/app/lib/prisma";
 import { requireUserSession } from "@/lib/auth/session";
+import { supabaseServer } from "@/lib/supabase/server";
 
 export async function POST(req: Request) {
   try {
     const auth = await requireUserSession();
     if ("error" in auth) return auth.error;
+    const supabase = await supabaseServer();
 
     const payload = (await req.json().catch(() => ({}))) as {
       tokenNumber?: string;
@@ -26,53 +27,59 @@ export async function POST(req: Request) {
     const now = new Date();
     const userId = auth.userId;
 
-    const result = await prisma.$transaction(async (tx) => {
-      const tokenRecord = await tx.token.findFirst({
-        where: {
-          tokenNumber,
-          userId,
-        },
-      });
+    const { data: tokenRecord, error: tokenError } = await supabase
+      .from("token")
+      .select("*")
+      .eq("tokennumber", tokenNumber)
+      .eq("userid", userId)
+      .maybeSingle();
+    if (tokenError) {
+      throw new Error(tokenError.message);
+    }
+    if (!tokenRecord) {
+      throw new Error("Invalid activation token");
+    }
 
-      if (!tokenRecord) {
-        throw new Error("Invalid activation token");
-      }
+    if (tokenRecord.status !== "ACTIVE") {
+      throw new Error("Token is not active");
+    }
 
-      if (tokenRecord.status !== "ACTIVE") {
-        throw new Error("Token is not active");
-      }
+    if (new Date(tokenRecord.expiry) <= now) {
+      throw new Error("Token has expired");
+    }
 
-      if (tokenRecord.expiry <= now) {
-        throw new Error("Token has expired");
-      }
+    if (Number(tokenRecord.activationcount) >= Number(tokenRecord.maxactivations)) {
+      throw new Error("Token activation limit reached");
+    }
 
-      if (tokenRecord.activationCount >= tokenRecord.maxActivations) {
-        throw new Error("Token activation limit reached");
-      }
+    const { data: handset, error: handsetError } = await supabase
+      .from("handset")
+      .insert({
+        userid: userId,
+        devicename: deviceName,
+        tokenid: tokenRecord.id,
+        activatedat: now.toISOString(),
+        active: true,
+      })
+      .select("*")
+      .single();
+    if (handsetError) {
+      throw new Error(handsetError.message);
+    }
 
-      const handset = await tx.handset.create({
-        data: {
-          userId,
-          deviceName,
-          tokenId: tokenRecord.id,
-          activatedAt: now,
-          active: true,
-        },
-      });
-
-      await tx.token.update({
-        where: { id: tokenRecord.id },
-        data: {
-          activationCount: { increment: 1 },
-        },
-      });
-
-      return { handset, token: tokenRecord };
-    });
+    const { error: tokenUpdateError } = await supabase
+      .from("token")
+      .update({
+        activationcount: Number(tokenRecord.activationcount) + 1,
+      })
+      .eq("id", tokenRecord.id);
+    if (tokenUpdateError) {
+      throw new Error(tokenUpdateError.message);
+    }
 
     const jwtToken = jwt.sign(
       {
-        handset_id: result.handset.id,
+        handset_id: handset.id,
         user_id: userId,
         role: "HIGH_SCAN",
       },
@@ -83,9 +90,9 @@ export async function POST(req: Request) {
     return NextResponse.json({
       success: true,
       jwt: jwtToken,
-      token: result.token.tokenNumber,
-      handset_id: result.handset.id,
-      activated_at: result.handset.activatedAt.toISOString(),
+      token: tokenRecord.tokennumber,
+      handset_id: handset.id,
+      activated_at: new Date(handset.activatedat).toISOString(),
     });
   } catch (err: any) {
     console.error("Handset activation error:", err);

@@ -1,13 +1,14 @@
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
-import { prisma } from "@/app/lib/prisma";
 import { requireUserSession } from "@/lib/auth/session";
+import { supabaseServer } from "@/lib/supabase/server";
 
 export async function POST(req: Request) {
   try {
     const auth = await requireUserSession();
     if ("error" in auth) return auth.error;
+    const supabase = await supabaseServer();
 
     const payload = (await req.json().catch(() => ({}))) as { tokenNumber?: string };
     if (!payload.tokenNumber) {
@@ -17,12 +18,15 @@ export async function POST(req: Request) {
       );
     }
 
-    const tokenRecord = await prisma.token.findFirst({
-      where: {
-        tokenNumber: payload.tokenNumber,
-        userId: auth.userId,
-      },
-    });
+    const { data: tokenRecord, error: tokenError } = await supabase
+      .from("token")
+      .select("*")
+      .eq("tokennumber", payload.tokenNumber)
+      .eq("userid", auth.userId)
+      .maybeSingle();
+    if (tokenError) {
+      throw new Error(tokenError.message);
+    }
 
     if (!tokenRecord) {
       return NextResponse.json(
@@ -35,12 +39,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true, message: "Token already disabled" });
     }
 
-    await prisma.token.update({
-      where: { id: tokenRecord.id },
-      data: { status: "DISABLED" },
-    });
+    const { error: updateError } = await supabase
+      .from("token")
+      .update({ status: "DISABLED" })
+      .eq("id", tokenRecord.id);
+    if (updateError) {
+      throw new Error(updateError.message);
+    }
 
-    return NextResponse.json({ success: true, token: tokenRecord.tokenNumber });
+    return NextResponse.json({ success: true, token: tokenRecord.tokennumber });
   } catch (err: any) {
     console.error("Disable token error:", err);
     return NextResponse.json(

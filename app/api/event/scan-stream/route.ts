@@ -1,6 +1,6 @@
 // app/api/events/scan-stream/route.ts
 import { NextResponse } from "next/server";
-import { prisma } from "@/app/lib/prisma";
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 export const dynamic = 'force-dynamic';
 
@@ -11,7 +11,8 @@ function sseEvent(data: any, event = "message") {
 
 export async function GET(req: Request) {
   let closed = false;
-  
+  const supabase = getSupabaseAdmin();
+
   // We'll stream via ReadableStream and poll DB for new scan transactions.
   const stream = new ReadableStream({
     async start(controller) {
@@ -22,14 +23,17 @@ export async function GET(req: Request) {
         let lastIdSeen: string | null = null; // track last billing_transactions.id we sent
         // initialize lastIdSeen to the most recent id
         try {
-          const last = await prisma.billing_transactions.findFirst({
-            where: { type: "scan" },
-            orderBy: { created_at: "desc" },
-            select: { id: true },
-          });
+          const { data: last, error: lastError } = await supabase
+            .from("billing_transactions")
+            .select("id")
+            .eq("type", "scan")
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (lastError) throw new Error(lastError.message);
           lastIdSeen = last?.id ?? null;
         } catch (e) {
-          // ignore — continue with null
+          // ignore and continue with null
           lastIdSeen = null;
         }
 
@@ -38,17 +42,22 @@ export async function GET(req: Request) {
         const poll = async () => {
           if (closed) return;
           try {
-            const rows = await prisma.billing_transactions.findMany({
-              where: { type: "scan" },
-              orderBy: { created_at: "asc" },
-              // get rows newer than lastIdSeen — if null, get last 20
-              take: lastIdSeen ? undefined : 20,
-            });
+            let query = supabase
+              .from("billing_transactions")
+              .select("*")
+              .eq("type", "scan")
+              .order("created_at", { ascending: true });
 
-            // if lastIdSeen set, filter after fetching (safer across DBs)
-            const newRows = lastIdSeen ? rows.filter((r) => r.id > lastIdSeen!) : rows;
+            if (lastIdSeen) {
+              query = query.gt("id", lastIdSeen);
+            } else {
+              query = query.limit(20);
+            }
 
-            for (const row of newRows) {
+            const { data: newRows, error: rowsError } = await query;
+            if (rowsError) throw new Error(rowsError.message);
+
+            for (const row of newRows ?? []) {
               controller.enqueue(new TextEncoder().encode(sseEvent(row, "scan")));
               lastIdSeen = row.id;
             }

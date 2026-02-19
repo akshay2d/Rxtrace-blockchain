@@ -2,9 +2,8 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import crypto from "crypto";
-import { Prisma } from "@prisma/client";
-import { prisma } from "@/app/lib/prisma";
 import { requireUserSession } from "@/lib/auth/session";
+import { supabaseServer } from "@/lib/supabase/server";
 
 const MAX_TOKENS_PER_USER = 10;
 const TOKEN_ATTEMPTS = 5;
@@ -18,16 +17,19 @@ export async function POST(req: Request) {
   try {
     const auth = await requireUserSession();
     if ("error" in auth) return auth.error;
+    const supabase = await supabaseServer();
 
     const userId = auth.userId;
-    const activeTokens = await prisma.token.count({
-      where: {
-        userId,
-        status: "ACTIVE",
-      },
-    });
+    const { count: activeTokens, error: activeTokensError } = await supabase
+      .from("token")
+      .select("*", { count: "exact", head: true })
+      .eq("userid", userId)
+      .eq("status", "ACTIVE");
+    if (activeTokensError) {
+      throw new Error(activeTokensError.message);
+    }
 
-    if (activeTokens >= MAX_TOKENS_PER_USER) {
+    if ((activeTokens ?? 0) >= MAX_TOKENS_PER_USER) {
       return NextResponse.json(
         { success: false, error: `Maximum of ${MAX_TOKENS_PER_USER} active tokens reached` },
         { status: 400 }
@@ -39,28 +41,30 @@ export async function POST(req: Request) {
     for (let attempt = 0; attempt < TOKEN_ATTEMPTS; attempt++) {
       const tokenNumber = buildTokenNumber();
       try {
-        const token = await prisma.token.create({
-          data: {
-            userId,
-            tokenNumber,
-            expiry,
-          },
-        });
+        const { data: token, error: insertError } = await supabase
+          .from("token")
+          .insert({
+            userid: userId,
+            tokennumber: tokenNumber,
+            expiry: expiry.toISOString(),
+          })
+          .select("*")
+          .single();
+        if (insertError) {
+          throw insertError;
+        }
 
         return NextResponse.json({
           success: true,
-          token: token.tokenNumber,
-          generatedAt: token.generatedAt.toISOString(),
-          expiry: token.expiry.toISOString(),
+          token: token.tokennumber,
+          generatedAt: new Date(token.generatedat).toISOString(),
+          expiry: new Date(token.expiry).toISOString(),
           status: token.status,
-          activationCount: token.activationCount,
-          maxActivations: token.maxActivations,
+          activationCount: token.activationcount,
+          maxActivations: token.maxactivations,
         });
       } catch (err: any) {
-        if (
-          err instanceof Prisma.PrismaClientKnownRequestError &&
-          err.code === "P2002"
-        ) {
+        if (err?.code === "23505") {
           continue;
         }
         throw err;

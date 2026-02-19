@@ -1,7 +1,6 @@
 // app/api/admin/bulk-upload/route.ts
 // PHASE-4: Uses subscription-based quota (SSCC) for pallet/carton; requires admin.
 import { NextResponse } from "next/server";
-import { prisma } from "@/app/lib/prisma";
 import { makeSscc } from "@/app/lib/sscc";
 import { requireAdmin } from "@/lib/auth/admin";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
@@ -126,51 +125,54 @@ export async function POST(req: Request) {
     }
 
     const details: any[] = [];
-    const results = await prisma.$transaction(async (tx) => {
-      let createdCount = 0;
-      for (const row of rows) {
-        const rowObj: Record<string, string> = {};
-        if (header) {
-          for (let i = 0; i < header.length; i++)
-            rowObj[header[i]] = row[i] ?? "";
-        } else {
-          rowObj["value"] = row[0] ?? "";
-        }
-
-        if (level === "pallet") {
-          const sscc = makeSscc();
-          await tx.pallets.create({ data: { sscc, company_id } });
-          details.push({ row: rowObj, sscc });
-          createdCount++;
-        } else if (level === "carton") {
-          const sscc = makeSscc();
-          const pallet_id =
-            header && parent_column
-              ? rowObj[parent_column] || null
-              : row[1] || null;
-          await tx.cartons.create({
-            data: {
-              code: sscc,
-              company_id,
-              pallet_id: pallet_id || null,
-            },
-          });
-          details.push({ row: rowObj, sscc, parent: pallet_id ?? null });
-          createdCount++;
-        } else if (level === "box") {
-          details.push({
-            row: rowObj,
-            error: "Box level not implemented",
-          });
-        } else if (level === "unit") {
-          details.push({
-            row: rowObj,
-            error: "Unit level not implemented",
-          });
-        }
+    const supabase = getSupabaseAdmin();
+    let createdCount = 0;
+    for (const row of rows) {
+      const rowObj: Record<string, string> = {};
+      if (header) {
+        for (let i = 0; i < header.length; i++)
+          rowObj[header[i]] = row[i] ?? "";
+      } else {
+        rowObj["value"] = row[0] ?? "";
       }
-      return { createdCount, details };
-    });
+
+      if (level === "pallet") {
+        const sscc = makeSscc();
+        const { error: insertError } = await supabase
+          .from("pallets")
+          .insert({ sscc, company_id });
+        if (insertError) throw new Error(insertError.message);
+        details.push({ row: rowObj, sscc });
+        createdCount++;
+      } else if (level === "carton") {
+        const sscc = makeSscc();
+        const pallet_id =
+          header && parent_column
+            ? rowObj[parent_column] || null
+            : row[1] || null;
+        const { error: insertError } = await supabase
+          .from("cartons")
+          .insert({
+            code: sscc,
+            company_id,
+            pallet_id: pallet_id || null,
+          });
+        if (insertError) throw new Error(insertError.message);
+        details.push({ row: rowObj, sscc, parent: pallet_id ?? null });
+        createdCount++;
+      } else if (level === "box") {
+        details.push({
+          row: rowObj,
+          error: "Box level not implemented",
+        });
+      } else if (level === "unit") {
+        details.push({
+          row: rowObj,
+          error: "Unit level not implemented",
+        });
+      }
+    }
+    const results = { createdCount, details };
 
     // PHASE-6: Log admin action for audit trail (no confirmation required)
     await logAdminAction({
