@@ -40,6 +40,9 @@ export async function GET(req: NextRequest) {
         `
           id,
           company_name,
+          trial_status,
+          trial_end_date,
+          trial_ends_at,
           company_trials!left(ends_at)
         `
       )
@@ -51,12 +54,21 @@ export async function GET(req: NextRequest) {
 
     const companies = (data || []).map((company: any) => {
       const trialRow = Array.isArray(company.company_trials) ? company.company_trials[0] : null;
+      const legacyEnd =
+        company.trial_ends_at || company.trial_end_date || null;
+      const computedTrialEnd = trialRow?.ends_at || legacyEnd || null;
       let trial_status: "Not Used" | "Active" | "Expired" = "Not Used";
-      let trial_end = null;
+      let trial_end = computedTrialEnd;
 
-      if (trialRow?.ends_at) {
-        trial_end = trialRow.ends_at;
-        trial_status = new Date(trialRow.ends_at) > new Date() ? "Active" : "Expired";
+      if (computedTrialEnd) {
+        trial_status = new Date(computedTrialEnd) > new Date() ? "Active" : "Expired";
+      } else if (company.trial_status) {
+        const rawStatus = String(company.trial_status).toLowerCase();
+        if (["trial", "trialing", "active"].includes(rawStatus)) {
+          trial_status = "Active";
+        } else if (["expired", "cancelled", "ended"].includes(rawStatus)) {
+          trial_status = "Expired";
+        }
       }
 
       return {

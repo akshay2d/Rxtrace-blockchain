@@ -24,6 +24,17 @@ type Company = {
   trial_end?: string | null;
 };
 
+async function parseApiJson(response: Response) {
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    const text = await response.text();
+    throw new Error(
+      `Expected JSON response but got ${contentType || 'unknown'} (${response.status}): ${text.slice(0, 140)}`
+    );
+  }
+  return response.json();
+}
+
 export default function CompaniesManagement() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(false);
@@ -131,7 +142,7 @@ export default function CompaniesManagement() {
         method: 'DELETE',
         credentials: 'include'
       });
-      const result = await response.json();
+      const result = await parseApiJson(response);
       if (!response.ok) {
         throw new Error(result.error || result.message || `Failed (${response.status})`);
       }
@@ -174,7 +185,7 @@ export default function CompaniesManagement() {
           reason: resetReason.trim() || undefined
         })
       });
-      const result = await response.json();
+      const result = await parseApiJson(response);
       if (!response.ok) throw new Error(result.error || 'Failed to reset trial');
       alert('Trial reset successfully');
       setResetModalOpen(false);
