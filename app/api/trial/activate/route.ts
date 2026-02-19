@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
 import { supabaseServer } from '@/lib/supabase/server';
 import { writeAuditLog } from '@/lib/audit';
-import { safeApiErrorMessage } from '@/lib/api-error';
 
 const TRIAL_DAYS_DEFAULT = 15;
 const TRIAL_OVERRIDE_EMAIL = 'akshaytilwanker@gmail.com';
@@ -11,15 +10,14 @@ const TRIAL_OVERRIDE_COMPANY = 'Varsha Food and Cosmetics';
 function resolveTrialDurationDays(): number {
   const rawValue =
     Number(process.env.TRIAL_DAYS ?? process.env.TRIAL_DURATION_DAYS ?? TRIAL_DAYS_DEFAULT);
+
   if (!Number.isFinite(rawValue) || rawValue <= 0) {
     return TRIAL_DAYS_DEFAULT;
   }
+
   return Math.floor(rawValue);
 }
 
-const TRIAL_STATUSES_TO_BLOCK = new Set(['trial', 'trialing', 'active', 'expired']);
-
-/** Trial activation now depends on session-derived company ownership and a single subscription row. */
 export async function POST(_: NextRequest) {
   try {
     const supabase = await supabaseServer();
@@ -33,14 +31,14 @@ export async function POST(_: NextRequest) {
     }
 
     const admin = getSupabaseAdmin();
-    const { data: companies, error: companiesError } = await admin
+
+    // Resolve company for this user
+    const { data: companies, error: companyError } = await admin
       .from('companies')
-      .select('id, name')
+      .select('id, company_name')
       .eq('user_id', user.id);
 
-    if (companiesError) {
-      throw companiesError;
-    }
+    if (companyError) throw companyError;
 
     if (!companies || companies.length === 0) {
       return NextResponse.json(
@@ -51,13 +49,19 @@ export async function POST(_: NextRequest) {
 
     if (companies.length > 1) {
       return NextResponse.json(
-        { error: 'Multiple companies found for this user. System supports one company per user only.' },
+        { error: 'Multiple companies found for this user.' },
         { status: 409 }
       );
     }
 
     const company = companies[0];
-    const companyNameNormalized = (company.name ?? '').toString().trim().toLowerCase();
+
+    // Special override validation (optional)
+    const companyNameNormalized = (company.company_name ?? '')
+      .toString()
+      .trim()
+      .toLowerCase();
+
     if (
       user.email?.toLowerCase() === TRIAL_OVERRIDE_EMAIL &&
       companyNameNormalized !== TRIAL_OVERRIDE_COMPANY.toLowerCase()
@@ -68,45 +72,16 @@ export async function POST(_: NextRequest) {
       );
     }
 
-    const { data: existingSubscription, error: subError } = await admin
-      .from('company_subscriptions')
-      .select('id, status, is_trial')
-      .eq('company_id', company.id)
-      .maybeSingle();
-
-    if (subError) {
-      throw subError;
-    }
-
-    const status = (existingSubscription?.status ?? '').toString().toLowerCase().trim();
-    const alreadyUsedSubscription =
-      existingSubscription &&
-      (existingSubscription.is_trial ||
-        TRIAL_STATUSES_TO_BLOCK.has(status));
-
-    if (alreadyUsedSubscription) {
-      return NextResponse.json(
-        { error: 'Trial period expired for this user.' },
-        { status: 400 }
-      );
-    }
-
-    let trialRowPresent = false;
-    const { data: trialRow, error: trialRowError } = await admin
+    // Check if trial already exists
+    const { data: existingTrial, error: trialCheckError } = await admin
       .from('company_trials')
-      .select('id')
+      .select('id, ends_at')
       .eq('company_id', company.id)
       .maybeSingle();
 
-    if (trialRowError && trialRowError.code !== '42P01') {
-      throw trialRowError;
-    }
+    if (trialCheckError) throw trialCheckError;
 
-    if (trialRow) {
-      trialRowPresent = true;
-    }
-
-    if (trialRowPresent) {
+    if (existingTrial) {
       return NextResponse.json(
         { error: 'Trial period expired for this user.' },
         { status: 400 }
@@ -118,47 +93,27 @@ export async function POST(_: NextRequest) {
     const trialEnd = new Date(now);
     trialEnd.setUTCDate(trialEnd.getUTCDate() + trialDays);
 
+    // Insert trial row
     const { error: insertError } = await admin
-      .from('company_subscriptions')
+      .from('company_trials')
       .insert({
         company_id: company.id,
-        plan_id: null,
-        status: 'trialing',
-        trial_end: trialEnd.toISOString(),
-        current_period_end: trialEnd.toISOString(),
-        is_trial: true,
-        razorpay_subscription_id: null,
-      })
-      .select('id')
-      .single();
+        started_at: now.toISOString(),
+        ends_at: trialEnd.toISOString(),
+      });
 
     if (insertError) {
-      const duplicate =
-        insertError.code === '23505' ||
-        insertError.message?.toLowerCase().includes('duplicate');
-      if (duplicate) {
+      if (insertError.code === '23505') {
         return NextResponse.json(
           { error: 'Trial period expired for this user.' },
           { status: 400 }
         );
       }
+
       throw insertError;
     }
 
-    const { error: companyUpdateError } = await admin
-      .from('companies')
-      .update({
-        trial_started_at: now.toISOString(),
-        trial_ends_at: trialEnd.toISOString(),
-        trial_status: 'active',
-        subscription_status: 'trial',
-      })
-      .eq('id', company.id);
-
-    if (companyUpdateError) {
-      throw companyUpdateError;
-    }
-
+    // Audit log (non-blocking)
     try {
       await writeAuditLog({
         companyId: company.id,
@@ -168,29 +123,34 @@ export async function POST(_: NextRequest) {
         integrationSystem: 'system',
         metadata: {
           trial_end: trialEnd.toISOString(),
-          company_name: company.name,
+          company_name: company.company_name,
         },
       });
-    } catch (_) {
-      // audit failures should not block the user
+    } catch (auditError) {
+      console.warn('Audit log failed:', auditError);
     }
 
     return NextResponse.json({
       message: 'Trial activated successfully.',
-      company: company.name,
+      company: company.company_name,
       trial_end: trialEnd.toISOString(),
     });
-  } catch (error: unknown) {
-    if (process.env.NODE_ENV !== 'production') {
-      console.error('Trial activation error:', error);
-    }
+
+  } catch (error: any) {
+    console.error('Trial activation error:', error);
+
     return NextResponse.json(
-      { error: safeApiErrorMessage(error, 'Failed to activate trial') },
+      {
+        error: error?.message || 'Internal Server Error',
+      },
       { status: 500 }
     );
   }
 }
 
 export async function GET() {
-  return NextResponse.json({ error: 'Method not allowed. Use POST.' }, { status: 405 });
+  return NextResponse.json(
+    { error: 'Method not allowed. Use POST.' },
+    { status: 405 }
+  );
 }
