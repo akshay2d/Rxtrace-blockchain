@@ -20,6 +20,8 @@ type Company = {
   contact_email?: string;
   contact_phone?: string;
   address?: string;
+  trial_status?: 'Active' | 'Expired' | 'Not Used';
+  trial_end?: string | null;
 };
 
 export default function CompaniesManagement() {
@@ -35,6 +37,10 @@ export default function CompaniesManagement() {
     contact_phone: '',
     address: ''
   });
+  const [resetModalOpen, setResetModalOpen] = useState(false);
+  const [resetReason, setResetReason] = useState('');
+  const [resetTarget, setResetTarget] = useState<Company | null>(null);
+  const [resetLoading, setResetLoading] = useState(false);
 
   // PHASE-2: Two-step confirmation for freeze/unfreeze
   const [freezeConfirming, setFreezeConfirming] = useState(false);
@@ -50,8 +56,28 @@ export default function CompaniesManagement() {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
+      let trialMap = new Map<string, { trial_status: Company['trial_status']; trial_end: string | null }>();
+      try {
+        const res = await fetch('/api/admin/companies');
+        if (res.ok) {
+          const payload = await res.json();
+          (payload.companies || []).forEach((row: any) => {
+            trialMap.set(row.id, {
+              trial_status: row.trial_status as Company['trial_status'],
+              trial_end: row.trial_end ?? null
+            });
+          });
+        }
+      } catch (_) {
+        // If trial status fetch fails, keep company list without trial data.
+      }
+
       if (data) {
-        setCompanies(data);
+        const merged = data.map((company: Company) => {
+          const trialInfo = trialMap.get(company.id);
+          return trialInfo ? { ...company, ...trialInfo } : company;
+        });
+        setCompanies(merged);
       }
     } catch (error: any) {
       console.error('Error:', error);
@@ -132,6 +158,33 @@ export default function CompaniesManagement() {
     setShowForm(false);
     setEditingCompany(null);
     setFormData({ company_name: '', gst_number: '', contact_email: '', contact_phone: '', address: '' });
+  }
+
+  async function handleResetTrial() {
+    if (!resetTarget) return;
+    setResetLoading(true);
+    try {
+      const response = await fetch('/api/admin/trial/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          company_id: resetTarget.id,
+          reason: resetReason.trim() || undefined
+        })
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Failed to reset trial');
+      alert('Trial reset successfully');
+      setResetModalOpen(false);
+      setResetReason('');
+      setResetTarget(null);
+      fetchCompanies();
+    } catch (error: any) {
+      console.error('Error resetting trial:', error);
+      alert('Failed to reset trial: ' + error.message);
+    } finally {
+      setResetLoading(false);
+    }
   }
 
   async function handleToggleFreeze(company: Company) {
@@ -252,6 +305,11 @@ export default function CompaniesManagement() {
             onToggleFreeze={handleToggleFreeze}
             onEdit={openEditForm}
             onDelete={handleDelete}
+            onResetTrial={(c) => {
+              setResetTarget(c);
+              setResetReason('');
+              setResetModalOpen(true);
+            }}
           />
         ))}
 
@@ -348,6 +406,52 @@ export default function CompaniesManagement() {
           </Card>
         </div>
       )}
+
+      {/* Reset Trial Modal */}
+      {resetModalOpen && resetTarget && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <Card className="w-full max-w-lg">
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle>Reset Trial</CardTitle>
+              <Button variant="ghost" size="sm" onClick={() => setResetModalOpen(false)}>
+                <X className="w-4 h-4" />
+              </Button>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-gray-600">
+                Reset trial for <strong>{resetTarget.company_name}</strong>. This will remove the current
+                trial row so the company can start a new trial.
+              </p>
+              <div>
+                <Label htmlFor="reset_reason">Reason (optional)</Label>
+                <Input
+                  id="reset_reason"
+                  value={resetReason}
+                  onChange={(e) => setResetReason(e.target.value)}
+                  placeholder="Support case or justification"
+                />
+              </div>
+              <div className="flex gap-2 pt-4">
+                <Button
+                  variant="outline"
+                  onClick={() => setResetModalOpen(false)}
+                  disabled={resetLoading}
+                  className="flex-1"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleResetTrial}
+                  disabled={resetLoading}
+                  className="flex-1 bg-red-600 hover:bg-red-700"
+                >
+                  {resetLoading ? 'Resetting...' : 'Reset Trial'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }
@@ -357,12 +461,14 @@ function CompanyCard({
   company, 
   onToggleFreeze, 
   onEdit, 
-  onDelete 
+  onDelete,
+  onResetTrial
 }: { 
   company: Company; 
   onToggleFreeze: (c: Company) => void;
   onEdit: (c: Company) => void;
   onDelete: (c: Company) => void;
+  onResetTrial: (c: Company) => void;
 }) {
   const [status, setStatus] = useState<'ACTIVE' | 'FROZEN'>('ACTIVE');
 
@@ -429,32 +535,41 @@ function CompanyCard({
             {status === 'FROZEN' ? 'Unfreeze' : 'Freeze'}
           </Button>
         </div>
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => window.location.href = `/admin/companies/${company.id}`}
-                    className="flex-1"
-                  >
-                    <FileText className="w-3 h-3 mr-1" /> Audit
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => onEdit(company)}
-                    className="flex-1"
-                  >
-                    <Edit2 className="w-3 h-3 mr-1" /> Edit
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => onDelete(company)}
-                    className="flex-1 text-red-600 hover:text-red-700 hover:bg-red-50"
-                  >
-                    <Trash2 className="w-3 h-3 mr-1" /> Delete
-                  </Button>
-                </div>
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => window.location.href = `/admin/companies/${company.id}`}
+            className="flex-1"
+          >
+            <FileText className="w-3 h-3 mr-1" /> Audit
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => onEdit(company)}
+            className="flex-1"
+          >
+            <Edit2 className="w-3 h-3 mr-1" /> Edit
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => onResetTrial(company)}
+            className="flex-1"
+            disabled={!company.trial_status || company.trial_status === 'Not Used'}
+          >
+            <RefreshCw className="w-3 h-3 mr-1" /> Reset Trial
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => onDelete(company)}
+            className="flex-1 text-red-600 hover:text-red-700 hover:bg-red-50"
+          >
+            <Trash2 className="w-3 h-3 mr-1" /> Delete
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );
