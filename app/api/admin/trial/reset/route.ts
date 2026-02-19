@@ -12,6 +12,10 @@ type ResetBody = {
   reason?: string;
 };
 
+function normalizeRole(role: unknown): string {
+  return String(role ?? '').trim().toLowerCase();
+}
+
 export async function POST(req: NextRequest) {
   try {
     const supabase = await supabaseServer();
@@ -46,10 +50,18 @@ export async function POST(req: NextRequest) {
       idMatch: adminRow ? String(adminRow.user_id) === String(user.id) : false,
     });
 
-    const forbid = !adminRow || adminRow.role !== "superadmin";
+    if (adminError) {
+      return NextResponse.json(
+        { error: `Failed to verify admin role: ${adminError.message}` },
+        { status: 500 }
+      );
+    }
+
+    const role = normalizeRole(adminRow?.role);
+    const forbid = !adminRow || role !== "superadmin";
     console.log("[trial-reset] authz decision", {
       forbid,
-      reason: !adminRow ? "missing_admin_row" : `role_${adminRow.role}`,
+      reason: !adminRow ? "missing_admin_row" : `role_${role || 'empty'}`,
     });
 
     if (forbid) {

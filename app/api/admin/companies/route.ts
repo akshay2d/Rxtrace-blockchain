@@ -8,6 +8,10 @@ const UUID_REGEX =
 
 export const dynamic = "force-dynamic";
 
+function normalizeRole(role: unknown): string {
+  return String(role ?? "").trim().toLowerCase();
+}
+
 export async function GET(req: NextRequest) {
   try {
     const supabase = await supabaseServer();
@@ -27,7 +31,14 @@ export async function GET(req: NextRequest) {
       .eq("user_id", user.id)
       .maybeSingle();
 
-    if (adminError || !adminRow || adminRow.role !== "superadmin") {
+    if (adminError) {
+      return NextResponse.json(
+        { error: `Failed to verify admin role: ${adminError.message}` },
+        { status: 500 }
+      );
+    }
+
+    if (!adminRow || normalizeRole(adminRow.role) !== "superadmin") {
       return NextResponse.json(
         { error: "Forbidden: superadmin access required" },
         { status: 403 }

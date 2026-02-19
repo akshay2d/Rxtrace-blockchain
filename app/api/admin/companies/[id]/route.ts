@@ -13,6 +13,10 @@ type Context = {
 
 export const dynamic = "force-dynamic";
 
+function normalizeRole(role: unknown): string {
+  return String(role ?? "").trim().toLowerCase();
+}
+
 export async function DELETE(_req: NextRequest, context: Context) {
   try {
     const companyId = context.params.id;
@@ -40,7 +44,14 @@ export async function DELETE(_req: NextRequest, context: Context) {
       .eq("user_id", user.id)
       .maybeSingle();
 
-    if (adminError || !adminRow || adminRow.role !== "superadmin") {
+    if (adminError) {
+      return NextResponse.json(
+        { error: `Failed to verify admin role: ${adminError.message}` },
+        { status: 500 }
+      );
+    }
+
+    if (!adminRow || normalizeRole(adminRow.role) !== "superadmin") {
       return NextResponse.json(
         { error: "Forbidden: superadmin access required" },
         { status: 403 }
