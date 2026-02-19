@@ -33,23 +33,27 @@ export async function middleware(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname;
 
-  // PHASE-1: Exempt certain routes from all auth checks
-  const publicRoutes = [
+  // Exempt only explicitly public routes from auth checks.
+  const publicPrefixes = [
     '/api/auth',
     '/api/setup',
     '/api/public',
     '/api/health',
+  ];
+  const publicExactRoutes = new Set([
+    '/',
     '/pricing',
+    '/compliance',
+    '/contact',
     '/auth/verify',
     '/auth/callback',
     '/auth/signin',
     '/auth/signup',
-    '/',
-    '/compliance',
-    '/contact',
-  ];
-  
-  const isPublicRoute = publicRoutes.some(route => pathname.startsWith(route));
+  ]);
+
+  const isPublicRoute =
+    publicExactRoutes.has(pathname) ||
+    publicPrefixes.some((prefix) => pathname.startsWith(prefix));
   
   if (isPublicRoute) {
     return supabaseResponse;

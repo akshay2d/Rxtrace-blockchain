@@ -84,6 +84,11 @@ export default function AnalyticsPage() {
 
       // Fetch subscription analytics
       const subRes = await fetch('/api/admin/analytics/subscriptions');
+      const subContentType = subRes.headers.get('content-type') || '';
+      if (!subContentType.includes('application/json')) {
+        const body = await subRes.text();
+        throw new Error(`Expected JSON, got ${subContentType || 'unknown'} (${subRes.status}): ${body.slice(0, 120)}`);
+      }
       const subData = await subRes.json();
       if (subData.success) setSubscriptions(subData);
     } catch (error) {

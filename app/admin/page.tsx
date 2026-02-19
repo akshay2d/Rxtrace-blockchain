@@ -124,6 +124,11 @@ export default function AdminDashboard() {
       // Fetch subscription analytics
       try {
         const subRes = await fetch('/api/admin/analytics/subscriptions');
+        const contentType = subRes.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+          const body = await subRes.text();
+          throw new Error(`Expected JSON, got ${contentType || 'unknown'} (${subRes.status}): ${body.slice(0, 120)}`);
+        }
         const subData = await subRes.json();
         if (subData.success) {
           setSubscriptionStats(subData);
