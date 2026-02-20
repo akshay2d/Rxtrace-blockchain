@@ -24,7 +24,6 @@ type Company = {
   trial_end?: string | null;
   trial_status_raw?: string | null;
   trial_end_date?: string | null;
-  trial_ends_at?: string | null;
 };
 
 async function parseApiJson(response: Response) {
@@ -39,7 +38,7 @@ async function parseApiJson(response: Response) {
 }
 
 function inferTrialStatus(company: Company): { trial_status: Company['trial_status']; trial_end: string | null } {
-  const trialEnd = company.trial_ends_at || company.trial_end_date || null;
+  const trialEnd = company.trial_end_date || null;
   if (trialEnd) {
     return {
       trial_status: new Date(trialEnd) > new Date() ? 'Active' : 'Expired',

@@ -12,16 +12,6 @@ function normalizeRole(role: unknown): string {
   return String(role ?? "").trim().toLowerCase();
 }
 
-function isMissingColumnError(error: any): boolean {
-  const message = String(error?.message || '').toLowerCase();
-  return (
-    error?.code === '42703' ||
-    error?.code === 'PGRST204' ||
-    message.includes('could not find the') ||
-    (message.includes('column') && message.includes('schema cache'))
-  );
-}
-
 export async function GET(req: NextRequest) {
   try {
     const supabase = await supabaseServer();
@@ -55,11 +45,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    let data: any[] | null = null;
-    let error: any = null;
-
-    // Preferred query (supports legacy trial columns if present)
-    ({ data, error } = await admin
+    const { data, error } = await admin
       .from("companies")
       .select(
         `
@@ -67,25 +53,10 @@ export async function GET(req: NextRequest) {
           company_name,
           trial_status,
           trial_end_date,
-          trial_ends_at,
           company_trials!left(ends_at)
         `
       )
-      .order("company_name", { ascending: true }));
-
-    // Fallback for production schemas where one or more legacy columns are missing.
-    if (error && isMissingColumnError(error)) {
-      ({ data, error } = await admin
-        .from("companies")
-        .select(
-          `
-            id,
-            company_name,
-            company_trials!left(ends_at)
-          `
-        )
-        .order("company_name", { ascending: true }));
-    }
+      .order("company_name", { ascending: true });
 
     if (error) {
       throw error;
@@ -93,8 +64,7 @@ export async function GET(req: NextRequest) {
 
     const companies = (data || []).map((company: any) => {
       const trialRow = Array.isArray(company.company_trials) ? company.company_trials[0] : null;
-      const legacyEnd =
-        (company as any).trial_ends_at || (company as any).trial_end_date || null;
+      const legacyEnd = (company as any).trial_end_date || null;
       const computedTrialEnd = trialRow?.ends_at || legacyEnd || null;
       let trial_status: "Not Used" | "Active" | "Expired" = "Not Used";
       let trial_end = computedTrialEnd;

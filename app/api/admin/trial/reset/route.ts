@@ -13,16 +13,6 @@ function normalizeRole(role: unknown): string {
   return String(role ?? '').trim().toLowerCase();
 }
 
-function isMissingColumnError(error: any): boolean {
-  const message = String(error?.message || '').toLowerCase();
-  return (
-    error?.code === '42703' ||
-    error?.code === 'PGRST204' ||
-    message.includes('could not find the') ||
-    message.includes('column') && message.includes('schema cache')
-  );
-}
-
 export async function POST(req: NextRequest) {
   try {
     const supabase = await supabaseServer();
@@ -113,84 +103,36 @@ export async function POST(req: NextRequest) {
     }
 
     let hadLegacyTrialData = false;
-    const legacyReadSelects = [
-      "trial_status, trial_start_date, trial_end_date, trial_started_at, trial_ends_at, trial_activated_at",
-      "trial_status, trial_start_date, trial_end_date, trial_started_at, trial_activated_at",
-      "trial_status, trial_start_date, trial_end_date",
-    ];
+    const { data: legacyTrialData, error: legacyReadError } = await admin
+      .from("companies")
+      .select("trial_status, trial_start_date, trial_end_date, trial_activated_at")
+      .eq("id", companyId)
+      .maybeSingle();
 
-    for (const selectClause of legacyReadSelects) {
-      const { data: legacyTrialData, error: legacyReadError } = await admin
-        .from("companies")
-        .select(selectClause)
-        .eq("id", companyId)
-        .maybeSingle();
-
-      if (!legacyReadError && legacyTrialData) {
-        const row = legacyTrialData as Record<string, any>;
-        hadLegacyTrialData =
-          !!row.trial_status ||
-          !!row.trial_start_date ||
-          !!row.trial_end_date ||
-          !!row.trial_started_at ||
-          !!row.trial_ends_at ||
-          !!row.trial_activated_at;
-        break;
-      }
-
-      if (!legacyReadError) {
-        break;
-      }
-
-      if (!isMissingColumnError(legacyReadError)) {
-        throw legacyReadError;
-      }
+    if (legacyReadError) {
+      throw legacyReadError;
+    }
+    if (legacyTrialData) {
+      const row = legacyTrialData as Record<string, any>;
+      hadLegacyTrialData =
+        !!row.trial_status ||
+        !!row.trial_start_date ||
+        !!row.trial_end_date ||
+        !!row.trial_activated_at;
     }
 
-    const legacyUpdatePayloads: Array<Record<string, null>> = [
-      {
+    const { error: legacyResetError } = await admin
+      .from("companies")
+      .update({
         trial_status: null,
         trial_start_date: null,
         trial_end_date: null,
-        trial_started_at: null,
-        trial_ends_at: null,
         trial_activated_at: null,
-      },
-      {
-        trial_status: null,
-        trial_start_date: null,
-        trial_end_date: null,
-        trial_started_at: null,
-        trial_activated_at: null,
-      },
-      {
-        trial_status: null,
-        trial_start_date: null,
-        trial_end_date: null,
-      },
-    ];
+      })
+      .eq("id", companyId);
 
-    let legacyResetApplied = false;
-    let lastLegacyUpdateError: any = null;
-    for (const payload of legacyUpdatePayloads) {
-      const { error: legacyResetError } = await admin
-        .from("companies")
-        .update(payload)
-        .eq("id", companyId);
-
-      if (!legacyResetError) {
-        legacyResetApplied = true;
-        break;
-      }
-
-      lastLegacyUpdateError = legacyResetError;
-      if (!isMissingColumnError(legacyResetError)) {
-        throw legacyResetError;
-      }
-    }
-
-    if (!legacyResetApplied && lastLegacyUpdateError && !isMissingColumnError(lastLegacyUpdateError)) {
-      throw lastLegacyUpdateError;
+    if (legacyResetError) {
+      throw legacyResetError;
     }
 
     const deletedTrialsCount = trialRows?.length ?? 0;
