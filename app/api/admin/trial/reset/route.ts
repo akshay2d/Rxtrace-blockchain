@@ -2,9 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { supabaseServer } from "@/lib/supabase/server";
 
-const UUID_REGEX =
-  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
-
 export const dynamic = "force-dynamic";
 
 type ResetBody = {
@@ -75,18 +72,16 @@ export async function POST(req: NextRequest) {
     const companyId = (body.company_id ?? "").trim();
     const reason = body.reason?.trim() || null;
 
-    if (!companyId || !UUID_REGEX.test(companyId)) {
+    if (!companyId) {
       return NextResponse.json(
-        { error: "Valid company_id is required" },
+        { error: "company_id is required" },
         { status: 400 }
       );
     }
 
     const { data: companyRow, error: companyError } = await admin
       .from("companies")
-      .select(
-        "id, company_name, trial_status, trial_start_date, trial_end_date, trial_started_at, trial_ends_at, trial_activated_at"
-      )
+      .select("id, company_name")
       .eq("id", companyId)
       .maybeSingle();
 
@@ -107,13 +102,24 @@ export async function POST(req: NextRequest) {
       throw deleteError;
     }
 
-    const hadLegacyTrialData =
-      !!companyRow.trial_status ||
-      !!companyRow.trial_start_date ||
-      !!companyRow.trial_end_date ||
-      !!companyRow.trial_started_at ||
-      !!companyRow.trial_ends_at ||
-      !!companyRow.trial_activated_at;
+    let hadLegacyTrialData = false;
+    const { data: legacyTrialData, error: legacyReadError } = await admin
+      .from("companies")
+      .select(
+        "trial_status, trial_start_date, trial_end_date, trial_started_at, trial_ends_at, trial_activated_at"
+      )
+      .eq("id", companyId)
+      .maybeSingle();
+
+    if (!legacyReadError && legacyTrialData) {
+      hadLegacyTrialData =
+        !!legacyTrialData.trial_status ||
+        !!legacyTrialData.trial_start_date ||
+        !!legacyTrialData.trial_end_date ||
+        !!legacyTrialData.trial_started_at ||
+        !!legacyTrialData.trial_ends_at ||
+        !!legacyTrialData.trial_activated_at;
+    }
 
     const { error: legacyResetError } = await admin
       .from("companies")
@@ -127,7 +133,8 @@ export async function POST(req: NextRequest) {
       })
       .eq("id", companyId);
 
-    if (legacyResetError) {
+    // Ignore missing-column errors for legacy fields in production schema variants.
+    if (legacyResetError && legacyResetError.code !== "42703") {
       throw legacyResetError;
     }
 

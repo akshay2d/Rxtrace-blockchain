@@ -45,7 +45,11 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const { data, error } = await admin
+    let data: any[] | null = null;
+    let error: any = null;
+
+    // Preferred query (supports legacy trial columns if present)
+    ({ data, error } = await admin
       .from("companies")
       .select(
         `
@@ -57,7 +61,21 @@ export async function GET(req: NextRequest) {
           company_trials!left(ends_at)
         `
       )
-      .order("company_name", { ascending: true });
+      .order("company_name", { ascending: true }));
+
+    // Fallback for production schemas where one or more legacy columns are missing.
+    if (error && error.code === "42703") {
+      ({ data, error } = await admin
+        .from("companies")
+        .select(
+          `
+            id,
+            company_name,
+            company_trials!left(ends_at)
+          `
+        )
+        .order("company_name", { ascending: true }));
+    }
 
     if (error) {
       throw error;
@@ -66,15 +84,15 @@ export async function GET(req: NextRequest) {
     const companies = (data || []).map((company: any) => {
       const trialRow = Array.isArray(company.company_trials) ? company.company_trials[0] : null;
       const legacyEnd =
-        company.trial_ends_at || company.trial_end_date || null;
+        (company as any).trial_ends_at || (company as any).trial_end_date || null;
       const computedTrialEnd = trialRow?.ends_at || legacyEnd || null;
       let trial_status: "Not Used" | "Active" | "Expired" = "Not Used";
       let trial_end = computedTrialEnd;
 
       if (computedTrialEnd) {
         trial_status = new Date(computedTrialEnd) > new Date() ? "Active" : "Expired";
-      } else if (company.trial_status) {
-        const rawStatus = String(company.trial_status).toLowerCase();
+      } else if ((company as any).trial_status) {
+        const rawStatus = String((company as any).trial_status).toLowerCase();
         if (["trial", "trialing", "active"].includes(rawStatus)) {
           trial_status = "Active";
         } else if (["expired", "cancelled", "ended"].includes(rawStatus)) {

@@ -2,9 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
-const UUID_REGEX =
-  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
-
 type Context = {
   params: {
     id: string;
@@ -20,9 +17,9 @@ function normalizeRole(role: unknown): string {
 export async function DELETE(_req: NextRequest, context: Context) {
   try {
     const companyId = context.params.id;
-    if (!companyId || !UUID_REGEX.test(companyId)) {
+    if (!companyId) {
       return NextResponse.json(
-        { error: "Valid company id is required" },
+        { error: "company id is required" },
         { status: 400 }
       );
     }

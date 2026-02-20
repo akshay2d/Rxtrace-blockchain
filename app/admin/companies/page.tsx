@@ -22,6 +22,9 @@ type Company = {
   address?: string;
   trial_status?: 'Active' | 'Expired' | 'Not Used';
   trial_end?: string | null;
+  trial_status_raw?: string | null;
+  trial_end_date?: string | null;
+  trial_ends_at?: string | null;
 };
 
 async function parseApiJson(response: Response) {
@@ -33,6 +36,25 @@ async function parseApiJson(response: Response) {
     );
   }
   return response.json();
+}
+
+function inferTrialStatus(company: Company): { trial_status: Company['trial_status']; trial_end: string | null } {
+  const trialEnd = company.trial_ends_at || company.trial_end_date || null;
+  if (trialEnd) {
+    return {
+      trial_status: new Date(trialEnd) > new Date() ? 'Active' : 'Expired',
+      trial_end: trialEnd,
+    };
+  }
+
+  const raw = String(company.trial_status_raw || '').trim().toLowerCase();
+  if (['trial', 'trialing', 'active'].includes(raw)) {
+    return { trial_status: 'Active', trial_end: null };
+  }
+  if (['expired', 'cancelled', 'ended'].includes(raw)) {
+    return { trial_status: 'Expired', trial_end: null };
+  }
+  return { trial_status: 'Not Used', trial_end: null };
 }
 
 export default function CompaniesManagement() {
@@ -78,6 +100,8 @@ export default function CompaniesManagement() {
               trial_end: row.trial_end ?? null
             });
           });
+        } else {
+          console.warn('Failed to load /api/admin/companies for trial status:', res.status);
         }
       } catch (_) {
         // If trial status fetch fails, keep company list without trial data.
@@ -86,7 +110,8 @@ export default function CompaniesManagement() {
       if (data) {
         const merged = data.map((company: Company) => {
           const trialInfo = trialMap.get(company.id);
-          return trialInfo ? { ...company, ...trialInfo } : company;
+          if (trialInfo) return { ...company, ...trialInfo };
+          return { ...company, ...inferTrialStatus(company) };
         });
         setCompanies(merged);
       }
@@ -570,7 +595,6 @@ function CompanyCard({
             variant="outline"
             onClick={() => onResetTrial(company)}
             className="flex-1"
-            disabled={!company.trial_status || company.trial_status === 'Not Used'}
           >
             <RefreshCw className="w-3 h-3 mr-1" /> Reset Trial
           </Button>
