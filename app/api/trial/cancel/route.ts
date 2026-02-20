@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
     }
 
     const supabase = getSupabaseAdmin();
-    const resolved = await resolveCompanyForUser(supabase, user.id, 'id, trial_status');
+    const resolved = await resolveCompanyForUser(supabase, user.id, 'id');
     if (!resolved) {
       return NextResponse.json({ error: 'Company not found' }, { status: 404 });
     }
@@ -26,17 +26,24 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if ((resolved.company as Record<string, unknown>).trial_status !== 'active') {
+    const { data: trialRow, error: trialError } = await supabase
+      .from('company_trials')
+      .select('id, ends_at')
+      .eq('company_id', resolved.companyId)
+      .maybeSingle();
+    if (trialError) {
+      return NextResponse.json({ error: trialError.message }, { status: 500 });
+    }
+    if (!trialRow || new Date(trialRow.ends_at) <= new Date()) {
       return NextResponse.json({ error: 'No active trial to cancel' }, { status: 400 });
     }
 
     const { error: updateErr } = await supabase
-      .from('companies')
+      .from('company_trials')
       .update({
-        trial_status: 'expired',
-        subscription_status: 'expired',
+        ends_at: new Date().toISOString(),
       })
-      .eq('id', resolved.companyId);
+      .eq('id', trialRow.id);
 
     if (updateErr) {
       return NextResponse.json({ error: updateErr.message }, { status: 500 });

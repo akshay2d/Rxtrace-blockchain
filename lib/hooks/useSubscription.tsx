@@ -1,7 +1,6 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { supabaseClient } from '@/lib/supabase/client';
 
 type SubscriptionStatus = 'TRIAL' | 'trialing' | 'EXPIRED' | null;
 
@@ -33,38 +32,15 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
   const fetchSubscription = async () => {
     try {
       setError(null);
-      const supabase = supabaseClient();
-      const { data: auth } = await supabase.auth.getUser();
-      const user = auth?.user;
-      if (!user) {
-        setSubscription(null);
-        return;
+      const res = await fetch('/api/trial/status', { credentials: 'include' });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        throw new Error(payload.error || `Failed to load trial status (${res.status})`);
       }
-
-      const { data: company } = await supabase
-        .from('companies')
-        .select('id, trial_status, trial_ends_at')
-        .eq('user_id', user.id)
-        .maybeSingle();
-
-      if (!company) {
-        setSubscription(null);
-        return;
-      }
-
-      const active = company.trial_status === 'active' && !!company.trial_ends_at && new Date(company.trial_ends_at) > new Date();
-      setSubscription(active ? {
-        id: `trial-${company.id}`,
-        company_id: company.id,
-        status: 'trialing',
-        trial_end: company.trial_ends_at,
-      } : {
-        id: `trial-${company.id}`,
-        company_id: company.id,
-        status: 'EXPIRED',
-        trial_end: company.trial_ends_at,
-      });
+      const payload = await res.json();
+      setSubscription(payload.subscription ?? null);
     } catch (err: any) {
+      setSubscription(null);
       setError(err.message);
     } finally {
       setLoading(false);

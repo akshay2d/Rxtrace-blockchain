@@ -72,7 +72,7 @@ export async function POST(_: NextRequest) {
       );
     }
 
-    // Check if trial already exists
+    // Check existing canonical trial row
     const { data: existingTrial, error: trialCheckError } = await admin
       .from('company_trials')
       .select('id, ends_at')
@@ -82,8 +82,16 @@ export async function POST(_: NextRequest) {
     if (trialCheckError) throw trialCheckError;
 
     if (existingTrial) {
+      const endsAt = new Date(existingTrial.ends_at);
+      if (endsAt > new Date()) {
+        return NextResponse.json(
+          { error: 'Trial already active for this company.' },
+          { status: 400 }
+        );
+      }
+
       return NextResponse.json(
-        { error: 'Trial period expired for this user.' },
+        { error: 'Trial has expired. Contact admin to reset trial.' },
         { status: 400 }
       );
     }
@@ -105,7 +113,7 @@ export async function POST(_: NextRequest) {
     if (insertError) {
       if (insertError.code === '23505') {
         return NextResponse.json(
-          { error: 'Trial period expired for this user.' },
+          { error: 'Trial already exists. Contact admin to reset trial.' },
           { status: 400 }
         );
       }

@@ -15,7 +15,7 @@ export async function POST() {
     }
 
     const supabase = getSupabaseAdmin();
-    const resolved = await resolveCompanyForUser(supabase, user.id, 'id, trial_status, trial_ends_at, subscription_status');
+    const resolved = await resolveCompanyForUser(supabase, user.id, 'id');
     if (!resolved) {
       return NextResponse.json({ error: 'Company not found' }, { status: 404 });
     }
@@ -26,32 +26,21 @@ export async function POST() {
       );
     }
 
-    const company = resolved.company as Record<string, unknown>;
-    const trialStatus = company.trial_status as string | null;
-    const trialEndsAt = company.trial_ends_at as string | null;
+    const { data: trialRow, error: trialError } = await supabase
+      .from('company_trials')
+      .select('id, ends_at')
+      .eq('company_id', resolved.companyId)
+      .maybeSingle();
 
-    if (trialStatus !== 'expired') {
+    if (trialError) {
+      return NextResponse.json({ error: trialError.message }, { status: 500 });
+    }
+
+    if (!trialRow || new Date(trialRow.ends_at) > new Date()) {
       return NextResponse.json({ error: 'No expired trial to resume' }, { status: 400 });
     }
 
-    if (!trialEndsAt || new Date(trialEndsAt) <= new Date()) {
-      return NextResponse.json({ error: 'Trial has ended. Subscribe to continue.' }, { status: 400 });
-    }
-
-    const { error: updateErr } = await supabase
-      .from('companies')
-      .update({
-        trial_status: 'active',
-        subscription_status: 'trial',
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', resolved.companyId);
-
-    if (updateErr) {
-      return NextResponse.json({ error: updateErr.message }, { status: 500 });
-    }
-
-    return NextResponse.json({ ok: true, message: 'Trial resumed' });
+    return NextResponse.json({ error: 'Trial has ended. Subscribe to continue.' }, { status: 400 });
   } catch (err: unknown) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
   }
