@@ -6,6 +6,13 @@ import { resolveCompanyForUser } from '@/lib/company/resolve';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+function safeTrialResumeErrorResponse() {
+  return NextResponse.json(
+    { error: 'Unable to process trial request right now.' },
+    { status: 500 }
+  );
+}
+
 /** Resume trial (company-level). Separate from subscription resume. */
 export async function POST() {
   try {
@@ -33,7 +40,8 @@ export async function POST() {
       .maybeSingle();
 
     if (trialError) {
-      return NextResponse.json({ error: trialError.message }, { status: 500 });
+      console.error('[trial/resume] trial lookup error', trialError);
+      return safeTrialResumeErrorResponse();
     }
 
     if (!trialRow || new Date(trialRow.ends_at) > new Date()) {
@@ -42,6 +50,7 @@ export async function POST() {
 
     return NextResponse.json({ error: 'Trial has ended. Subscribe to continue.' }, { status: 400 });
   } catch (err: unknown) {
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    console.error('[trial/resume] error', err);
+    return safeTrialResumeErrorResponse();
   }
 }

@@ -6,6 +6,13 @@ import { resolveCompanyForUser } from '@/lib/company/resolve';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+function safeTrialCancelErrorResponse() {
+  return NextResponse.json(
+    { error: 'Unable to process trial request right now.' },
+    { status: 500 }
+  );
+}
+
 /** Cancel trial (company-level). No subscription row involved. */
 export async function POST(req: NextRequest) {
   try {
@@ -32,7 +39,8 @@ export async function POST(req: NextRequest) {
       .eq('company_id', resolved.companyId)
       .maybeSingle();
     if (trialError) {
-      return NextResponse.json({ error: trialError.message }, { status: 500 });
+      console.error('[trial/cancel] trial lookup error', trialError);
+      return safeTrialCancelErrorResponse();
     }
     if (!trialRow || new Date(trialRow.ends_at) <= new Date()) {
       return NextResponse.json({ error: 'No active trial to cancel' }, { status: 400 });
@@ -46,11 +54,13 @@ export async function POST(req: NextRequest) {
       .eq('id', trialRow.id);
 
     if (updateErr) {
-      return NextResponse.json({ error: updateErr.message }, { status: 500 });
+      console.error('[trial/cancel] update error', updateErr);
+      return safeTrialCancelErrorResponse();
     }
 
     return NextResponse.json({ ok: true, message: 'Trial cancelled' });
   } catch (err: any) {
-    return NextResponse.json({ error: err?.message || 'Failed to cancel trial' }, { status: 500 });
+    console.error('[trial/cancel] error', err);
+    return safeTrialCancelErrorResponse();
   }
 }

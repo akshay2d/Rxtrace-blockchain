@@ -51,7 +51,6 @@ export async function GET(req: NextRequest) {
         `
           id,
           company_name,
-          trial_status,
           trial_end_date,
           company_trials!left(ends_at)
         `
@@ -71,13 +70,6 @@ export async function GET(req: NextRequest) {
 
       if (computedTrialEnd) {
         trial_status = new Date(computedTrialEnd) > new Date() ? "Active" : "Expired";
-      } else if ((company as any).trial_status) {
-        const rawStatus = String((company as any).trial_status).toLowerCase();
-        if (["trial", "trialing", "active"].includes(rawStatus)) {
-          trial_status = "Active";
-        } else if (["expired", "cancelled", "ended"].includes(rawStatus)) {
-          trial_status = "Expired";
-        }
       }
 
       return {

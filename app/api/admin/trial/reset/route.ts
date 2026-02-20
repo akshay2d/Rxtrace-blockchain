@@ -105,7 +105,7 @@ export async function POST(req: NextRequest) {
     let hadLegacyTrialData = false;
     const { data: legacyTrialData, error: legacyReadError } = await admin
       .from("companies")
-      .select("trial_status, trial_start_date, trial_end_date, trial_activated_at")
+      .select("trial_start_date, trial_end_date, trial_activated_at")
       .eq("id", companyId)
       .maybeSingle();
 
@@ -115,7 +115,6 @@ export async function POST(req: NextRequest) {
     if (legacyTrialData) {
       const row = legacyTrialData as Record<string, any>;
       hadLegacyTrialData =
-        !!row.trial_status ||
         !!row.trial_start_date ||
         !!row.trial_end_date ||
         !!row.trial_activated_at;
@@ -124,7 +123,6 @@ export async function POST(req: NextRequest) {
     const { error: legacyResetError } = await admin
       .from("companies")
       .update({
-        trial_status: null,
         trial_start_date: null,
         trial_end_date: null,
         trial_activated_at: null,

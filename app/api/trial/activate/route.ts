@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
 import { supabaseServer } from '@/lib/supabase/server';
 import { writeAuditLog } from '@/lib/audit';
+import { resolveCompanyForUser } from '@/lib/company/resolve';
 
 const TRIAL_DAYS_DEFAULT = 15;
 const TRIAL_OVERRIDE_EMAIL = 'akshaytilwanker@gmail.com';
@@ -18,6 +19,22 @@ function resolveTrialDurationDays(): number {
   return Math.floor(rawValue);
 }
 
+function isDatabaseError(error: unknown): error is { code?: string; message?: string } {
+  if (!error || typeof error !== 'object') return false;
+  const e = error as { code?: string; message?: string };
+  return typeof e.code === 'string' || typeof e.message === 'string';
+}
+
+function safeActivationErrorResponse(error: unknown) {
+  if (isDatabaseError(error) && error.code === '23505') {
+    return NextResponse.json({ error: 'Trial already active' }, { status: 400 });
+  }
+  return NextResponse.json(
+    { error: 'Unable to activate trial right now. Please try again.' },
+    { status: 500 }
+  );
+}
+
 export async function POST(_: NextRequest) {
   try {
     const supabase = await supabaseServer();
@@ -32,29 +49,22 @@ export async function POST(_: NextRequest) {
 
     const admin = getSupabaseAdmin();
 
-    // Resolve company for this user
-    const { data: companies, error: companyError } = await admin
-      .from('companies')
-      .select('id, company_name')
-      .eq('user_id', user.id);
-
-    if (companyError) throw companyError;
-
-    if (!companies || companies.length === 0) {
+    // Canonical company resolution; activation is restricted to owner context.
+    const resolved = await resolveCompanyForUser(admin, user.id, 'id, company_name');
+    if (!resolved) {
       return NextResponse.json(
         { error: 'Company not found for this user.' },
         { status: 404 }
       );
     }
-
-    if (companies.length > 1) {
+    if (!resolved.isOwner) {
       return NextResponse.json(
-        { error: 'Multiple companies found for this user.' },
-        { status: 409 }
+        { error: 'Only company owner can activate trial.' },
+        { status: 403 }
       );
     }
 
-    const company = companies[0];
+    const company = resolved.company as { id: string; company_name?: string | null };
 
     // Special override validation (optional)
     const companyNameNormalized = (company.company_name ?? '')
@@ -84,14 +94,11 @@ export async function POST(_: NextRequest) {
     if (existingTrial) {
       const endsAt = new Date(existingTrial.ends_at);
       if (endsAt > new Date()) {
-        return NextResponse.json(
-          { error: 'Trial already active for this company.' },
-          { status: 400 }
-        );
+        return NextResponse.json({ error: 'Trial already active' }, { status: 400 });
       }
 
       return NextResponse.json(
-        { error: 'Trial has expired. Contact admin to reset trial.' },
+        { error: 'Trial expired. Contact admin to reset.' },
         { status: 400 }
       );
     }
@@ -112,8 +119,16 @@ export async function POST(_: NextRequest) {
 
     if (insertError) {
       if (insertError.code === '23505') {
+        const { data: conflictTrial } = await admin
+          .from('company_trials')
+          .select('id, ends_at')
+          .eq('company_id', company.id)
+          .maybeSingle();
+        if (conflictTrial && new Date(conflictTrial.ends_at) > new Date()) {
+          return NextResponse.json({ error: 'Trial already active' }, { status: 400 });
+        }
         return NextResponse.json(
-          { error: 'Trial already exists. Contact admin to reset trial.' },
+          { error: 'Trial expired. Contact admin to reset.' },
           { status: 400 }
         );
       }
@@ -146,13 +161,7 @@ export async function POST(_: NextRequest) {
 
   } catch (error: any) {
     console.error('Trial activation error:', error);
-
-    return NextResponse.json(
-      {
-        error: error?.message || 'Internal Server Error',
-      },
-      { status: 500 }
-    );
+    return safeActivationErrorResponse(error);
   }
 }
 

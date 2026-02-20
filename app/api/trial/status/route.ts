@@ -6,6 +6,13 @@ import { resolveCompanyForUser } from '@/lib/company/resolve';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+function safeTrialStatusErrorResponse() {
+  return NextResponse.json(
+    { error: 'Failed to load trial status' },
+    { status: 500 }
+  );
+}
+
 export async function GET() {
   try {
     const {
@@ -50,9 +57,7 @@ export async function GET() {
       },
     });
   } catch (error: any) {
-    return NextResponse.json(
-      { error: error?.message || 'Failed to load trial status' },
-      { status: 500 }
-    );
+    console.error('[trial/status] error', error);
+    return safeTrialStatusErrorResponse();
   }
 }
