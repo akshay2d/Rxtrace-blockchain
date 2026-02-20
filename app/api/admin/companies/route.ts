@@ -12,6 +12,16 @@ function normalizeRole(role: unknown): string {
   return String(role ?? "").trim().toLowerCase();
 }
 
+function isMissingColumnError(error: any): boolean {
+  const message = String(error?.message || '').toLowerCase();
+  return (
+    error?.code === '42703' ||
+    error?.code === 'PGRST204' ||
+    message.includes('could not find the') ||
+    (message.includes('column') && message.includes('schema cache'))
+  );
+}
+
 export async function GET(req: NextRequest) {
   try {
     const supabase = await supabaseServer();
@@ -64,7 +74,7 @@ export async function GET(req: NextRequest) {
       .order("company_name", { ascending: true }));
 
     // Fallback for production schemas where one or more legacy columns are missing.
-    if (error && error.code === "42703") {
+    if (error && isMissingColumnError(error)) {
       ({ data, error } = await admin
         .from("companies")
         .select(
