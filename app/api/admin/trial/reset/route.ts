@@ -202,10 +202,13 @@ export async function POST(req: NextRequest) {
     });
 
     if (deletedTrialsCount === 0 && !hadLegacyTrialData) {
-      return NextResponse.json(
-        { error: "No trial found for this company" },
-        { status: 404 }
-      );
+      return NextResponse.json({
+        success: true,
+        message: "Trial already reset",
+        company_id: companyId,
+        deleted_trials: 0,
+        legacy_trial_cleared: false,
+      });
     }
 
     const { error: logError } = await admin.from("trial_reset_logs").insert({
