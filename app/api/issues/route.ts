@@ -11,6 +11,25 @@ export const dynamic = 'force-dynamic';
 const MAX_CODES_PER_REQUEST = 10000;
 const MAX_CODES_PER_ROW = 1000;
 
+function normalizeDateInput(raw?: string | null): string | null {
+  const value = (raw || '').trim();
+  if (!value) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  if (/^\d{6}$/.test(value)) {
+    const yy = value.slice(0, 2);
+    const mm = value.slice(2, 4);
+    const dd = value.slice(4, 6);
+    return `20${yy}-${mm}-${dd}`;
+  }
+  if (/^\d{8}$/.test(value)) {
+    const dd = value.slice(0, 2);
+    const mm = value.slice(2, 4);
+    const yyyy = value.slice(4, 8);
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  return null;
+}
+
 // Generate unique serial number
 const generateSerial = (companyId: string) =>
   `U${companyId.slice(0, 4)}${Date.now().toString(36)}${crypto
@@ -53,8 +72,8 @@ export async function POST(req: Request) {
     
     const gtin = typeof body.gtin === 'string' ? body.gtin.trim() : '';
     const batch = typeof body.batch === 'string' ? body.batch.trim() : '';
-    const mfd = typeof body.mfd === 'string' ? body.mfd.trim() || null : null;
-    const exp = typeof body.exp === 'string' ? body.exp.trim() : '';
+    const mfdInput = typeof body.mfd === 'string' ? body.mfd.trim() || null : null;
+    const expInput = typeof body.exp === 'string' ? body.exp.trim() : '';
     const quantity = typeof body.quantity === 'number' ? body.quantity : parseInt(String(body.quantity || '1'), 10);
     const mrp = body.mrp !== undefined ? String(body.mrp).trim() : '';
     const skuCode = typeof body.sku === 'string' ? body.sku.trim().toUpperCase() : '';
@@ -62,9 +81,23 @@ export async function POST(req: Request) {
     const printerId = typeof body.printer_id === 'string' ? body.printer_id.trim() : null;
 
     // Validate required fields
-    if (!gtin || !batch || !exp || !quantity || quantity <= 0) {
+    if (!gtin || !batch || !expInput || !quantity || quantity <= 0) {
       return NextResponse.json(
         { error: 'GTIN, batch, expiry date, and quantity are required', code: 'invalid_input' },
+        { status: 400 }
+      );
+    }
+    const exp = normalizeDateInput(expInput);
+    if (!exp) {
+      return NextResponse.json(
+        { error: 'Expiry date must be YYYY-MM-DD', code: 'invalid_input' },
+        { status: 400 }
+      );
+    }
+    const mfd = mfdInput ? normalizeDateInput(mfdInput) : null;
+    if (mfdInput && !mfd) {
+      return NextResponse.json(
+        { error: 'Manufacturing date must be YYYY-MM-DD', code: 'invalid_input' },
         { status: 400 }
       );
     }

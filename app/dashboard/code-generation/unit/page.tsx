@@ -94,6 +94,32 @@ function isoDateToYYMMDD(iso?: string): string | undefined {
   return `${yy}${mm}${dd}`;
 }
 
+function normalizeCsvDate(raw?: string | null): string | null {
+  const value = (raw || '').trim();
+  if (!value) return null;
+
+  // Preferred format: YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+
+  // YYMMDD -> 20YY-MM-DD
+  if (/^\d{6}$/.test(value)) {
+    const yy = value.slice(0, 2);
+    const mm = value.slice(2, 4);
+    const dd = value.slice(4, 6);
+    return `20${yy}-${mm}-${dd}`;
+  }
+
+  // DDMMYYYY -> YYYY-MM-DD
+  if (/^\d{8}$/.test(value)) {
+    const dd = value.slice(0, 2);
+    const mm = value.slice(2, 4);
+    const yyyy = value.slice(4, 8);
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
+  return null;
+}
+
 // ---------- CSV Template Generation ----------
 function downloadUnitCSVTemplate(companyName: string, companyId: string) {
   const headers = [
@@ -104,11 +130,11 @@ function downloadUnitCSVTemplate(companyName: string, companyId: string) {
     'GTIN Source',
     'SKU Code',
     'Batch Number',
-    'Expiry Date',
+    'Expiry Date (YYYY-MM-DD)',
     'Quantity',
     'Product Name',
     'MRP',
-    'Manufacturing Date'
+    'Manufacturing Date (YYYY-MM-DD)'
   ];
 
   const exampleRow = [
@@ -167,10 +193,9 @@ function validateUnitCSV(rows: Record<string, string>[], companyId: string): { v
       totalRequested += qty;
     }
     
-    // Validate date format
     const expiryDate = row['Expiry Date'] || row['expiry_date'] || row['EXP'] || '';
-    if (expiryDate && !/^\d{4}-\d{2}-\d{2}$/.test(expiryDate) && !/^\d{6}$/.test(expiryDate)) {
-      errors.push({ row: rowNum, column: 'Expiry Date', message: 'Expiry Date must be YYYY-MM-DD or YYMMDD format' });
+    if (expiryDate && !normalizeCsvDate(expiryDate)) {
+      errors.push({ row: rowNum, column: 'Expiry Date', message: 'Expiry Date must be YYYY-MM-DD (DDMMYYYY/YYMMDD are also accepted and normalized)' });
     }
   });
 
@@ -216,8 +241,14 @@ async function processUnitCSV(csvText: string, companyId: string, companyName: s
       gtin = generateGTIN();
     }
     
-    const mfdISO = mfdRaw.length === 6 ? `20${mfdRaw.slice(0,2)}-${mfdRaw.slice(2,4)}-${mfdRaw.slice(4,6)}` : mfdRaw;
-    const expISO = expRaw.length === 6 ? `20${expRaw.slice(0,2)}-${expRaw.slice(2,4)}-${expRaw.slice(4,6)}` : expRaw;
+    const mfdISO = normalizeCsvDate(mfdRaw);
+    const expISO = normalizeCsvDate(expRaw);
+    if (!expISO) {
+      throw new Error(`Row ${idx + 2}: Expiry Date must be YYYY-MM-DD`);
+    }
+    if (mfdRaw && !mfdISO) {
+      throw new Error(`Row ${idx + 2}: Manufacturing Date must be YYYY-MM-DD`);
+    }
 
     // Keep SKU master updated (non-blocking)
     if (sku) {
@@ -922,6 +953,7 @@ export default function UnitCodeGenerationPage() {
                   <p><strong>Required:</strong> SKU Code, Batch Number, Expiry Date, Quantity</p>
                   <p><strong>Optional:</strong> Product Name, MRP, Manufacturing Date, GTIN (if customer-provided)</p>
                   <p><strong>Auto-filled:</strong> Company Name, Company ID, Generation Type, Code Format, GTIN Source</p>
+                  <p><strong>Date format:</strong> YYYY-MM-DD (DDMMYYYY/YYMMDD will be normalized).</p>
                   <p className="text-blue-700"><strong>Limits:</strong> Max {MAX_CODES_PER_ROW.toLocaleString()} per CSV row and {MAX_CODES_PER_REQUEST.toLocaleString()} total per upload.</p>
                 </div>
               </div>

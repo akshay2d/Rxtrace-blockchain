@@ -10,6 +10,25 @@ export const dynamic = 'force-dynamic';
 const MAX_CODES_PER_REQUEST = 10000;
 const MAX_CODES_PER_ROW = 1000;
 
+function normalizeDateInput(raw?: string | null): string | null {
+  const value = (raw || '').trim();
+  if (!value) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  if (/^\d{6}$/.test(value)) {
+    const yy = value.slice(0, 2);
+    const mm = value.slice(2, 4);
+    const dd = value.slice(4, 6);
+    return `20${yy}-${mm}-${dd}`;
+  }
+  if (/^\d{8}$/.test(value)) {
+    const dd = value.slice(0, 2);
+    const mm = value.slice(2, 4);
+    const yyyy = value.slice(4, 8);
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  return null;
+}
+
 const isUuid = (value: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 
@@ -121,9 +140,17 @@ export async function POST(req: Request) {
     }
 
     // Validate required fields
+    const normalizedExpiry = normalizeDateInput(expiry_date);
+
     if (!sku_id || !batch || !expiry_date || !number_of_pallets) {
       return NextResponse.json(
         { error: 'sku_id, batch, expiry_date, and number_of_pallets are required' },
+        { status: 400 }
+      );
+    }
+    if (!normalizedExpiry) {
+      return NextResponse.json(
+        { error: 'expiry_date must be YYYY-MM-DD', code: 'invalid_input' },
         { status: 400 }
       );
     }
@@ -385,7 +412,7 @@ export async function POST(req: Request) {
           meta: {
             created_at: nowIso,
             batch,
-            expiry_date: expiry_date,
+            expiry_date: normalizedExpiry,
             units_per_box: units_per_box,
             box_number: i + 1,
             packing_rule_id: rule.id,
@@ -428,7 +455,7 @@ export async function POST(req: Request) {
           meta: {
             created_at: nowIso,
             batch,
-            expiry_date: expiry_date,
+            expiry_date: normalizedExpiry,
             boxes_per_carton: boxes_per_carton,
             carton_number: i + 1,
             packing_rule_id: rule.id,
@@ -467,7 +494,7 @@ export async function POST(req: Request) {
           meta: {
             created_at: nowIso,
             batch,
-            expiry_date: expiry_date,
+            expiry_date: normalizedExpiry,
             cartons_per_pallet: cartons_per_pallet,
             pallet_number: i + 1,
             packing_rule_id: rule.id,

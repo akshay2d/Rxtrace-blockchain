@@ -55,6 +55,26 @@ type CSVValidationError = {
 const MAX_CODES_PER_REQUEST = 10000;
 const MAX_CODES_PER_ROW = 1000;
 
+function normalizeCsvDate(raw?: string | null): string | null {
+  const value = (raw || '').trim();
+  if (!value) return null;
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  if (/^\d{6}$/.test(value)) {
+    const yy = value.slice(0, 2);
+    const mm = value.slice(2, 4);
+    const dd = value.slice(4, 6);
+    return `20${yy}-${mm}-${dd}`;
+  }
+  if (/^\d{8}$/.test(value)) {
+    const dd = value.slice(0, 2);
+    const mm = value.slice(2, 4);
+    const yyyy = value.slice(4, 8);
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  return null;
+}
+
 function estimateSsccCodes(params: {
   numberOfPallets: number;
   generateBox: boolean;
@@ -83,7 +103,7 @@ function downloadSSCCCSVTemplate(companyName: string, companyId: string) {
     'Hierarchy Type',
     'SKU Code',
     'Batch Number',
-    'Expiry Date',
+    'Expiry Date (YYYY-MM-DD)',
     'Units per Box',
     'Boxes per Carton',
     'Cartons per Pallet',
@@ -128,6 +148,15 @@ function validateSSCCCSV(rows: Record<string, string>[], companyId: string): { v
     
     if (!row['Expiry Date']?.trim() && !row['expiry_date']?.trim() && !row['EXP']?.trim()) {
       errors.push({ row: rowNum, column: 'Expiry Date', message: 'Expiry Date is required' });
+    } else {
+      const expRaw = row['Expiry Date'] || row['expiry_date'] || row['EXP'] || '';
+      if (expRaw && !normalizeCsvDate(expRaw)) {
+        errors.push({
+          row: rowNum,
+          column: 'Expiry Date',
+          message: 'Expiry Date must be YYYY-MM-DD (DDMMYYYY/YYMMDD are also accepted and normalized)',
+        });
+      }
     }
     
     // Hierarchy quantities
@@ -197,6 +226,11 @@ async function processSSCCCSV(
     const numberOfPallets = parseInt(row['Number of Pallets'] || row['number_of_pallets'] || '1', 10);
     const hierarchyType = (row['Hierarchy Type'] || row['hierarchy_type'] || 'PALLET').toString().toUpperCase() as GenerationLevel;
 
+    const expISO = normalizeCsvDate(expRaw);
+    if (!expISO) {
+      throw new Error(`Row ${parsed.data.indexOf(row) + 2}: Expiry Date must be YYYY-MM-DD`);
+    }
+
     if (!sku) continue;
 
     // Determine API endpoint based on hierarchy type
@@ -204,6 +238,7 @@ async function processSSCCCSV(
     let requestBody: any = {
       sku_id: sku,
       company_id: companyId,
+      expiry_date: expISO,
     };
 
     switch (hierarchyType) {
@@ -856,6 +891,7 @@ export default function SSCCCodeGenerationPage() {
                   <p><strong>Required:</strong> SKU Code, Batch Number, Expiry Date, Units per Box, Boxes per Carton, Cartons per Pallet, Number of Pallets</p>
                   <p><strong>Auto-filled:</strong> Company Name, Company ID, Generation Type, Hierarchy Type</p>
                   <p className="text-blue-700 mt-2 font-semibold"><strong>Quantity Rule:</strong> One SSCC is generated per pallet. The &quot;Number of Pallets&quot; column determines how many SSCC codes will be created.</p>
+                  <p><strong>Date format:</strong> YYYY-MM-DD (DDMMYYYY/YYMMDD will be normalized).</p>
                   <p className="text-blue-700"><strong>Limits:</strong> Max {MAX_CODES_PER_ROW.toLocaleString()} codes per CSV row and {MAX_CODES_PER_REQUEST.toLocaleString()} total per upload.</p>
                   <p className="text-amber-700 mt-1"><strong>Note:</strong> This CSV is for SSCC generation only. Unit-level codes require a separate CSV template.</p>
                 </div>
