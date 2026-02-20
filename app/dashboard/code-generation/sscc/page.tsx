@@ -52,6 +52,28 @@ type CSVValidationError = {
   message: string;
 };
 
+const MAX_CODES_PER_REQUEST = 10000;
+const MAX_CODES_PER_ROW = 1000;
+
+function estimateSsccCodes(params: {
+  numberOfPallets: number;
+  generateBox: boolean;
+  generateCarton: boolean;
+  generatePallet: boolean;
+  boxesPerCarton: number;
+  cartonsPerPallet: number;
+}): number {
+  const pallets = Math.max(0, Number(params.numberOfPallets) || 0);
+  const boxesPerCarton = Math.max(1, Number(params.boxesPerCarton) || 1);
+  const cartonsPerPallet = Math.max(1, Number(params.cartonsPerPallet) || 1);
+
+  let total = 0;
+  if (params.generateBox) total += pallets * boxesPerCarton * cartonsPerPallet;
+  if (params.generateCarton) total += pallets * cartonsPerPallet;
+  if (params.generatePallet) total += pallets;
+  return total;
+}
+
 // ---------- CSV Template Generation ----------
 function downloadSSCCCSVTemplate(companyName: string, companyId: string) {
   const headers = [
@@ -90,6 +112,7 @@ function downloadSSCCCSVTemplate(companyName: string, companyId: string) {
 // ---------- CSV Validation ----------
 function validateSSCCCSV(rows: Record<string, string>[], companyId: string): { valid: boolean; errors: CSVValidationError[] } {
   const errors: CSVValidationError[] = [];
+  let totalRequested = 0;
   
   rows.forEach((row, index) => {
     const rowNum = index + 2; // +2 because row 1 is header, and index is 0-based
@@ -126,6 +149,15 @@ function validateSSCCCSV(rows: Record<string, string>[], companyId: string): { v
     const numberOfPallets = parseInt(row['Number of Pallets'] || row['number_of_pallets'] || '0', 10);
     if (isNaN(numberOfPallets) || numberOfPallets < 1) {
       errors.push({ row: rowNum, column: 'Number of Pallets', message: 'Number of Pallets must be a positive integer' });
+    } else {
+      if (numberOfPallets > MAX_CODES_PER_ROW) {
+        errors.push({
+          row: rowNum,
+          column: 'Number of Pallets',
+          message: `Per row limit exceeded: maximum ${MAX_CODES_PER_ROW.toLocaleString()} codes per row`,
+        });
+      }
+      totalRequested += numberOfPallets;
     }
     
     // Validate date format
@@ -134,6 +166,14 @@ function validateSSCCCSV(rows: Record<string, string>[], companyId: string): { v
       errors.push({ row: rowNum, column: 'Expiry Date', message: 'Expiry Date must be YYYY-MM-DD or YYMMDD format' });
     }
   });
+
+  if (totalRequested > MAX_CODES_PER_REQUEST) {
+    errors.push({
+      row: 0,
+      column: 'Number of Pallets',
+      message: `Total requested codes cannot exceed ${MAX_CODES_PER_REQUEST.toLocaleString()} per upload (current total: ${totalRequested.toLocaleString()})`,
+    });
+  }
   
   return { valid: errors.length === 0, errors };
 }
@@ -324,6 +364,20 @@ export default function SSCCCodeGenerationPage() {
     });
   }
 
+  const singleRequestedCodes = estimateSsccCodes({
+    numberOfPallets: form.numberOfPallets,
+    generateBox: form.generateBox,
+    generateCarton: form.generateCarton,
+    generatePallet: form.generatePallet,
+    boxesPerCarton: form.boxesPerCarton,
+    cartonsPerPallet: form.cartonsPerPallet,
+  });
+  const singleLimitError = singleRequestedCodes > MAX_CODES_PER_ROW
+    ? `Per entry limit is ${MAX_CODES_PER_ROW.toLocaleString()} codes (current estimate: ${singleRequestedCodes.toLocaleString()}).`
+    : singleRequestedCodes > MAX_CODES_PER_REQUEST
+      ? `Per request limit is ${MAX_CODES_PER_REQUEST.toLocaleString()} codes (current estimate: ${singleRequestedCodes.toLocaleString()}).`
+      : null;
+
   async function handleGenerateSingle() {
     setError(null);
     setSuccess(null);
@@ -344,6 +398,16 @@ export default function SSCCCodeGenerationPage() {
     // Validate hierarchy: at least one level must be selected
     if (!form.generateBox && !form.generateCarton && !form.generatePallet) {
       setError('Please select at least one SSCC level (Box, Carton, or Pallet)');
+      setLoading(false);
+      return;
+    }
+    if (singleRequestedCodes > MAX_CODES_PER_ROW) {
+      setError(`Per entry limit exceeded. Maximum ${MAX_CODES_PER_ROW.toLocaleString()} codes per entry.`);
+      setLoading(false);
+      return;
+    }
+    if (singleRequestedCodes > MAX_CODES_PER_REQUEST) {
+      setError(`Per request limit exceeded. Maximum ${MAX_CODES_PER_REQUEST.toLocaleString()} codes per request.`);
       setLoading(false);
       return;
     }
@@ -410,7 +474,7 @@ export default function SSCCCodeGenerationPage() {
       ].filter(Boolean).join(', ');
       setSuccess(`Generated ${totalCount} SSCC label(s) successfully (${levelBreakdown})`);
     } catch (e: any) {
-      setError(e?.message || 'Failed to generate SSCC codes');
+      setError(e?.message || 'Unable to generate SSCC codes right now. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -446,7 +510,7 @@ export default function SSCCCodeGenerationPage() {
       setSsccLabels(prev => [...prev, ...labels]);
       setSuccess(`Processed CSV: Generated ${labels.length} SSCC code(s)`);
     } catch (e: any) {
-      setError(e?.message || 'Failed to process CSV');
+      setError(e?.message || 'Unable to process CSV right now. Please try again.');
     } finally {
       setCsvProcessing(false);
     }
@@ -735,17 +799,21 @@ export default function SSCCCodeGenerationPage() {
                       id="numberOfPallets"
                       type="number"
                       min="1"
+                      max={MAX_CODES_PER_ROW}
                       value={form.numberOfPallets}
                       onChange={(e) => update('numberOfPallets', parseInt(e.target.value) || 1)}
                     />
-                    <p className="text-xs text-gray-600 mt-1">One SSCC is generated per pallet</p>
+                    <p className={`text-xs mt-1 ${singleLimitError ? 'text-red-600' : 'text-gray-600'}`}>
+                      Estimated codes: {singleRequestedCodes.toLocaleString()}.
+                      Limits: {MAX_CODES_PER_ROW.toLocaleString()} per entry, {MAX_CODES_PER_REQUEST.toLocaleString()} per request.
+                    </p>
                   </div>
                 </div>
               </div>
 
               <Button 
                 onClick={handleGenerateSingle} 
-                disabled={loading || !canGenerate}
+                disabled={loading || !canGenerate || !!singleLimitError}
                 className="w-full bg-blue-600 hover:bg-blue-700"
               >
                 {loading ? 'Generating...' : 'Generate SSCC Codes'}
@@ -788,6 +856,7 @@ export default function SSCCCodeGenerationPage() {
                   <p><strong>Required:</strong> SKU Code, Batch Number, Expiry Date, Units per Box, Boxes per Carton, Cartons per Pallet, Number of Pallets</p>
                   <p><strong>Auto-filled:</strong> Company Name, Company ID, Generation Type, Hierarchy Type</p>
                   <p className="text-blue-700 mt-2 font-semibold"><strong>Quantity Rule:</strong> One SSCC is generated per pallet. The &quot;Number of Pallets&quot; column determines how many SSCC codes will be created.</p>
+                  <p className="text-blue-700"><strong>Limits:</strong> Max {MAX_CODES_PER_ROW.toLocaleString()} codes per CSV row and {MAX_CODES_PER_REQUEST.toLocaleString()} total per upload.</p>
                   <p className="text-amber-700 mt-1"><strong>Note:</strong> This CSV is for SSCC generation only. Unit-level codes require a separate CSV template.</p>
                 </div>
               </div>

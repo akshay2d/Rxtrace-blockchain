@@ -7,6 +7,8 @@ import { trackUsage, checkUsageLimits } from '@/lib/usage/tracking';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+const MAX_CODES_PER_REQUEST = 10000;
+const MAX_CODES_PER_ROW = 1000;
 
 const isUuid = (value: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
@@ -215,6 +217,31 @@ export async function POST(req: Request) {
       totalSSCCCount += number_of_pallets;
     }
 
+    if (totalSSCCCount > MAX_CODES_PER_ROW) {
+      return NextResponse.json(
+        {
+          error: `Per entry limit exceeded. Maximum ${MAX_CODES_PER_ROW.toLocaleString()} codes per entry.`,
+          code: 'limit_exceeded',
+          requested: totalSSCCCount,
+          max_per_row: MAX_CODES_PER_ROW,
+          max_per_request: MAX_CODES_PER_REQUEST,
+        },
+        { status: 400 }
+      );
+    }
+    if (totalSSCCCount > MAX_CODES_PER_REQUEST) {
+      return NextResponse.json(
+        {
+          error: `Per request limit exceeded. Maximum ${MAX_CODES_PER_REQUEST.toLocaleString()} codes per request.`,
+          code: 'limit_exceeded',
+          requested: totalSSCCCount,
+          max_per_row: MAX_CODES_PER_ROW,
+          max_per_request: MAX_CODES_PER_REQUEST,
+        },
+        { status: 400 }
+      );
+    }
+
     // PRIORITY-2: Quota Type Mapping - SSCC (Consolidated)
     // This API consumes SSCC quota for ALL levels (Box, Carton, Pallet combined)
     // Quota source: plan_items.limit_value where label contains "pallet" or "sscc"
@@ -293,11 +320,6 @@ export async function POST(req: Request) {
           addon: 'sscc',
           requested: totalSSCCCount,
           remaining: remaining,
-          debug: {
-            quotaResult,
-            quotaData,
-            totalSSCCCount,
-          },
         },
         { status: 403 }
       );
@@ -521,7 +543,10 @@ export async function POST(req: Request) {
     }
     
     return NextResponse.json(
-      { error: err?.message ?? String(err) },
+      {
+        error: 'Unable to generate SSCC codes right now. Please try again.',
+        code: 'internal_error',
+      },
       { status: 500 }
     );
   }

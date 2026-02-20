@@ -60,6 +60,9 @@ type CSVValidationError = {
   message: string;
 };
 
+const MAX_CODES_PER_REQUEST = 10000;
+const MAX_CODES_PER_ROW = 1000;
+
 // ---------- Helpers ----------
 function generateGTIN(prefix = '890'): string {
   // Generate GTIN-14 with valid check digit
@@ -131,6 +134,7 @@ function downloadUnitCSVTemplate(companyName: string, companyId: string) {
 // ---------- CSV Validation ----------
 function validateUnitCSV(rows: Record<string, string>[], companyId: string): { valid: boolean; errors: CSVValidationError[] } {
   const errors: CSVValidationError[] = [];
+  let totalRequested = 0;
   
   rows.forEach((row, index) => {
     const rowNum = index + 2; // +2 because row 1 is header, and index is 0-based
@@ -152,6 +156,15 @@ function validateUnitCSV(rows: Record<string, string>[], companyId: string): { v
     const qty = parseInt(qtyStr, 10);
     if (isNaN(qty) || qty < 1) {
       errors.push({ row: rowNum, column: 'Quantity', message: 'Quantity must be a positive integer' });
+    } else {
+      if (qty > MAX_CODES_PER_ROW) {
+        errors.push({
+          row: rowNum,
+          column: 'Quantity',
+          message: `Quantity per row cannot exceed ${MAX_CODES_PER_ROW.toLocaleString()} codes`,
+        });
+      }
+      totalRequested += qty;
     }
     
     // Validate date format
@@ -160,6 +173,14 @@ function validateUnitCSV(rows: Record<string, string>[], companyId: string): { v
       errors.push({ row: rowNum, column: 'Expiry Date', message: 'Expiry Date must be YYYY-MM-DD or YYMMDD format' });
     }
   });
+
+  if (totalRequested > MAX_CODES_PER_REQUEST) {
+    errors.push({
+      row: 0,
+      column: 'Quantity',
+      message: `Total requested codes cannot exceed ${MAX_CODES_PER_REQUEST.toLocaleString()} per upload (current total: ${totalRequested.toLocaleString()})`,
+    });
+  }
   
   return { valid: errors.length === 0, errors };
 }
@@ -230,7 +251,7 @@ async function processUnitCSV(csvText: string, companyId: string, companyName: s
     // Safe JSON parsing - check response status and content-type
     if (!res.ok) {
       const contentType = res.headers.get('content-type');
-      let errorMessage = `Failed to generate codes for SKU: ${sku}`;
+      let errorMessage = `Unable to generate codes for SKU ${sku}. Please retry.`;
       
       if (contentType?.includes('application/json')) {
         try {
@@ -326,6 +347,7 @@ export default function UnitCodeGenerationPage() {
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [csvValidation, setCsvValidation] = useState<{ valid: boolean; errors: CSVValidationError[] } | null>(null);
   const [csvProcessing, setCsvProcessing] = useState(false);
+  const [generatingSingle, setGeneratingSingle] = useState(false);
   const [skus, setSkus] = useState<Array<{ id: string; sku_code: string; sku_name: string | null }>>([]);
   const [profileCompleted, setProfileCompleted] = useState<boolean | null>(null);
 
@@ -359,6 +381,14 @@ export default function UnitCodeGenerationPage() {
   function update<K extends keyof UnitFormState>(k: K, v: UnitFormState[K]) {
     setForm(s => ({ ...s, [k]: v }));
   }
+
+  const singlePerRowExceeded = form.quantity > MAX_CODES_PER_ROW;
+  const singleRequestExceeded = form.quantity > MAX_CODES_PER_REQUEST;
+  const singleLimitError = singlePerRowExceeded
+    ? `Per entry limit is ${MAX_CODES_PER_ROW.toLocaleString()} codes.`
+    : singleRequestExceeded
+      ? `Per request limit is ${MAX_CODES_PER_REQUEST.toLocaleString()} codes.`
+      : null;
 
   /**
    * Type-safe GTIN resolution helper.
@@ -407,8 +437,17 @@ export default function UnitCodeGenerationPage() {
       setError('SKU Code, Batch Number, and Expiry Date are required');
       return;
     }
+    if (form.quantity > MAX_CODES_PER_ROW) {
+      setError(`Per entry limit exceeded. Maximum ${MAX_CODES_PER_ROW.toLocaleString()} codes per entry.`);
+      return;
+    }
+    if (form.quantity > MAX_CODES_PER_REQUEST) {
+      setError(`Per request limit exceeded. Maximum ${MAX_CODES_PER_REQUEST.toLocaleString()} codes per request.`);
+      return;
+    }
 
     try {
+      setGeneratingSingle(true);
       // Validate GTIN if source is customer
       let gtin: string;
       if (form.gtinSource === 'customer') {
@@ -447,7 +486,7 @@ export default function UnitCodeGenerationPage() {
       // Safe JSON parsing - check response status and content-type
       if (!res.ok) {
         const contentType = res.headers.get('content-type');
-        let errorMessage = 'Failed to generate codes';
+        let errorMessage = 'Unable to generate unit codes right now. Please retry.';
         
         if (contentType?.includes('application/json')) {
           try {
@@ -508,7 +547,9 @@ export default function UnitCodeGenerationPage() {
       
       setSuccess(successMessage);
     } catch (e: any) {
-      setError(e?.message || 'Failed to generate codes');
+      setError(e?.message || 'Unable to generate unit codes right now. Please try again.');
+    } finally {
+      setGeneratingSingle(false);
     }
   }
 
@@ -542,7 +583,7 @@ export default function UnitCodeGenerationPage() {
       setBatch(prev => [...prev, ...rows]);
       setSuccess(`Processed CSV: Generated ${rows.length} unit code(s)`);
     } catch (e: any) {
-      setError(e?.message || 'Failed to process CSV');
+      setError(e?.message || 'Unable to process CSV right now. Please try again.');
     } finally {
       setCsvProcessing(false);
     }
@@ -723,9 +764,13 @@ export default function UnitCodeGenerationPage() {
                     id="quantity"
                     type="number"
                     min="1"
+                    max={MAX_CODES_PER_ROW}
                     value={form.quantity}
                     onChange={(e) => update('quantity', parseInt(e.target.value) || 1)}
                   />
+                  <p className={`text-xs mt-1 ${singleLimitError ? 'text-red-600' : 'text-gray-500'}`}>
+                    Limit: up to {MAX_CODES_PER_ROW.toLocaleString()} per entry, {MAX_CODES_PER_REQUEST.toLocaleString()} per request.
+                  </p>
                 </div>
 
                 <div>
@@ -832,9 +877,9 @@ export default function UnitCodeGenerationPage() {
               <Button 
                 onClick={handleGenerateSingle} 
                 className="w-full bg-blue-600 hover:bg-blue-700"
-                disabled={!canGenerate}
+                disabled={!canGenerate || generatingSingle || !!singleLimitError}
               >
-                Generate Unit Codes
+                {generatingSingle ? 'Generating...' : 'Generate Unit Codes'}
               </Button>
               <p className="text-xs text-gray-500 text-center mt-2">
                 Generates codes only. Use Export or Print for output.
@@ -877,6 +922,7 @@ export default function UnitCodeGenerationPage() {
                   <p><strong>Required:</strong> SKU Code, Batch Number, Expiry Date, Quantity</p>
                   <p><strong>Optional:</strong> Product Name, MRP, Manufacturing Date, GTIN (if customer-provided)</p>
                   <p><strong>Auto-filled:</strong> Company Name, Company ID, Generation Type, Code Format, GTIN Source</p>
+                  <p className="text-blue-700"><strong>Limits:</strong> Max {MAX_CODES_PER_ROW.toLocaleString()} per CSV row and {MAX_CODES_PER_REQUEST.toLocaleString()} total per upload.</p>
                 </div>
               </div>
 

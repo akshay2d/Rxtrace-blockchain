@@ -4,6 +4,8 @@ import { assertCompanyCanOperate, ensureActiveBillingUsage } from "@/lib/billing
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+const MAX_CODES_PER_REQUEST = 10000;
+const MAX_CODES_PER_ROW = 1000;
 
 const isUuid = (value: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
@@ -84,6 +86,18 @@ export async function POST(req: Request) {
     const count = Number.isFinite(countRaw) ? Math.trunc(countRaw) : 0;
     if (!Number.isInteger(count) || count <= 0) {
       return NextResponse.json({ error: "box_count/quantity must be a positive integer" }, { status: 400 });
+    }
+    if (count > MAX_CODES_PER_ROW) {
+      return NextResponse.json(
+        {
+          error: `Per entry limit exceeded. Maximum ${MAX_CODES_PER_ROW.toLocaleString()} codes per entry.`,
+          code: "limit_exceeded",
+          requested: count,
+          max_per_row: MAX_CODES_PER_ROW,
+          max_per_request: MAX_CODES_PER_REQUEST,
+        },
+        { status: 400 }
+      );
     }
 
     // 1) Get packing rule (required to know units per box)

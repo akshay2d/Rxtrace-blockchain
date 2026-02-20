@@ -8,6 +8,8 @@ import crypto from 'crypto';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+const MAX_CODES_PER_REQUEST = 10000;
+const MAX_CODES_PER_ROW = 1000;
 
 // Generate unique serial number
 const generateSerial = (companyId: string) =>
@@ -62,7 +64,31 @@ export async function POST(req: Request) {
     // Validate required fields
     if (!gtin || !batch || !exp || !quantity || quantity <= 0) {
       return NextResponse.json(
-        { error: 'GTIN, batch, expiry date, and quantity are required' },
+        { error: 'GTIN, batch, expiry date, and quantity are required', code: 'invalid_input' },
+        { status: 400 }
+      );
+    }
+    if (quantity > MAX_CODES_PER_ROW) {
+      return NextResponse.json(
+        {
+          error: `Per entry limit exceeded. Maximum ${MAX_CODES_PER_ROW.toLocaleString()} codes per entry.`,
+          code: 'limit_exceeded',
+          requested: quantity,
+          max_per_row: MAX_CODES_PER_ROW,
+          max_per_request: MAX_CODES_PER_REQUEST,
+        },
+        { status: 400 }
+      );
+    }
+    if (quantity > MAX_CODES_PER_REQUEST) {
+      return NextResponse.json(
+        {
+          error: `Per request limit exceeded. Maximum ${MAX_CODES_PER_REQUEST.toLocaleString()} codes per request.`,
+          code: 'limit_exceeded',
+          requested: quantity,
+          max_per_row: MAX_CODES_PER_ROW,
+          max_per_request: MAX_CODES_PER_REQUEST,
+        },
         { status: 400 }
       );
     }
@@ -243,7 +269,10 @@ export async function POST(req: Request) {
       }
 
       return NextResponse.json(
-        { error: rpcError.message || 'Failed to generate unit labels' },
+        {
+          error: 'Unable to generate unit labels right now. Please retry.',
+          code: 'generation_failed',
+        },
         { status: 500 }
       );
     }
@@ -264,7 +293,10 @@ export async function POST(req: Request) {
       }
 
       return NextResponse.json(
-        { error: result?.error || 'Failed to generate unit labels' },
+        {
+          error: 'Unable to generate unit labels right now. Please retry.',
+          code: 'generation_failed',
+        },
         { status: 500 }
       );
     }
@@ -297,7 +329,10 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json(
-      { error: err?.message || 'Unit code generation failed. Please try again or contact support.' },
+      {
+        error: 'Unable to generate unit codes right now. Please try again.',
+        code: 'internal_error',
+      },
       { status: 500 }
     );
   }
