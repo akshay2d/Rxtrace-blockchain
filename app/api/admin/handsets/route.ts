@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/auth/admin";
+import { resolveCompanyIdFromRequest } from "@/lib/company/resolve";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,41 +11,24 @@ export async function GET(req: Request) {
   try {
     const { error: adminError } = await requireAdmin();
     if (adminError) return adminError;
+    const companyId = await resolveCompanyIdFromRequest(req);
+    if (!companyId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const supabase = getSupabaseAdmin();
-    const authHeader = req.headers.get("authorization");
-    if (!authHeader) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const accessToken = authHeader.replace("Bearer ", "");
-
-    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
-
-    if (error || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const { data: company, error: companyError } = await supabase
-      .from('companies')
-      .select('id')
-      .eq('user_id', user.id)
-      .single();
-
-    if (companyError || !company) {
-      return NextResponse.json({ error: "Company not found" }, { status: 404 });
-    }
 
     const { count: activeHandsets } = await supabase
       .from('handsets')
       .select('*', { count: 'exact', head: true })
-      .eq('company_id', company.id)
+      .eq('company_id', companyId)
       .eq('status', 'ACTIVE');
 
     // Fetch detailed handset list
     const { data: handsetsList, error: handsetsError } = await supabase
       .from('handsets')
       .select('id, device_fingerprint, status, high_scan_enabled, activated_at')
-      .eq('company_id', company.id)
+      .eq('company_id', companyId)
       .order('activated_at', { ascending: false });
 
     if (handsetsError) {
@@ -65,23 +49,13 @@ export async function GET(req: Request) {
     const { data: activeTokens, error: tokenError } = await supabase
       .from('handset_tokens')
       .select('*')
-      .eq('company_id', company.id)
+      .eq('company_id', companyId)
       .or('used.is.null,used.eq.false')
       .order('created_at', { ascending: false })
       .limit(1);
-
-    console.log('[HANDSETS API] Company ID:', company.id);
-    console.log('[HANDSETS API] Token query result:', JSON.stringify(activeTokens));
-    console.log('[HANDSETS API] Token query error:', tokenError);
-    
-    // Also try without the used filter
-    const { data: allTokens } = await supabase
-      .from('handset_tokens')
-      .select('*')
-      .eq('company_id', company.id)
-      .order('created_at', { ascending: false })
-      .limit(3);
-    console.log('[HANDSETS API] All tokens (no used filter):', JSON.stringify(allTokens));
+    if (tokenError) {
+      return NextResponse.json({ error: tokenError.message }, { status: 500 });
+    }
 
     const activeToken = activeTokens?.[0] || null;
 

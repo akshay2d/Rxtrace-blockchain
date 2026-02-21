@@ -27,17 +27,12 @@ async function resolveCompanyPlanType(supabase: ReturnType<typeof getSupabaseAdm
 
 export async function GET(req: Request) {
   try {
-    const { searchParams } = new URL(req.url);
-
     const companyIdFromAuth = await resolveCompanyIdFromRequest(req);
-    const companyId = companyIdFromAuth ?? searchParams.get("company_id");
-
-    if (!companyId) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: companyIdFromAuth === null ? 401 : 400 }
-      );
+    if (!companyIdFromAuth) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    const companyId = companyIdFromAuth;
 
     const supabase = getSupabaseAdmin();
     const { data: seats } = await supabase
@@ -64,10 +59,15 @@ export async function POST(req: Request) {
     const body = await req.json().catch(() => ({}));
 
     const companyIdFromAuth = await resolveCompanyIdFromRequest(req);
-    const companyId = companyIdFromAuth ?? body.company_id;
-    if (!companyId) {
+    if (!companyIdFromAuth) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    if (body.company_id && body.company_id !== companyIdFromAuth) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const companyId = companyIdFromAuth;
 
     const rawCount = body.count ?? 1;
     const count = Number(rawCount);

@@ -1,16 +1,23 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { resolveCompanyIdFromRequest } from "@/lib/company/resolve";
 
 export async function GET(req: Request) {
   try {
     const supabaseAdmin = getSupabaseAdmin();
+    const authCompanyId = await resolveCompanyIdFromRequest(req);
+    if (!authCompanyId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const { searchParams } = new URL(req.url);
-    const company_id = searchParams.get("company_id");
+    const requestedCompanyId = searchParams.get("company_id");
     const sku_id = searchParams.get("sku_id");
 
-    if (!company_id) {
-      return NextResponse.json({ error: "company_id is required" }, { status: 400 });
+    if (requestedCompanyId && requestedCompanyId !== authCompanyId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
+    const company_id = authCompanyId;
 
     let q = supabaseAdmin
       .from("packing_rules")
@@ -41,9 +48,14 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const supabaseAdmin = getSupabaseAdmin();
+    const authCompanyId = await resolveCompanyIdFromRequest(req);
+    if (!authCompanyId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const body = await req.json();
     const {
-      company_id,
+      company_id: requestedCompanyId,
       sku_id,
       strips_per_box,
       boxes_per_carton,
@@ -51,12 +63,10 @@ export async function POST(req: Request) {
       sscc_company_prefix,
       sscc_extension_digit,
     } = body;
+    const company_id = authCompanyId;
 
-    if (!company_id) {
-      return NextResponse.json(
-        { error: "company_id is required" },
-        { status: 400 }
-      );
+    if (requestedCompanyId && requestedCompanyId !== authCompanyId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     if (

@@ -35,8 +35,6 @@ export async function middleware(request: NextRequest) {
 
   // Exempt only explicitly public routes from auth checks.
   const publicPrefixes = [
-    '/api/auth',
-    '/api/setup',
     '/api/public',
     '/api/health',
   ];
@@ -49,6 +47,8 @@ export async function middleware(request: NextRequest) {
     '/auth/callback',
     '/auth/signin',
     '/auth/signup',
+    '/api/auth/send-otp',
+    '/api/auth/verify-otp',
   ]);
 
   const isPublicRoute =

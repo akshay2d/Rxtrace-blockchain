@@ -1,14 +1,23 @@
 import { NextResponse } from "next/server";
-import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { supabaseServer } from "@/lib/supabase/server";
 
 export async function POST(req: Request) {
   try {
-    const supabase = getSupabaseAdmin();
-    const { user_id, company_name, gst_number, contact_email, contact_phone, address } = await req.json();
+    const supabase = await supabaseServer();
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
 
-    if (!user_id || !company_name) {
+    if (authError || !user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { company_name, gst_number, contact_email, contact_phone, address } = await req.json();
+
+    if (!company_name) {
       return NextResponse.json(
-        { error: "user_id and company_name are required" },
+        { error: "company_name is required" },
         { status: 400 }
       );
     }
@@ -17,7 +26,7 @@ export async function POST(req: Request) {
     const { data: existing } = await supabase
       .from("companies")
       .select("id")
-      .eq("user_id", user_id)
+      .eq("user_id", user.id)
       .single();
 
     if (existing) {
@@ -31,7 +40,7 @@ export async function POST(req: Request) {
     const { data: company, error: companyError } = await supabase
       .from("companies")
       .insert({
-        user_id,
+        user_id: user.id,
         company_name,
         gst_number: gst_number || null,
         contact_email: contact_email || null,
@@ -48,12 +57,12 @@ export async function POST(req: Request) {
     // Auto-create the owner seat as ACTIVE. Starter plan includes 1 seat and
     // the owner should not need an invite.
     try {
-      const ownerEmail = String(contact_email ?? '').trim().toLowerCase();
+      const ownerEmail = String(user.email ?? contact_email ?? '').trim().toLowerCase();
       const { data: existingSeat } = await supabase
         .from('seats')
         .select('id')
         .eq('company_id', company.id)
-        .or(`user_id.eq.${user_id},email.eq.${ownerEmail}`)
+        .or(`user_id.eq.${user.id},email.eq.${ownerEmail}`)
         .maybeSingle();
 
       if (!existingSeat) {
@@ -62,7 +71,7 @@ export async function POST(req: Request) {
           .from('seats')
           .insert({
             company_id: company.id,
-            user_id,
+            user_id: user.id,
             email: ownerEmail || null,
             role: 'admin',
             active: true,

@@ -1,15 +1,25 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth/admin";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { resolveCompanyIdFromRequest } from "@/lib/company/resolve";
 
 export async function POST(req: Request) {
   try {
     const { error: adminError } = await requireAdmin();
     if (adminError) return adminError;
+    const companyIdFromAuth = await resolveCompanyIdFromRequest(req);
+    if (!companyIdFromAuth) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    }
+
     const supabase = getSupabaseAdmin();
     const body = await req.json();
-    const { company_id, head, enabled } = body;
-    if (!company_id) return NextResponse.json({ success: false, error: "company_id is required" }, { status: 400 });
+    const { company_id: requestedCompanyId, head, enabled } = body;
+    if (requestedCompanyId && requestedCompanyId !== companyIdFromAuth) {
+      return NextResponse.json({ success: false, error: "Forbidden" }, { status: 403 });
+    }
+
+    const company_id = companyIdFromAuth;
     if (!head) return NextResponse.json({ success: false, error: "head is required" }, { status: 400 });
 
     // fetch existing heads

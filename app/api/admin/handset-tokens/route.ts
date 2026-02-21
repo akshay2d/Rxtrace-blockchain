@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import crypto from "crypto";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/auth/admin";
+import { resolveCompanyIdFromRequest } from "@/lib/company/resolve";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,34 +11,18 @@ export async function POST(req: Request) {
   try {
     const { error: adminError } = await requireAdmin();
     if (adminError) return adminError;
+    const companyId = await resolveCompanyIdFromRequest(req);
+    if (!companyId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const supabase = getSupabaseAdmin();
-    const authHeader = req.headers.get("authorization");
-    if (!authHeader) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const accessToken = authHeader.replace("Bearer ", "");
-    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
-
-    if (error || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const { data: company } = await supabase
-      .from('companies')
-      .select('id')
-      .eq('user_id', user.id)
-      .single();
-
-    if (!company) {
-      return NextResponse.json({ error: "Company not found" }, { status: 404 });
-    }
 
     // Respect activation_enabled master switch
     const { data: headsRow } = await supabase
       .from('company_active_heads')
       .select('heads')
-      .eq('company_id', company.id)
+      .eq('company_id', companyId)
       .maybeSingle();
     const heads = (headsRow?.heads as any) ?? {};
     const activationEnabled =
@@ -51,7 +35,7 @@ export async function POST(req: Request) {
     const { error: invalidateError } = await supabase
       .from('handset_tokens')
       .update({ used: true })
-      .eq('company_id', company.id)
+      .eq('company_id', companyId)
       .or('used.is.null,used.eq.false');
 
     if (invalidateError) {
@@ -65,7 +49,7 @@ export async function POST(req: Request) {
     const { data: row, error: insertError } = await supabase
       .from('handset_tokens')
       .insert({
-        company_id: company.id,
+        company_id: companyId,
         token,
         used: false,
         high_scan: true, // auto-enabled as per your rule
@@ -92,34 +76,20 @@ export async function POST(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
+    const { error: adminError } = await requireAdmin();
+    if (adminError) return adminError;
+    const companyId = await resolveCompanyIdFromRequest(req);
+    if (!companyId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const supabase = getSupabaseAdmin();
-    const authHeader = req.headers.get("authorization");
-    if (!authHeader) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const accessToken = authHeader.replace("Bearer ", "");
-    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
-
-    if (error || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const { data: company } = await supabase
-      .from('companies')
-      .select('id')
-      .eq('user_id', user.id)
-      .single();
-
-    if (!company) {
-      return NextResponse.json({ error: "Company not found" }, { status: 404 });
-    }
 
     // Mark all unused tokens as used (invalidate them)
     const { data: result, error: updateError } = await supabase
       .from('handset_tokens')
       .update({ used: true })
-      .eq('company_id', company.id)
+      .eq('company_id', companyId)
       .or('used.is.null,used.eq.false')
       .select();
 

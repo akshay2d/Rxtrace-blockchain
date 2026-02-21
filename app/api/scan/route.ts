@@ -3,6 +3,7 @@ import { billingConfig } from "@/app/lib/billingConfig";
 import { parseGS1 } from "@/lib/parseGS1";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { compareGS1Payloads, normalizeGS1Payload } from "@/lib/gs1Canonical";
+import { resolveCompanyIdFromRequest } from "@/lib/company/resolve";
 
 // Helper: Check if date is expired (format: YYMMDD or YYYY-MM-DD)
 function isExpired(expiryStr: string): boolean {
@@ -105,7 +106,15 @@ async function buildHierarchyForPallet(opts: {
 export async function POST(req: Request) {
   try {
     const supabase = getSupabaseAdmin();
+    const authCompanyId = await resolveCompanyIdFromRequest(req);
+    if (!authCompanyId) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    }
+
     const { raw, company_id, device_context } = await req.json();
+    if (company_id && company_id !== authCompanyId) {
+      return NextResponse.json({ success: false, error: "Forbidden" }, { status: 403 });
+    }
 
     if (!raw) {
       return NextResponse.json(
@@ -129,7 +138,7 @@ export async function POST(req: Request) {
     /* ------------------------------------------------
        2️⃣ Resolve company_id (from scanned entity)
     ------------------------------------------------ */
-    let resolvedCompanyId = company_id;
+    let resolvedCompanyId = authCompanyId;
 
     // If no company_id, try to resolve from scanned entity
     if (!resolvedCompanyId && data.serialNo) {

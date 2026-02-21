@@ -1,12 +1,22 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { resolveCompanyIdFromRequest } from "@/lib/company/resolve";
 
 export async function GET(req: Request) {
   try {
     const supabase = getSupabaseAdmin();
+    const authCompanyId = await resolveCompanyIdFromRequest(req);
+    if (!authCompanyId) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    }
+
     const url = new URL(req.url);
-    const company_id = url.searchParams.get("company_id");
-    if (!company_id) return NextResponse.json({ success: false, error: "company_id is required" }, { status: 400 });
+    const requestedCompanyId = url.searchParams.get("company_id");
+    if (requestedCompanyId && requestedCompanyId !== authCompanyId) {
+      return NextResponse.json({ success: false, error: "Forbidden" }, { status: 403 });
+    }
+
+    const company_id = authCompanyId;
 
     const { data: seats, error } = await supabase
       .from("seats")

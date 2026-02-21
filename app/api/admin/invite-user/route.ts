@@ -4,6 +4,7 @@ import { supabaseServer } from "@/lib/supabase/server";
 import { canCreateSeat } from "@/lib/usage/seats";
 import { sendInvitationEmail } from "@/lib/email";
 import { requireAdmin } from "@/lib/auth/admin";
+import { resolveCompanyIdFromRequest } from "@/lib/company/resolve";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +12,11 @@ export async function POST(req: Request) {
   try {
     const { error: adminError } = await requireAdmin();
     if (adminError) return adminError;
+    const companyIdFromAuth = await resolveCompanyIdFromRequest(req);
+    if (!companyIdFromAuth) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     // Authenticate user
     const { data: { user }, error: authErr } = await (await supabaseServer()).auth.getUser();
     if (!user || authErr) {
@@ -18,11 +24,15 @@ export async function POST(req: Request) {
     }
 
     const supabase = getSupabaseAdmin();
-    const { company_id, email, role, message } = await req.json();
+    const { company_id: requestedCompanyId, email, role, message } = await req.json();
+    if (requestedCompanyId && requestedCompanyId !== companyIdFromAuth) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    const company_id = companyIdFromAuth;
 
-    if (!company_id || !email || !role) {
+    if (!email || !role) {
       return NextResponse.json(
-        { error: "company_id, email, and role are required" },
+        { error: "email and role are required" },
         { status: 400 }
       );
     }
@@ -131,10 +141,7 @@ export async function POST(req: Request) {
       inviteUrl,
     });
 
-    if (emailResult.skipped) {
-      console.log('📧 Email skipped (SMTP not configured)');
-      console.log(`   Invite URL: ${inviteUrl}`);
-    } else if (!emailResult.success) {
+    if (!emailResult.skipped && !emailResult.success) {
       console.error('Failed to send invitation email:', emailResult.error);
     }
 

@@ -3,7 +3,7 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/auth/admin";
 import { PRICING, type PlanType } from "@/lib/billingConfig";
 import { normalizePlanType } from "@/lib/billing/period";
-import { supabaseServer } from "@/lib/supabase/server";
+import { resolveCompanyIdFromRequest } from "@/lib/company/resolve";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,21 +28,20 @@ async function resolveCompanyPlanType(supabase: ReturnType<typeof getSupabaseAdm
 
 export async function GET(req: Request) {
   try {
-    const { searchParams } = new URL(req.url);
-    const companyId = searchParams.get("company_id");
+    const { error: adminError } = await requireAdmin();
+    if (adminError) return adminError;
 
-    if (!companyId) {
-      return NextResponse.json({ error: "company_id required" }, { status: 400 });
-    }
-
-    const {
-      data: { user },
-      error: authErr,
-    } = await (await supabaseServer()).auth.getUser();
-
-    if (!user || authErr) {
+    const companyIdFromAuth = await resolveCompanyIdFromRequest(req);
+    if (!companyIdFromAuth) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    const { searchParams } = new URL(req.url);
+    const requestedCompanyId = searchParams.get("company_id");
+    if (requestedCompanyId && requestedCompanyId !== companyIdFromAuth) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    const companyId = companyIdFromAuth;
 
     const supabase = getSupabaseAdmin();
 
@@ -56,10 +55,6 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Company not found" }, { status: 404 });
     }
 
-    if (String((companyRow as any)?.user_id ?? "") !== String(user.id)) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
-
     // Backfill: ensure the owner has an ACTIVE seat.
     // Starter plan includes 1 seat and the owner should consume it.
     try {
@@ -67,7 +62,7 @@ export async function GET(req: Request) {
         .from("seats")
         .select("id")
         .eq("company_id", companyId)
-        .eq("user_id", user.id)
+        .eq("user_id", (companyRow as any)?.user_id)
         .maybeSingle();
 
       if (ownerCheckErr) {
@@ -78,8 +73,8 @@ export async function GET(req: Request) {
         const now = new Date().toISOString();
         const { error: insertErr } = await supabase.from("seats").insert({
           company_id: companyId,
-          user_id: user.id,
-          email: (user.email ?? null) as any,
+          user_id: (companyRow as any)?.user_id,
+          email: (companyRow as any)?.email ?? null,
           role: "admin",
           active: true,
           status: "active",
@@ -98,27 +93,20 @@ export async function GET(req: Request) {
     }
 
     const planType = await resolveCompanyPlanType(supabase, companyId);
-    console.log('Plan type resolved:', planType);
     
     const baseMax = planType ? PRICING.plans[planType].max_seats : 1;
-    console.log('Base max seats:', baseMax);
     
     const extra = Number((companyRow as any)?.extra_user_seats ?? 0);
     const maxSeats = baseMax + (Number.isFinite(extra) ? extra : 0);
-    console.log('Max seats (base + extra):', maxSeats, '=', baseMax, '+', extra);
 
     // Seats used = active + pending (pending invites also consume a slot)
-    console.log('Querying seats for company:', companyId);
     const { count: usedSeats, error: countError } = await supabase
       .from("seats")
       .select("*", { count: "exact", head: true })
       .eq("company_id", companyId)
       .in("status", ["active", "pending"]);
 
-    console.log('Seats count result:', { usedSeats, countError });
-
     if (countError) {
-      console.error('Count error details:', JSON.stringify(countError, null, 2));
       return NextResponse.json({ error: countError.message }, { status: 500 });
     }
 

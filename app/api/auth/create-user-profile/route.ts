@@ -1,34 +1,44 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { supabaseServer } from '@/lib/supabase/server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-
 export async function POST(req: NextRequest) {
   try {
-    const { email, fullName, user_id } = await req.json();
+    const supabase = await supabaseServer();
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
 
-    if (!email || !user_id) {
+    if (authError || !user) {
       return NextResponse.json(
-        { error: 'Email and user_id required' },
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
+    const { fullName } = await req.json();
+
+    if (!user.email) {
+      return NextResponse.json(
+        { error: 'Authenticated user email is required' },
         { status: 400 }
       );
     }
 
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const normalizedEmail = user.email.toLowerCase();
 
     // Save to user_profiles table
     const { error } = await supabase
       .from('user_profiles')
-      .insert({
-        id: user_id,
-        email: email.toLowerCase(),
+      .upsert({
+        id: user.id,
+        email: normalizedEmail,
         full_name: fullName || '',
         created_at: new Date().toISOString(),
-      });
+      }, { onConflict: 'id' });
 
     if (error) {
       console.error('Profile creation error:', error);

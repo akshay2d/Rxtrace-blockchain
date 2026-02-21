@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { resolveCompanyIdFromRequest } from "@/lib/company/resolve";
 
 /**
  * Query params:
@@ -11,15 +12,21 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 export async function GET(req: Request) {
   try {
     const supabase = getSupabaseAdmin();
+    const authCompanyId = await resolveCompanyIdFromRequest(req);
+    if (!authCompanyId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const url = new URL(req.url);
-    const company_id = url.searchParams.get("company_id");
+    const requestedCompanyId = url.searchParams.get("company_id");
     const limit = Number(url.searchParams.get("limit") ?? 50);
     const offset = Number(url.searchParams.get("offset") ?? 0);
     const status = url.searchParams.get("status") ?? null;
 
-    if (!company_id) {
-      return NextResponse.json({ error: "company_id is required" }, { status: 400 });
+    if (requestedCompanyId && requestedCompanyId !== authCompanyId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
+    const company_id = authCompanyId;
 
     let query = supabase
       .from("generation_jobs")

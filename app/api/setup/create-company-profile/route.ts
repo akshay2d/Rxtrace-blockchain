@@ -1,13 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+import { supabaseServer } from '@/lib/supabase/server';
 
 export async function POST(req: NextRequest) {
   try {
+    const supabase = await supabaseServer();
     const {
-      user_id,
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
+    const {
       company_name,
       contact_person_name,
       firm_type,
@@ -21,7 +30,7 @@ export async function POST(req: NextRequest) {
     } = await req.json();
 
     // Validate required fields
-    if (!user_id || !company_name || !contact_person_name || !firm_type || !address || !email || !phone || !pan || !business_category || !business_type) {
+    if (!company_name || !contact_person_name || !firm_type || !address || !email || !phone || !pan || !business_category || !business_type) {
       return NextResponse.json(
         { error: 'Missing required fields. PAN card is mandatory.' },
         { status: 400 }
@@ -63,13 +72,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
     // Check if company already exists for this user
     const { data: existingCompany } = await supabase
       .from('companies')
       .select('id')
-      .eq('user_id', user_id)
+      .eq('user_id', user.id)
       .maybeSingle();
 
     if (existingCompany) {
@@ -83,7 +90,7 @@ export async function POST(req: NextRequest) {
     const { data: company, error: insertError } = await supabase
       .from('companies')
       .insert({
-        user_id,
+        user_id: user.id,
         company_name: company_name.trim(),
         contact_person_name: contact_person_name.trim(),
         firm_type,
@@ -111,14 +118,14 @@ export async function POST(req: NextRequest) {
     // Auto-create the owner seat as ACTIVE. Starter plan includes 1 seat and
     // the owner should not need an invite.
     try {
-      const ownerEmail = String(email ?? '').trim().toLowerCase();
+      const ownerEmail = String(user.email ?? email ?? '').trim().toLowerCase();
 
       // Avoid duplicates if the setup flow is retried.
       const { data: existingSeat } = await supabase
         .from('seats')
         .select('id')
         .eq('company_id', company.id)
-        .or(`user_id.eq.${user_id},email.eq.${ownerEmail}`)
+        .or(`user_id.eq.${user.id},email.eq.${ownerEmail}`)
         .maybeSingle();
 
       if (!existingSeat) {
@@ -127,7 +134,7 @@ export async function POST(req: NextRequest) {
           .from('seats')
           .insert({
             company_id: company.id,
-            user_id,
+            user_id: user.id,
             email: ownerEmail || null,
             role: 'admin',
             active: true,

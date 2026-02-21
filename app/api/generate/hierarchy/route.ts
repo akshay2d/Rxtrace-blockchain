@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { verifyCompanyAccess } from "@/lib/auth/company";
+import { resolveCompanyIdFromRequest } from "@/lib/company/resolve";
 import {
   assertCompanyCanOperate,
   ensureActiveBillingUsage,
@@ -21,17 +22,27 @@ export const dynamic = "force-dynamic";
 export async function POST(req: Request) {
   try {
     const supabase = getSupabaseAdmin();
+    const authCompanyId = await resolveCompanyIdFromRequest(req);
+    if (!authCompanyId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const body = await req.json();
     const {
-      company_id,
+      company_id: requestedCompanyId,
       sku_id,
       packing_rule_id,
       total_strips,
       request_id,
       strip_codes,
     } = body;
+    const company_id = authCompanyId;
 
-    if (!company_id || !sku_id || !packing_rule_id || !total_strips) {
+    if (requestedCompanyId && requestedCompanyId !== authCompanyId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    if (!sku_id || !packing_rule_id || !total_strips) {
       return NextResponse.json(
         { error: "missing required param" },
         { status: 400 }

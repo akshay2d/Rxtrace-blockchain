@@ -4,6 +4,7 @@ import { assertCompanyCanOperate, ensureActiveBillingUsage } from '@/lib/billing
 import { supabaseServer } from '@/lib/supabase/server';
 import { refundQuotaBalance } from '@/lib/billing/quota';
 import { trackUsage, checkUsageLimits } from '@/lib/usage/tracking';
+import { resolveCompanyIdFromRequest } from '@/lib/company/resolve';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -110,7 +111,7 @@ export async function POST(req: Request) {
     const body = await req.json();
 
     const {
-      company_id,
+      company_id: requestedCompanyId,
       sku_id,
       batch,
       expiry_date,
@@ -122,22 +123,14 @@ export async function POST(req: Request) {
       generate_carton = false,
       generate_pallet = false,
     } = body ?? {};
-
-    if (!company_id) {
-      return NextResponse.json({ error: 'company_id is required' }, { status: 400 });
+    const authCompanyId = await resolveCompanyIdFromRequest(req);
+    if (!authCompanyId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-
-    // Verify company ownership
-    const { data: company, error: companyErr } = await supabase
-      .from('companies')
-      .select('id, user_id')
-      .eq('id', company_id)
-      .eq('user_id', user.id)
-      .maybeSingle();
-
-    if (companyErr || !company) {
-      return NextResponse.json({ error: 'Company not found or access denied' }, { status: 403 });
+    if (requestedCompanyId && requestedCompanyId !== authCompanyId) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
+    const company_id = authCompanyId;
 
     // Validate required fields
     const normalizedExpiry = normalizeDateInput(expiry_date);
@@ -306,17 +299,7 @@ export async function POST(req: Request) {
     );
 
     // Debug logging (remove in production)
-    console.log('[SSCC Quota Debug]', {
-      company_id,
-      totalSSCCCount,
-      quotaData,
-      quotaError,
-      quotaDataType: typeof quotaData,
-      isArray: Array.isArray(quotaData),
-    });
-
     if (quotaError) {
-      console.error('[SSCC Quota Error]', quotaError);
       return NextResponse.json(
         {
           error: quotaError.message || 'Failed to check SSCC quota',
@@ -328,14 +311,6 @@ export async function POST(req: Request) {
 
     // Handle RPC result - data is an array, get first element
     const quotaResult = Array.isArray(quotaData) ? quotaData[0] : quotaData;
-
-    // Debug logging
-    console.log('[SSCC Quota Result]', {
-      quotaResult,
-      ok: quotaResult?.ok,
-      error: quotaResult?.error,
-      sscc_balance: quotaResult?.sscc_balance,
-    });
 
     if (!quotaResult || !quotaResult.ok) {
       const remaining = quotaResult?.sscc_balance ?? 0;

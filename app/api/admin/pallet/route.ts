@@ -1,15 +1,25 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/auth/admin";
+import { resolveCompanyIdFromRequest } from "@/lib/company/resolve";
 
 export async function GET(req: Request) {
   try {
     const { error: adminError } = await requireAdmin();
     if (adminError) return adminError;
+    const companyIdFromAuth = await resolveCompanyIdFromRequest(req);
+    if (!companyIdFromAuth) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    }
+
     const supabase = getSupabaseAdmin();
     const url = new URL(req.url);
-    const company_id = url.searchParams.get("company_id");
-    if (!company_id) return NextResponse.json({ success: false, error: "company_id is required" }, { status: 400 });
+    const requestedCompanyId = url.searchParams.get("company_id");
+    if (requestedCompanyId && requestedCompanyId !== companyIdFromAuth) {
+      return NextResponse.json({ success: false, error: "Forbidden" }, { status: 403 });
+    }
+
+    const company_id = companyIdFromAuth;
 
     const { data: pallets, error: palletErr } = await supabase
       .from("pallets")

@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import jwt from "jsonwebtoken";
 import { requireUserSession } from "@/lib/auth/session";
 import { supabaseServer } from "@/lib/supabase/server";
+import { resolveCompanyIdFromRequest } from "@/lib/company/resolve";
 
 export async function POST(req: Request) {
   try {
@@ -26,6 +27,7 @@ export async function POST(req: Request) {
 
     const now = new Date();
     const userId = auth.userId;
+    const companyId = await resolveCompanyIdFromRequest(req);
 
     const { data: tokenRecord, error: tokenError } = await supabase
       .from("token")
@@ -81,6 +83,7 @@ export async function POST(req: Request) {
       {
         handset_id: handset.id,
         user_id: userId,
+        ...(companyId ? { company_id: companyId } : {}),
         role: "HIGH_SCAN",
       },
       process.env.JWT_SECRET!,

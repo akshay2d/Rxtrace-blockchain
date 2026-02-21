@@ -1,14 +1,21 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { assertCompanyCanOperate, ensureActiveBillingUsage } from "@/lib/billing/usage";
+import { resolveCompanyIdFromRequest } from "@/lib/company/resolve";
 
 export async function POST(req: Request) {
+  const authCompanyId = await resolveCompanyIdFromRequest(req);
+  if (!authCompanyId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const supabase = getSupabaseAdmin();
   const body = await req.json();
-  const { sku_id, packing_rule_id, company_id, pallet_count } = body;
+  const { sku_id, packing_rule_id, company_id: requestedCompanyId, pallet_count } = body;
+  const company_id = authCompanyId;
 
-  if (!company_id) {
-    return NextResponse.json({ error: "company_id is required" }, { status: 400 });
+  if (requestedCompanyId && requestedCompanyId !== authCompanyId) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   if (!sku_id) {

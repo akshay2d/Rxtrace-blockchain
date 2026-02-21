@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { parseGS1 } from "@/lib/parseGS1";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { resolveCompanyIdFromRequest } from "@/lib/company/resolve";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -94,17 +95,24 @@ async function buildHierarchyForPallet(opts: {
 
 export async function GET(req: Request) {
   try {
+    const authCompanyId = await resolveCompanyIdFromRequest(req);
+    if (!authCompanyId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const supabase = getSupabaseAdmin();
     const { searchParams } = new URL(req.url);
     const code = searchParams.get("code")?.trim();
-    const companyId = searchParams.get("company_id")?.trim();
+    const requestedCompanyId = searchParams.get("company_id")?.trim();
 
     if (!code) {
       return NextResponse.json({ error: "code required" }, { status: 400 });
     }
-    if (!companyId) {
-      return NextResponse.json({ error: "company_id required" }, { status: 400 });
+    if (requestedCompanyId && requestedCompanyId !== authCompanyId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
+
+    const companyId = authCompanyId;
 
     const { sscc, serial } = extractIdentifiers(code);
 

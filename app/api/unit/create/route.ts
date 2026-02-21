@@ -3,6 +3,7 @@ import crypto from "crypto";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { assertCompanyCanOperate, ensureActiveBillingUsage } from "@/lib/billing/usage";
 import { generateCanonicalGS1 } from "@/lib/gs1Canonical";
+import { resolveCompanyIdFromRequest } from "@/lib/company/resolve";
 
 // ---------- utils ----------
 const generateSerial = (companyId: string) =>
@@ -13,11 +14,16 @@ const generateSerial = (companyId: string) =>
 // ---------- API ----------
 export async function POST(req: Request) {
   try {
+    const authCompanyId = await resolveCompanyIdFromRequest(req);
+    if (!authCompanyId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const supabase = getSupabaseAdmin();
     const body = await req.json();
 
     const {
-      company_id,
+      company_id: requestedCompanyId,
       company_name,
       sku_code,
       sku_name,
@@ -28,9 +34,13 @@ export async function POST(req: Request) {
       mrp,
       quantity
     } = body;
+    const company_id = authCompanyId;
+
+    if (requestedCompanyId && requestedCompanyId !== authCompanyId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
     if (
-      !company_id ||
       !sku_code ||
       !gtin ||
       !batch ||

@@ -1,14 +1,24 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { canCreateSeat } from "@/lib/usage/seats";
+import { resolveCompanyIdFromRequest } from "@/lib/company/resolve";
 
 export async function POST(req: Request) {
   try {
+    const authCompanyId = await resolveCompanyIdFromRequest(req);
+    if (!authCompanyId) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    }
+
     const supabase = getSupabaseAdmin();
     const body = await req.json();
-    const { company_id } = body;
+    const { company_id: requestedCompanyId } = body;
 
-    if (!company_id) return NextResponse.json({ success: false, error: "company_id required" }, { status: 400 });
+    if (requestedCompanyId && requestedCompanyId !== authCompanyId) {
+      return NextResponse.json({ success: false, error: "Forbidden" }, { status: 403 });
+    }
+
+    const company_id = authCompanyId;
 
     // Enforce seat limits using subscription system
     const seatCheck = await canCreateSeat(supabase, company_id);

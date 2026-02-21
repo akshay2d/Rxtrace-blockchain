@@ -1,16 +1,25 @@
 import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
+import { resolveCompanyIdFromRequest } from '@/lib/company/resolve';
 
 export async function GET(
   req: Request,
   { params }: { params: { companyId: string } }
 ) {
   try {
+    const companyIdFromAuth = await resolveCompanyIdFromRequest(req);
+    if (!companyIdFromAuth) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    if (params.companyId !== companyIdFromAuth) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
     const admin = getSupabaseAdmin();
     const { data: company } = await admin
       .from('companies')
       .select('print_format, printer_type, printer_identifier')
-      .eq('id', params.companyId)
+      .eq('id', companyIdFromAuth)
       .maybeSingle();
 
     if (!company) {
@@ -32,6 +41,14 @@ export async function POST(
   { params }: { params: { companyId: string } }
 ) {
   try {
+    const companyIdFromAuth = await resolveCompanyIdFromRequest(req);
+    if (!companyIdFromAuth) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    if (params.companyId !== companyIdFromAuth) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
     const body = await req.json();
     const { print_format, printer_type, printer_identifier } = body;
 
@@ -52,7 +69,7 @@ export async function POST(
         printer_identifier: printer_identifier || null,
         updated_at: new Date().toISOString(),
       })
-      .eq('id', params.companyId);
+      .eq('id', companyIdFromAuth);
 
     if (error) {
       return NextResponse.json({ error: error.message || 'Failed to save printer settings' }, { status: 500 });
