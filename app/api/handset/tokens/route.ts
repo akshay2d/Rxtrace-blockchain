@@ -21,7 +21,7 @@ export async function GET(req: Request) {
       await Promise.all([
         supabase
           .from("token")
-          .select("*")
+          .select("id, tokennumber, generatedat, expiry, status, activationcount, maxactivations")
           .eq("userid", auth.userId)
           .order("generatedat", { ascending: false })
           .range(skip, skip + limit - 1),
@@ -38,8 +38,19 @@ export async function GET(req: Request) {
       throw new Error(totalError.message);
     }
 
+    // Normalize DB snake_case-ish columns into the camelCase shape used by the dashboard.
+    const normalized = (tokens ?? []).map((row: any) => ({
+      id: String(row.id),
+      tokenNumber: row.tokennumber,
+      generatedAt: row.generatedat ? new Date(row.generatedat).toISOString() : null,
+      expiry: row.expiry ? new Date(row.expiry).toISOString() : null,
+      status: row.status,
+      activationCount: Number(row.activationcount ?? 0),
+      maxActivations: Number(row.maxactivations ?? 10),
+    }));
+
     return NextResponse.json({
-      tokens: tokens ?? [],
+      tokens: normalized,
       total: total ?? 0,
       page,
       limit,

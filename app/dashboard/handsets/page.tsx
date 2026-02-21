@@ -66,8 +66,18 @@ export default function HandsetsPage() {
         throw new Error(data.error || 'Failed to load tokens');
       }
 
-      setTokens(data.tokens || []);
-      setTokensTotal(data.total || 0);
+      const normalizedTokens = (data.tokens || []).map((token: any) => ({
+        id: String(token.id),
+        tokenNumber: token.tokenNumber ?? token.tokennumber ?? '—',
+        generatedAt: token.generatedAt ?? token.generatedat ?? null,
+        expiry: token.expiry ?? null,
+        status: token.status,
+        activationCount: Number(token.activationCount ?? token.activationcount ?? 0),
+        maxActivations: Number(token.maxActivations ?? token.maxactivations ?? 10),
+      }));
+
+      setTokens(normalizedTokens);
+      setTokensTotal(data.total || normalizedTokens.length || 0);
       setError(null);
     } catch (err: any) {
       console.error('Failed to load tokens', err);
