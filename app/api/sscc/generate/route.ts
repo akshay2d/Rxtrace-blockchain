@@ -1,10 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
-import { assertCompanyCanOperate, ensureActiveBillingUsage } from '@/lib/billing/usage';
-import { supabaseServer } from '@/lib/supabase/server';
-import { refundQuotaBalance } from '@/lib/billing/quota';
-import { trackUsage, checkUsageLimits } from '@/lib/usage/tracking';
 import { resolveCompanyIdFromRequest } from '@/lib/company/resolve';
+import { enforceEntitlement, refundEntitlement } from '@/lib/entitlement/enforce';
+import { UsageType } from '@/lib/entitlement/usageTypes';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -94,19 +92,14 @@ async function resolveSkuId(opts: {
  * - generate_pallet: boolean
  */
 export async function POST(req: Request) {
-  let quotaConsumed = false;
+  // IMPORTANT:
+  // Do NOT implement quota logic in this route.
+  // All entitlement enforcement must use lib/entitlement/enforce.ts
+  let entitlementConsumed = false;
   let consumedQuantity = 0;
   let consumedCompanyId = '';
   
   try {
-    // Resolve authenticated user and company
-    const supabaseAuth = await supabaseServer();
-    const { data: { user }, error: userError } = await supabaseAuth.auth.getUser();
-
-    if (userError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
     const supabase = getSupabaseAdmin();
     const body = await req.json();
 
@@ -192,9 +185,6 @@ export async function POST(req: Request) {
       );
     }
 
-    await assertCompanyCanOperate({ supabase, companyId: company_id });
-    await ensureActiveBillingUsage({ supabase, companyId: company_id });
-
     const skuUuid = await resolveSkuId({
       supabase,
       companyId: company_id,
@@ -262,73 +252,24 @@ export async function POST(req: Request) {
       );
     }
 
-    // PRIORITY-2: Quota Type Mapping - SSCC (Consolidated)
-    // This API consumes SSCC quota for ALL levels (Box, Carton, Pallet combined)
-    // Quota source: plan_items.limit_value where label contains "pallet" or "sscc"
-    // Usage tracked in: billing_usage.sscc_labels_used (billing period) and usage_counters (monthly)
-    // Note: SSCC quota is consolidated - all levels consume the same quota pool
-    // Check usage limits (HARD limit blocks, SOFT limit warns)
-    const limitCheck = await checkUsageLimits(supabase, company_id, 'SSCC', totalSSCCCount);
-    if (!limitCheck.allowed) {
+    const decision = await enforceEntitlement({
+      companyId: company_id,
+      usageType: UsageType.SSCC_LABEL,
+      quantity: totalSSCCCount,
+      metadata: { source: "sscc_generate" },
+    });
+    if (!decision.allow) {
       return NextResponse.json(
         {
-          error: limitCheck.reason || 'SSCC label limit exceeded',
-          code: 'limit_exceeded',
-          limit_type: limitCheck.limit_type,
-          current_usage: limitCheck.current_usage,
-          limit_value: limitCheck.limit_value,
+          error: decision.reason_code,
+          remaining: decision.remaining,
         },
         { status: 403 }
       );
     }
 
-    // PRIORITY-2: Consume SSCC quota from quota_balance system
-    // Quota consumed from: companies.sscc_quota_balance (via consume_quota_balance RPC)
-    // All SSCC levels (Box, Carton, Pallet) consume the same consolidated SSCC quota
-    // Consume SSCC quota BEFORE generating labels
-    // If quota is insufficient, abort generation
-    // Call RPC directly with p_kind: 'sscc'
-    const { data: quotaData, error: quotaError } = await supabase.rpc(
-      'consume_quota_balance',
-      {
-        p_company_id: company_id,
-        p_kind: 'sscc',
-        p_qty: totalSSCCCount,
-        p_now: new Date().toISOString(),
-      }
-    );
-
-    // Debug logging (remove in production)
-    if (quotaError) {
-      return NextResponse.json(
-        {
-          error: quotaError.message || 'Failed to check SSCC quota',
-          code: 'quota_error',
-        },
-        { status: 500 }
-      );
-    }
-
-    // Handle RPC result - data is an array, get first element
-    const quotaResult = Array.isArray(quotaData) ? quotaData[0] : quotaData;
-
-    if (!quotaResult || !quotaResult.ok) {
-      const remaining = quotaResult?.sscc_balance ?? 0;
-      return NextResponse.json(
-        {
-          error: quotaResult?.error || `Insufficient SSCC quota balance. Requested: ${totalSSCCCount}, Remaining: ${remaining}. Please upgrade your plan or purchase add-on SSCC codes.`,
-          code: 'quota_exceeded',
-          requires_addon: true,
-          addon: 'sscc',
-          requested: totalSSCCCount,
-          remaining: remaining,
-        },
-        { status: 403 }
-      );
-    }
-
-    // Mark quota as consumed for error handling
-    quotaConsumed = true;
+    // Mark entitlement consumed for error handling
+    entitlementConsumed = true;
     consumedQuantity = totalSSCCCount;
     consumedCompanyId = company_id;
 
@@ -339,8 +280,11 @@ export async function POST(req: Request) {
     });
 
     if (allocErr) {
-      // Refund quota if serial allocation fails
-      await refundQuotaBalance(company_id, 'sscc', totalSSCCCount);
+      await refundEntitlement({
+        companyId: company_id,
+        usageType: UsageType.SSCC_LABEL,
+        quantity: totalSSCCCount,
+      });
       return NextResponse.json(
         { error: allocErr.message ?? 'Failed to allocate SSCC serials' },
         { status: 400 }
@@ -368,8 +312,11 @@ export async function POST(req: Request) {
         });
 
         if (ssccErr || !ssccGen) {
-          // Refund quota if SSCC generation fails
-          await refundQuotaBalance(company_id, 'sscc', totalSSCCCount);
+          await refundEntitlement({
+            companyId: company_id,
+            usageType: UsageType.SSCC_LABEL,
+            quantity: totalSSCCCount,
+          });
           return NextResponse.json(
             { error: ssccErr?.message ?? 'Failed to generate SSCC for box' },
             { status: 400 }
@@ -411,8 +358,11 @@ export async function POST(req: Request) {
         });
 
         if (ssccErr || !ssccGen) {
-          // Refund quota if SSCC generation fails
-          await refundQuotaBalance(company_id, 'sscc', totalSSCCCount);
+          await refundEntitlement({
+            companyId: company_id,
+            usageType: UsageType.SSCC_LABEL,
+            quantity: totalSSCCCount,
+          });
           return NextResponse.json(
             { error: ssccErr?.message ?? 'Failed to generate SSCC for carton' },
             { status: 400 }
@@ -502,8 +452,11 @@ export async function POST(req: Request) {
 
     // Check for insertion errors
     if (insertedBoxes.error || insertedCartons.error || insertedPallets.error) {
-      // Refund quota if insertion failed
-      await refundQuotaBalance(company_id, 'sscc', totalSSCCCount);
+      await refundEntitlement({
+        companyId: company_id,
+        usageType: UsageType.SSCC_LABEL,
+        quantity: totalSSCCCount,
+      });
 
       const errorMsg = insertedBoxes.error?.message || insertedCartons.error?.message || insertedPallets.error?.message;
       return NextResponse.json(
@@ -515,31 +468,22 @@ export async function POST(req: Request) {
     // TODO: Link parent-child relationships (box → carton, carton → pallet)
     // This requires updating boxes.carton_id and cartons.pallet_id
 
-    // Track usage (non-blocking)
-    trackUsage(supabase, {
-      company_id: company_id,
-      metric_type: 'SSCC',
-      quantity: totalSSCCCount,
-      source: 'api',
-      reference_id: `sscc_${skuUuid}_${Date.now()}`,
-    }).catch((err) => {
-      console.error('Usage tracking failed (non-blocking):', err);
-    });
-
     return NextResponse.json({
       boxes: insertedBoxes.data || [],
       cartons: insertedCartons.data || [],
       pallets: insertedPallets.data || [],
       total_sscc_generated: totalSSCCCount,
-      usage_warning: limitCheck.reason || undefined, // Include soft limit warning if applicable
     });
   } catch (err: any) {
-    // If quota was consumed but an error occurred, try to refund
-    if (quotaConsumed && consumedQuantity > 0 && consumedCompanyId) {
+    // If entitlement was consumed but an error occurred, try to refund
+    if (entitlementConsumed && consumedQuantity > 0 && consumedCompanyId) {
       try {
-        await refundQuotaBalance(consumedCompanyId, 'sscc', consumedQuantity);
+        await refundEntitlement({
+          companyId: consumedCompanyId,
+          usageType: UsageType.SSCC_LABEL,
+          quantity: consumedQuantity,
+        });
       } catch (refundErr) {
-        // Ignore refund errors in error handler
         console.error('Failed to refund quota in error handler:', refundErr);
       }
     }

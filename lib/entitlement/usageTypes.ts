@@ -1,0 +1,12 @@
+export enum UsageType {
+  UNIT_LABEL = "UNIT_LABEL",
+  SSCC_LABEL = "SSCC_LABEL",
+  PALLET_LABEL = "PALLET_LABEL",
+  BOX_LABEL = "BOX_LABEL",
+  CARTON_LABEL = "CARTON_LABEL",
+  LABEL_PREVIEW = "LABEL_PREVIEW",
+  BULK_GENERATION = "BULK_GENERATION",
+  ERP_INGEST = "ERP_INGEST",
+}
+
+export type QuotaKind = "unit" | "sscc";

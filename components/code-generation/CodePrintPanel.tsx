@@ -15,7 +15,6 @@ type LabelData = {
 
 type CodePrintPanelProps = {
   labels: LabelData[];
-  companyId: string;
   onPrint: (format: 'PDF' | 'EPL' | 'ZPL') => void;
   printing?: boolean;
 };
@@ -28,7 +27,6 @@ type CodePrintPanelProps = {
  */
 export default function CodePrintPanel({
   labels,
-  companyId,
   onPrint,
   printing = false,
 }: CodePrintPanelProps) {
@@ -36,22 +34,6 @@ export default function CodePrintPanel({
   const hasLabels = labels.length > 0;
 
   async function handlePrint() {
-    // If no configured preference, use selected format
-    if (companyId) {
-      try {
-        const res = await fetch(`/api/companies/${companyId}/printer-settings`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.print_format) {
-            onPrint(data.print_format);
-            return;
-          }
-        }
-      } catch {
-        // Use selected format
-      }
-    }
-    
     onPrint(selectedFormat);
   }
 

@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import { assertCompanyCanOperate, ensureActiveBillingUsage } from "@/lib/billing/usage";
 import { resolveCompanyIdFromRequest } from "@/lib/company/resolve";
+import { enforceEntitlement, refundEntitlement } from "@/lib/entitlement/enforce";
+import { UsageType } from "@/lib/entitlement/usageTypes";
 
 export async function POST(req: Request) {
+  // IMPORTANT:
+  // Do NOT implement quota logic in this route.
+  // All entitlement enforcement must use lib/entitlement/enforce.ts
   const authCompanyId = await resolveCompanyIdFromRequest(req);
   if (!authCompanyId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -21,9 +25,6 @@ export async function POST(req: Request) {
   if (!sku_id) {
     return NextResponse.json({ error: "sku_id is required" }, { status: 400 });
   }
-
-  await assertCompanyCanOperate({ supabase, companyId: company_id });
-  await ensureActiveBillingUsage({ supabase, companyId: company_id });
 
   const countRaw = Number(pallet_count);
   const count = Number.isFinite(countRaw) ? Math.trunc(countRaw) : 0;
@@ -132,20 +133,17 @@ export async function POST(req: Request) {
     sscc_with_ai: `(00)${sscc}`,
   }));
 
-  const { data: reserveRow, error: reserveErr } = await supabase.rpc("billing_usage_consume", {
-    p_company_id: company_id,
-    p_kind: "pallet",
-    p_qty: count,
+  const decision = await enforceEntitlement({
+    companyId: company_id,
+    usageType: UsageType.PALLET_LABEL,
+    quantity: count,
+    metadata: { source: "sscc_create" },
   });
-
-  const reserve = Array.isArray(reserveRow) ? reserveRow[0] : reserveRow;
-  if (reserveErr || !reserve?.ok) {
+  if (!decision.allow) {
     return NextResponse.json(
       {
-        error: "Pallet label quota exceeded. Please purchase extra Pallet labels add-on.",
-        code: reserve?.error ?? reserveErr?.message ?? "quota_exceeded",
-        requires_addon: true,
-        addon: "pallet",
+        error: decision.reason_code,
+        remaining: decision.remaining,
       },
       { status: 403 }
     );
@@ -157,7 +155,11 @@ export async function POST(req: Request) {
     .select();
 
   if (error) {
-    await supabase.rpc("billing_usage_refund", { p_company_id: company_id, p_kind: "pallet", p_qty: count });
+    await refundEntitlement({
+      companyId: company_id,
+      usageType: UsageType.PALLET_LABEL,
+      quantity: count,
+    });
     return NextResponse.json({ error }, { status: 400 });
   }
 

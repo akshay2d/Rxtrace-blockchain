@@ -2,15 +2,8 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { verifyCompanyAccess } from "@/lib/auth/company";
 import { resolveCompanyIdFromRequest } from "@/lib/company/resolve";
-import {
-  assertCompanyCanOperate,
-  ensureActiveBillingUsage,
-} from "@/lib/billing/usage";
-import { checkUsageLimits } from "@/lib/usage/tracking";
-import {
-  consumeQuotaBalance,
-  refundQuotaBalance,
-} from "@/lib/billing/quota";
+import { enforceEntitlement, refundEntitlement } from "@/lib/entitlement/enforce";
+import { UsageType } from "@/lib/entitlement/usageTypes";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,6 +13,9 @@ export const dynamic = "force-dynamic";
  * subscription-based quota (unit + SSCC), not wallet/credit.
  */
 export async function POST(req: Request) {
+  // IMPORTANT:
+  // Do NOT implement quota logic in this route.
+  // All entitlement enforcement must use lib/entitlement/enforce.ts
   try {
     const supabase = getSupabaseAdmin();
     const authCompanyId = await resolveCompanyIdFromRequest(req);
@@ -85,64 +81,40 @@ export async function POST(req: Request) {
     const totalUnits = Number(total_strips);
     const totalSSCC = totalBoxes + totalCartons + totalPallets;
 
-    // PHASE-4: Subscription-based quota (no wallet)
-    await assertCompanyCanOperate({ supabase, companyId: company_id });
-    await ensureActiveBillingUsage({ supabase, companyId: company_id });
-
-    const unitCheck = await checkUsageLimits(
-      supabase,
-      company_id,
-      "UNIT",
-      totalUnits
-    );
-    if (!unitCheck.allowed) {
+    const unitDecision = await enforceEntitlement({
+      companyId: company_id,
+      usageType: UsageType.UNIT_LABEL,
+      quantity: totalUnits,
+      metadata: { source: "generate_hierarchy_unit" },
+    });
+    if (!unitDecision.allow) {
       return NextResponse.json(
         {
-          error: unitCheck.reason ?? "Unit label limit exceeded",
-          code: "limit_exceeded",
-          limit_type: unitCheck.limit_type,
-          current_usage: unitCheck.current_usage,
-          limit_value: unitCheck.limit_value,
+          error: unitDecision.reason_code,
+          remaining: unitDecision.remaining,
         },
         { status: 403 }
       );
     }
 
-    const ssccCheck = await checkUsageLimits(
-      supabase,
-      company_id,
-      "SSCC",
-      totalSSCC
-    );
-    if (!ssccCheck.allowed) {
+    const ssccDecision = await enforceEntitlement({
+      companyId: company_id,
+      usageType: UsageType.SSCC_LABEL,
+      quantity: totalSSCC,
+      metadata: { source: "generate_hierarchy_sscc" },
+    });
+    if (!ssccDecision.allow) {
+      await refundEntitlement({
+        companyId: company_id,
+        usageType: UsageType.UNIT_LABEL,
+        quantity: totalUnits,
+      });
       return NextResponse.json(
         {
-          error: ssccCheck.reason ?? "SSCC label limit exceeded",
-          code: "limit_exceeded",
-          limit_type: ssccCheck.limit_type,
-          current_usage: ssccCheck.current_usage,
-          limit_value: ssccCheck.limit_value,
+          error: ssccDecision.reason_code,
+          remaining: ssccDecision.remaining,
         },
         { status: 403 }
-      );
-    }
-
-    // Consume quota before generation; refund on failure
-    const [unitConsume, ssccConsume] = await Promise.all([
-      consumeQuotaBalance(company_id, "unit", totalUnits),
-      consumeQuotaBalance(company_id, "sscc", totalSSCC),
-    ]);
-
-    if (!unitConsume.ok || !ssccConsume.ok) {
-      const msg =
-        unitConsume.error ?? ssccConsume.error ?? "Failed to reserve quota";
-      if (unitConsume.ok)
-        await refundQuotaBalance(company_id, "unit", totalUnits);
-      if (ssccConsume.ok)
-        await refundQuotaBalance(company_id, "sscc", totalSSCC);
-      return NextResponse.json(
-        { error: msg, code: "quota_error" },
-        { status: 500 }
       );
     }
 
@@ -158,8 +130,16 @@ export async function POST(req: Request) {
 
       if (error) {
         await Promise.all([
-          refundQuotaBalance(company_id, "unit", totalUnits),
-          refundQuotaBalance(company_id, "sscc", totalSSCC),
+          refundEntitlement({
+            companyId: company_id,
+            usageType: UsageType.UNIT_LABEL,
+            quantity: totalUnits,
+          }),
+          refundEntitlement({
+            companyId: company_id,
+            usageType: UsageType.SSCC_LABEL,
+            quantity: totalSSCC,
+          }),
         ]);
         return NextResponse.json(
           { error: "Generation failed", detail: error },
@@ -170,8 +150,16 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true, generation: data });
     } catch (genErr) {
       await Promise.all([
-        refundQuotaBalance(company_id, "unit", totalUnits),
-        refundQuotaBalance(company_id, "sscc", totalSSCC),
+        refundEntitlement({
+          companyId: company_id,
+          usageType: UsageType.UNIT_LABEL,
+          quantity: totalUnits,
+        }),
+        refundEntitlement({
+          companyId: company_id,
+          usageType: UsageType.SSCC_LABEL,
+          quantity: totalSSCC,
+        }),
       ]);
       return NextResponse.json(
         { error: String(genErr) },

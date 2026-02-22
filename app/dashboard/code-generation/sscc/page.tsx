@@ -589,21 +589,11 @@ export default function SSCCCodeGenerationPage() {
     setSuccess(null);
 
     try {
-      // Fetch printer preferences
       let printFormat: 'PDF' | 'EPL' | 'ZPL' = 'PDF';
-      try {
-        const res = await fetch(`/api/companies/${companyId}/printer-settings`);
-        if (res.ok) {
-          const data = await res.json();
-          printFormat = data.print_format || 'PDF';
-        }
-      } catch {
-        // If no preferences, prompt user
-        const formatChoice = prompt('Select print format:\n1. PDF (Opens OS print dialog)\n2. EPL (Download file)\n3. ZPL (Download file)\n\nEnter 1, 2, or 3:');
-        if (formatChoice === '2') printFormat = 'EPL';
-        else if (formatChoice === '3') printFormat = 'ZPL';
-        else printFormat = 'PDF';
-      }
+      const formatChoice = prompt('Select print format:\n1. PDF (Opens OS print dialog)\n2. EPL (Download file)\n3. ZPL (Download file)\n\nEnter 1, 2, or 3:');
+      if (formatChoice === '2') printFormat = 'EPL';
+      else if (formatChoice === '3') printFormat = 'ZPL';
+      else printFormat = 'PDF';
 
       const labels = ssccToLabelData();
       const filename = `sscc_labels_${Date.now()}`;

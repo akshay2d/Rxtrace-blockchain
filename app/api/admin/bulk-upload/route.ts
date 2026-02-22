@@ -5,12 +5,8 @@ import { makeSscc } from "@/app/lib/sscc";
 import { requireAdmin } from "@/lib/auth/admin";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { logAdminAction } from "@/lib/audit/admin";
-import { ensureActiveBillingUsage } from "@/lib/billing/usage";
-import { checkUsageLimits } from "@/lib/usage/tracking";
-import {
-  consumeQuotaBalance,
-  refundQuotaBalance,
-} from "@/lib/billing/quota";
+import { enforceEntitlement, refundEntitlement } from "@/lib/entitlement/enforce";
+import { UsageType } from "@/lib/entitlement/usageTypes";
 
 /**
  * POST body (JSON) accepted:
@@ -44,6 +40,9 @@ function parseCsv(text: string) {
 }
 
 export async function POST(req: Request) {
+  // IMPORTANT:
+  // Do NOT implement quota logic in this route.
+  // All entitlement enforcement must use lib/entitlement/enforce.ts
   let quotaConsumed = false;
   let quotaRefundCount = 0;
   let quotaCompanyId = "";
@@ -89,34 +88,22 @@ export async function POST(req: Request) {
 
     // PHASE-4: For pallet/carton, consume SSCC quota before creating records
     if (level === "pallet" || level === "carton") {
-      const supabase = getSupabaseAdmin();
-      await ensureActiveBillingUsage({ supabase, companyId: company_id });
-      const limitCheck = await checkUsageLimits(
-        supabase,
-        company_id,
-        "SSCC",
-        rows.length
-      );
-      if (!limitCheck.allowed) {
+      const usageType =
+        level === "pallet" ? UsageType.PALLET_LABEL : UsageType.CARTON_LABEL;
+      const decision = await enforceEntitlement({
+        companyId: company_id,
+        usageType,
+        quantity: rows.length,
+        metadata: { source: `admin_bulk_upload_${level}` },
+      });
+      if (!decision.allow) {
         return NextResponse.json(
           {
             success: false,
-            error:
-              limitCheck.reason ?? "SSCC label limit exceeded",
-            code: "limit_exceeded",
+            error: decision.reason_code,
+            remaining: decision.remaining,
           },
           { status: 403 }
-        );
-      }
-      const consume = await consumeQuotaBalance(
-        company_id,
-        "sscc",
-        rows.length
-      );
-      if (!consume.ok) {
-        return NextResponse.json(
-          { success: false, error: consume.error ?? "Failed to reserve quota" },
-          { status: 500 }
         );
       }
       quotaConsumed = true;
@@ -192,7 +179,14 @@ export async function POST(req: Request) {
   } catch (err: any) {
     if (quotaConsumed && quotaRefundCount > 0 && quotaCompanyId) {
       try {
-        await refundQuotaBalance(quotaCompanyId, "sscc", quotaRefundCount);
+        await refundEntitlement({
+          companyId: quotaCompanyId,
+          usageType:
+            bodyLevel === "pallet"
+              ? UsageType.PALLET_LABEL
+              : UsageType.CARTON_LABEL,
+          quantity: quotaRefundCount,
+        });
       } catch (_) {
         // best-effort refund
       }

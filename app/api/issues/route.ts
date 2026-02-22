@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
-import { assertCompanyCanOperate, ensureActiveBillingUsage } from '@/lib/billing/usage';
 import { generateCanonicalGS1 } from '@/lib/gs1Canonical';
-import { trackUsage, checkUsageLimits } from '@/lib/usage/tracking';
+import { enforceEntitlement, refundEntitlement } from '@/lib/entitlement/enforce';
+import { UsageType } from '@/lib/entitlement/usageTypes';
 import crypto from 'crypto';
 
 export const runtime = 'nodejs';
@@ -60,6 +60,9 @@ async function resolveAuthCompany() {
 }
 
 export async function POST(req: Request) {
+  // IMPORTANT:
+  // Do NOT implement quota logic in this route.
+  // All entitlement enforcement must use lib/entitlement/enforce.ts
   try {
     // Resolve company from auth
     const auth = await resolveAuthCompany();
@@ -78,7 +81,6 @@ export async function POST(req: Request) {
     const mrp = body.mrp !== undefined ? String(body.mrp).trim() : '';
     const skuCode = typeof body.sku === 'string' ? body.sku.trim().toUpperCase() : '';
     const company = typeof body.company === 'string' ? body.company.trim() : companyName;
-    const printerId = typeof body.printer_id === 'string' ? body.printer_id.trim() : null;
 
     // Validate required fields
     if (!gtin || !batch || !expInput || !quantity || quantity <= 0) {
@@ -168,25 +170,19 @@ export async function POST(req: Request) {
       }
     }
 
-    // Validate company can operate and has billing
     const admin = getSupabaseAdmin();
-    await assertCompanyCanOperate({ supabase: admin, companyId });
-    await ensureActiveBillingUsage({ supabase: admin, companyId });
 
-    // PRIORITY-2: Quota Type Mapping - UNIT
-    // This API consumes UNIT quota from plan_items (via checkUsageLimits)
-    // Quota source: plan_items.limit_value where label contains "unit"
-    // Usage tracked in: billing_usage.unit_labels_used (billing period) and usage_counters (monthly)
-    // Check usage limits before generation
-    const limitCheck = await checkUsageLimits(admin, companyId, 'UNIT', quantity);
-    if (!limitCheck.allowed) {
+    const decision = await enforceEntitlement({
+      companyId,
+      usageType: UsageType.UNIT_LABEL,
+      quantity,
+      metadata: { source: "issues_generate" },
+    });
+    if (!decision.allow) {
       return NextResponse.json(
         {
-          error: limitCheck.reason || 'Unit label limit exceeded',
-          code: 'limit_exceeded',
-          limit_type: limitCheck.limit_type,
-          current_usage: limitCheck.current_usage,
-          limit_value: limitCheck.limit_value,
+          error: decision.reason_code,
+          remaining: decision.remaining,
         },
         { status: 403 }
       );
@@ -268,33 +264,15 @@ export async function POST(req: Request) {
       });
     }
 
-    // Atomically consume quota AND insert labels in a single transaction
-    // If quota is insufficient OR label insertion fails, entire transaction rolls back
-    const { data: rpcResult, error: rpcError } = await admin.rpc(
-      'consume_quota_and_insert_unit_labels',
-      {
-        p_company_id: companyId,
-        p_qty: quantity,
-        p_unit_rows: unitRows,
-        p_now: new Date().toISOString(),
-      }
-    );
+    const { error: insertError } = await admin.from("labels_units").insert(unitRows);
+    if (insertError) {
+      await refundEntitlement({
+        companyId,
+        usageType: UsageType.UNIT_LABEL,
+        quantity,
+      });
 
-    if (rpcError) {
-      // RPC error indicates quota failure or insert failure (transaction rolled back)
-      if (rpcError.message?.includes('quota') || rpcError.message?.includes('Insufficient')) {
-        return NextResponse.json(
-          {
-            error: 'Unit label quota exceeded. Please purchase extra Unit labels add-on.',
-            code: 'quota_exceeded',
-            requires_addon: true,
-            addon: 'unit',
-          },
-          { status: 403 }
-        );
-      }
-
-      if (rpcError.code === '23505' || rpcError.message?.includes('unique') || rpcError.message?.includes('duplicate')) {
+      if (insertError.code === '23505' || insertError.message?.includes('unique') || insertError.message?.includes('duplicate')) {
         return NextResponse.json(
           { error: 'Duplicate serial detected. Please try again.' },
           { status: 409 }
@@ -310,46 +288,10 @@ export async function POST(req: Request) {
       );
     }
 
-    const result = Array.isArray(rpcResult) ? rpcResult[0] : rpcResult;
-    if (!result || !result.ok) {
-      // RPC returned failure (quota insufficient or other error)
-      if (result?.error?.includes('quota') || result?.error?.includes('Insufficient')) {
-        return NextResponse.json(
-          {
-            error: 'Unit label quota exceeded. Please purchase extra Unit labels add-on.',
-            code: 'quota_exceeded',
-            requires_addon: true,
-            addon: 'unit',
-          },
-          { status: 403 }
-        );
-      }
-
-      return NextResponse.json(
-        {
-          error: 'Unable to generate unit labels right now. Please retry.',
-          code: 'generation_failed',
-        },
-        { status: 500 }
-      );
-    }
-
-    // Track usage (non-blocking)
-    trackUsage(admin, {
-      company_id: companyId,
-      metric_type: 'UNIT',
-      quantity,
-      source: 'api',
-      reference_id: `batch_${batch}_${Date.now()}`,
-    }).catch((err) => {
-      console.error('Usage tracking failed (non-blocking):', err);
-    });
-
     // Success: quota was consumed and labels were inserted atomically
     // Return format expected by frontend
     return NextResponse.json({
       items,
-      usage_warning: limitCheck.reason || undefined, // Include soft limit warning if applicable
     });
   } catch (err: any) {
     console.error('Issues API error:', err);

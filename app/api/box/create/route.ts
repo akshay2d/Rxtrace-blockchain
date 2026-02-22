@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import { assertCompanyCanOperate, ensureActiveBillingUsage } from "@/lib/billing/usage";
 import { resolveCompanyIdFromRequest } from "@/lib/company/resolve";
+import { enforceEntitlement, refundEntitlement } from "@/lib/entitlement/enforce";
+import { UsageType } from "@/lib/entitlement/usageTypes";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -55,6 +56,9 @@ async function resolveSkuId(opts: {
 }
 
 export async function POST(req: Request) {
+  // IMPORTANT:
+  // Do NOT implement quota logic in this route.
+  // All entitlement enforcement must use lib/entitlement/enforce.ts
   try {
     const supabase = getSupabaseAdmin();
     const authCompanyId = await resolveCompanyIdFromRequest(req);
@@ -79,9 +83,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
     const company_id = authCompanyId;
-
-    await assertCompanyCanOperate({ supabase, companyId: company_id });
-    await ensureActiveBillingUsage({ supabase, companyId: company_id });
 
     const skuUuid = await resolveSkuId({
       supabase,
@@ -228,20 +229,17 @@ export async function POST(req: Request) {
       };
     });
 
-    const { data: reserveRow, error: reserveErr } = await supabase.rpc("billing_usage_consume", {
-      p_company_id: company_id,
-      p_kind: "box",
-      p_qty: count,
+    const decision = await enforceEntitlement({
+      companyId: company_id,
+      usageType: UsageType.BOX_LABEL,
+      quantity: count,
+      metadata: { source: "box_create" },
     });
-
-    const reserve = Array.isArray(reserveRow) ? reserveRow[0] : reserveRow;
-    if (reserveErr || !reserve?.ok) {
+    if (!decision.allow) {
       return NextResponse.json(
         {
-          error: "Box label quota exceeded. Please purchase extra Box labels add-on.",
-          code: reserve?.error ?? reserveErr?.message ?? "quota_exceeded",
-          requires_addon: true,
-          addon: "box",
+          error: decision.reason_code,
+          remaining: decision.remaining,
         },
         { status: 403 }
       );
@@ -253,7 +251,11 @@ export async function POST(req: Request) {
       .select("id, sscc, sscc_with_ai, code, sku_id, carton_id, pallet_id, created_at, meta");
 
     if (insertErr || !inserted) {
-      await supabase.rpc("billing_usage_refund", { p_company_id: company_id, p_kind: "box", p_qty: count });
+      await refundEntitlement({
+        companyId: company_id,
+        usageType: UsageType.BOX_LABEL,
+        quantity: count,
+      });
       return NextResponse.json(
         { error: insertErr?.message ?? "Failed to insert boxes" },
         { status: 400 }

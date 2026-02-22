@@ -7,7 +7,6 @@ import { jsPDF } from 'jspdf';
 
 import GenerateLabel from '@/lib/generateLabel';
 import { buildGs1ElementString } from '@/lib/gs1Builder';
-import IssuePrinterSelector, { Printer } from '@/components/IssuePrinterSelector';
 import QRCodeComponent from '@/components/custom/QRCodeComponent';
 import DataMatrixComponent from '@/components/custom/DataMatrixComponent';
 import { supabaseClient } from '@/lib/supabase/client';
@@ -38,7 +37,6 @@ type FormState = {
   company: string;
   codeType: CodeType;
   quantity: number;
-  printerId: string;
 };
 
 type BatchRow = {
@@ -69,7 +67,6 @@ function isoDateToYYMMDD(iso?: string): string | undefined {
   return `${yy}${mm}${dd}`;
 }
 
-// ---------- printers ----------
 function buildZplForRow(row: BatchRow) {
   const top = '^XA\n';
   const payloadComment = `^FX Payload: ${row.payload}\n`;
@@ -161,7 +158,7 @@ async function buildPdf(rows: BatchRow[]) {
 }
 
 // ---------- csv ----------
-async function csvToRows(csvText: string, printerId: string): Promise<BatchRow[]> {
+async function csvToRows(csvText: string): Promise<BatchRow[]> {
   const parsed = Papa.parse<Record<string, string>>(csvText, { header: true, skipEmptyLines: true });
   const out: BatchRow[] = [];
 
@@ -203,7 +200,6 @@ async function csvToRows(csvText: string, printerId: string): Promise<BatchRow[]
         mfd: mfdISO || null,
         exp: expISO,
         quantity: qty,
-        printer_id: printerId,
         mrp: mrp || undefined,
         sku: sku || undefined,
         company: companyName || undefined
@@ -247,14 +243,12 @@ export default function Page() {
     sku_name: '',
     company: '',
     codeType: 'QR',
-    quantity: 1,
-    printerId: ''
+    quantity: 1
   });
 
   const [payload, setPayload] = useState<string>();
   const [batch, setBatch] = useState<BatchRow[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [printers, setPrinters] = useState<Printer[]>([]);
   const [company, setCompany] = useState<string>('');
   const [companyId, setCompanyId] = useState<string>('');
   const [savingSku, setSavingSku] = useState(false);
@@ -318,23 +312,13 @@ export default function Page() {
     setCsvUploading(true);
     try {
       const text = await file.text();
-      const rows = await csvToRows(text, form.printerId);
+      const rows = await csvToRows(text);
       setBatch((prev) => [...prev, ...rows]);
     } catch (e: any) {
       setError(e?.message || 'Failed to process CSV');
     } finally {
       setCsvUploading(false);
     }
-  }
-
-  async function fetchPrinters(): Promise<Printer[]> {
-    const res = await fetch('/api/printers');
-    if (res.ok) {
-      const data = await res.json();
-      setPrinters(data);
-      return data;
-    }
-    return [];
   }
 
   function update<K extends keyof FormState>(k: K, v: FormState[K]) {
@@ -602,15 +586,6 @@ export default function Page() {
                       </p>
                     )}
                   </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">Printer (Optional)</label>
-                  <IssuePrinterSelector
-                    printers={printers}
-                    selectedPrinter={form.printerId}
-                    onChange={v => update('printerId', v || '')}
-                    fetchPrinters={fetchPrinters}
-                  />
                 </div>
               </div>
             </div>

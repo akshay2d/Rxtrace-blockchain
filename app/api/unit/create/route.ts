@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import { assertCompanyCanOperate, ensureActiveBillingUsage } from "@/lib/billing/usage";
 import { generateCanonicalGS1 } from "@/lib/gs1Canonical";
 import { resolveCompanyIdFromRequest } from "@/lib/company/resolve";
+import { enforceEntitlement, refundEntitlement } from "@/lib/entitlement/enforce";
+import { UsageType } from "@/lib/entitlement/usageTypes";
 
 // ---------- utils ----------
 const generateSerial = (companyId: string) =>
@@ -13,6 +14,9 @@ const generateSerial = (companyId: string) =>
 
 // ---------- API ----------
 export async function POST(req: Request) {
+  // IMPORTANT:
+  // Do NOT implement quota logic in this route.
+  // All entitlement enforcement must use lib/entitlement/enforce.ts
   try {
     const authCompanyId = await resolveCompanyIdFromRequest(req);
     if (!authCompanyId) {
@@ -55,35 +59,26 @@ export async function POST(req: Request) {
       );
     }
 
-    await assertCompanyCanOperate({ supabase, companyId: company_id });
-    await ensureActiveBillingUsage({ supabase, companyId: company_id });
-
     const qty = Number(quantity);
     if (!Number.isFinite(qty) || !Number.isInteger(qty) || qty <= 0) {
       return NextResponse.json({ error: "quantity must be a positive integer" }, { status: 400 });
     }
 
-    const { data: reserveRow, error: reserveErr } = await supabase.rpc('billing_usage_consume', {
-      p_company_id: company_id,
-      p_kind: 'unit',
-      p_qty: qty,
+    const decision = await enforceEntitlement({
+      companyId: company_id,
+      usageType: UsageType.UNIT_LABEL,
+      quantity: qty,
+      metadata: { source: "unit_create" },
     });
-
-    const reserve = Array.isArray(reserveRow) ? reserveRow[0] : reserveRow;
-    if (reserveErr || !reserve?.ok) {
+    if (!decision.allow) {
       return NextResponse.json(
         {
-          error: "Unit label quota exceeded. Please purchase extra Unit labels add-on.",
-          code: reserve?.error ?? reserveErr?.message ?? 'quota_exceeded',
-          requires_addon: true,
-          addon: 'unit'
+          error: decision.reason_code,
+          remaining: decision.remaining,
         },
         { status: 403 }
       );
     }
-
-    // Keep for debugging / future logs
-    const usageId = reserve.usage_id as string | undefined;
 
     // ---------- SKU UPSERT ----------
     const { data: sku, error: skuErr } = await supabase
@@ -135,7 +130,11 @@ export async function POST(req: Request) {
       }
       
       if (!isUnique) {
-        await supabase.rpc('billing_usage_refund', { p_company_id: company_id, p_kind: 'unit', p_qty: qty });
+        await refundEntitlement({
+          companyId: company_id,
+          usageType: UsageType.UNIT_LABEL,
+          quantity: qty,
+        });
         return NextResponse.json(
           { error: `Failed to generate unique serial after ${maxAttempts} attempts for unit ${i + 1}` },
           { status: 500 }
@@ -171,13 +170,21 @@ export async function POST(req: Request) {
     if (error) {
       // Check if it's a uniqueness constraint violation
       if (error.code === '23505' || error.message?.includes('unique')) {
-        await supabase.rpc('billing_usage_refund', { p_company_id: company_id, p_kind: 'unit', p_qty: qty });
+        await refundEntitlement({
+          companyId: company_id,
+          usageType: UsageType.UNIT_LABEL,
+          quantity: qty,
+        });
         return NextResponse.json(
           { error: "Duplicate serial detected. Please try again." },
           { status: 409 }
         );
       }
-      await supabase.rpc('billing_usage_refund', { p_company_id: company_id, p_kind: 'unit', p_qty: qty });
+      await refundEntitlement({
+        companyId: company_id,
+        usageType: UsageType.UNIT_LABEL,
+        quantity: qty,
+      });
       throw error;
     }
 

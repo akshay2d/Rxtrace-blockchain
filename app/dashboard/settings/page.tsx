@@ -7,7 +7,6 @@ import { useSubscription } from "@/lib/hooks/useSubscription";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import TaxSettingsPanel from "@/components/settings/TaxSettingsPanel";
-import PrinterSettingsPanel from "@/components/settings/PrinterSettingsPanel";
 import { supabaseClient } from "@/lib/supabase/client";
 
 export default function SettingsPage() {
@@ -473,12 +472,6 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {/* Printer Settings */}
-      {companyId && (
-        <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-6">
-          <PrinterSettingsPanel companyId={companyId} />
-        </div>
-      )}
     </div>
   );
 }
