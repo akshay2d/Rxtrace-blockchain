@@ -143,6 +143,9 @@ function createIdempotencyKey(): string {
 }
 
 function getSavedCheckout(): { sessionId: string | null; status: string | null; idempotencyKey: string | null } {
+  if (typeof window === "undefined") {
+    return { sessionId: null, status: null, idempotencyKey: null };
+  }
   return {
     sessionId: window.localStorage.getItem("rxtrace_checkout_session_id"),
     status: window.localStorage.getItem("rxtrace_checkout_status"),
@@ -173,6 +176,7 @@ export default function SubscriptionCheckoutPage() {
   const [checkoutPayload, setCheckoutPayload] = useState<{ subscription: any; topup: any | null } | null>(null);
   const [lastPaidSubscriptionId, setLastPaidSubscriptionId] = useState<string | null>(null);
   const [resumeLoading, setResumeLoading] = useState(false);
+  const [savedIdempotencyKey, setSavedIdempotencyKey] = useState<string | null>(null);
 
   async function loadContext() {
     setLoading(true);
@@ -200,6 +204,7 @@ export default function SubscriptionCheckoutPage() {
     const saved = getSavedCheckout();
     if (saved.sessionId) setCheckoutSessionId(saved.sessionId);
     if (saved.status) setCheckoutStatus(saved.status);
+    if (saved.idempotencyKey) setSavedIdempotencyKey(saved.idempotencyKey);
 
     // Resume an in-progress checkout session without auto-opening Razorpay.
     if (saved.idempotencyKey) {
@@ -534,16 +539,19 @@ export default function SubscriptionCheckoutPage() {
       checkoutStatus === "subscription_paid" ||
       checkoutStatus === "topup_initiated");
 
-  const hasSavedCheckout = Boolean(getSavedCheckout().idempotencyKey);
+  const hasSavedCheckout = Boolean(savedIdempotencyKey);
 
   function clearSavedCheckout() {
-    window.localStorage.removeItem("rxtrace_checkout_idempotency_key");
-    window.localStorage.removeItem("rxtrace_checkout_session_id");
-    window.localStorage.removeItem("rxtrace_checkout_status");
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem("rxtrace_checkout_idempotency_key");
+      window.localStorage.removeItem("rxtrace_checkout_session_id");
+      window.localStorage.removeItem("rxtrace_checkout_status");
+    }
     setCheckoutSessionId(null);
     setCheckoutStatus(null);
     setCheckoutPayload(null);
     setLastPaidSubscriptionId(null);
+    setSavedIdempotencyKey(null);
   }
 
   const checkoutStatusHint = useMemo(() => {

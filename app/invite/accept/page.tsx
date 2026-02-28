@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 
-export default function AcceptSeatInvitePage() {
+function AcceptSeatInviteInner() {
   const searchParams = useSearchParams();
   const token = searchParams.get("token") || "";
   const [loading, setLoading] = useState(false);
@@ -59,5 +60,13 @@ export default function AcceptSeatInvitePage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function AcceptSeatInvitePage() {
+  return (
+    <Suspense fallback={null}>
+      <AcceptSeatInviteInner />
+    </Suspense>
   );
 }

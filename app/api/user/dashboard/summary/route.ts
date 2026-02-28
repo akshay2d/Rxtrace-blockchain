@@ -3,6 +3,9 @@ import { supabaseServer } from "@/lib/supabase/server";
 import { resolveCompanyForUser } from "@/lib/company/resolve";
 import { getCompanyEntitlementSnapshot } from "@/lib/entitlement/canonical";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 function computeDaysRemaining(trialExpiresAt: string | null): number {
   if (!trialExpiresAt) return 0;
   const expiresAt = new Date(trialExpiresAt);
