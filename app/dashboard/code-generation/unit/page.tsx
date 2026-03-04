@@ -41,6 +41,7 @@ type UnitFormState = {
   expiryDate: string;
   quantity: number;
   codeType: CodeType;
+  mode: 'GS1' | 'PIC';
   gtin?: string; // optional; if present => GS1 mode, else PIC mode
   mfdDate?: string;
   mrp?: string;
@@ -108,6 +109,7 @@ function downloadUnitCSVTemplate(companyName: string, companyId: string) {
     'Company ID',
     'Generation Type',
     'Code Format',
+    'Code Mode (GS1|PIC)',
     'GTIN (Optional - leave blank for PIC)',
     'SKU Code',
     'Batch Number',
@@ -123,6 +125,7 @@ function downloadUnitCSVTemplate(companyName: string, companyId: string) {
     companyId,
     'UNIT',
     'QR',
+    'GS1',
     '1234567890123',
     'SKU001',
     'BATCH123',
@@ -205,12 +208,13 @@ async function processUnitCSV(csvText: string, companyId: string, companyName: s
     const qty = Math.max(1, parseInt((row['Quantity'] || row['quantity'] || row['QTY'] || '1').toString(), 10) || 1);
     const mrp = (row['MRP'] || row['mrp'] || '').toString().trim();
     const mfdRaw = (row['Manufacturing Date'] || row['mfd'] || row['MFD'] || '').toString().trim();
+    const modeRaw = (row['Code Mode (GS1|PIC)'] || row['code_mode'] || '').toString().trim().toUpperCase();
     const gtinRaw = (row['GTIN (Optional - leave blank for PIC)'] || row['GTIN'] || row['gtin'] || '').toString().trim();
     const codeType: CodeType = ((row['Code Format'] || row['code_format'] || 'QR').toString().toUpperCase() === 'DATAMATRIX') ? 'DATAMATRIX' : 'QR';
     
     // Optional GTIN: validate if provided, else PIC mode for this row.
     let gtin: string | undefined = undefined;
-    if (gtinRaw) {
+    if (modeRaw !== 'PIC' && gtinRaw) {
       const validation = validateGTIN(gtinRaw);
       if (!validation.valid) {
         throw new Error(`Row ${idx + 2}: ${validation.error || 'Invalid GTIN'}`);
@@ -246,7 +250,7 @@ async function processUnitCSV(csvText: string, companyId: string, companyName: s
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         compliance_ack: true,
-        gtin: gtin || undefined,
+        gtin: modeRaw === 'PIC' ? undefined : (gtin || undefined),
         batch,
         mfd: mfdISO || null,
         exp: expISO,
@@ -345,6 +349,7 @@ export default function UnitCodeGenerationPage() {
     expiryDate: '',
     quantity: 1,
     codeType: 'QR',
+    mode: 'GS1',
     gtin: '',
     mfdDate: '',
     mrp: '',
@@ -466,7 +471,11 @@ export default function UnitCodeGenerationPage() {
       setGeneratingSingle(true);
       // Optional GTIN: when present => GS1 mode, else PIC mode
       let gtin: string | undefined = undefined;
-      if (form.gtin && form.gtin.trim().length > 0) {
+      if (form.mode === 'GS1') {
+        if (!form.gtin || form.gtin.trim().length === 0) {
+          setError('GTIN is required in GS1 mode.');
+          return;
+        }
         const { validateGTIN } = await import('@/lib/gs1/gtin');
         const validation = validateGTIN(form.gtin);
         if (!validation.valid) {
@@ -481,7 +490,7 @@ export default function UnitCodeGenerationPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           compliance_ack: true,
-          gtin: gtin || undefined,
+          gtin: form.mode === 'PIC' ? undefined : (gtin || undefined),
           batch: form.batch,
           mfd: form.mfdDate || null,
           exp: form.expiryDate,
@@ -788,8 +797,24 @@ export default function UnitCodeGenerationPage() {
                 </div>
 
                 <div>
+                  <Label htmlFor="mode">Code Mode</Label>
+                  <Select value={form.mode} onValueChange={(v) => update('mode', v as 'GS1' | 'PIC')}>
+                    <SelectTrigger id="mode">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="GS1">GS1 (GTIN required)</SelectItem>
+                      <SelectItem value="PIC">PIC (no GTIN)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Use GS1 when you have a GS1-issued GTIN. Use PIC when you don&apos;t have a GTIN.
+                  </p>
+                </div>
+
+                <div>
                   <Label htmlFor="gtin">
-                    GTIN (Optional - 8-14 digits)
+                    GTIN (8-14 digits{form.mode === 'GS1' ? ' *' : ''})
                   </Label>
                   {'customer' === 'customer' ? (
                     <>
@@ -810,9 +835,12 @@ export default function UnitCodeGenerationPage() {
                         }}
                         placeholder="1234567890123"
                         maxLength={14}
+                        disabled={form.mode === 'PIC'}
                       />
                       <p className="text-xs text-gray-500 mt-1">
-                        Supported formats: GTIN-8 (8 digits), GTIN-12 (12 digits), GTIN-13 (13 digits), GTIN-14 (14 digits)
+                        {form.mode === 'GS1'
+                          ? 'Supported: GTIN-8/12/13/14 (normalized to GTIN-14 internally).'
+                          : 'GTIN is disabled in PIC mode.'}
                       </p>
                     </>
                   ) : (
