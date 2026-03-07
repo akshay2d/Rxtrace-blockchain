@@ -12,10 +12,7 @@ export const dynamic = 'force-dynamic';
 const MAX_CODES_PER_REQUEST = 10000;
 const DB_INSERT_BATCH_SIZE = 1000;
 const SKU_NOT_FOUND_ERROR = 'SKU not found. Create SKU in SKU Master first.';
-
-function isUuid(value: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
-}
+const SKU_GTIN_REQUIRED_ERROR = 'Selected SKU has no GTIN. SSCC generation requires a SKU with a GTIN.';
 
 function normalizeDigits(input: unknown): string {
   return String(input ?? '').replace(/[^0-9]/g, '');
@@ -40,34 +37,29 @@ function normalizeDateInput(raw?: string | null): string | null {
   return null;
 }
 
-async function resolveSkuId(opts: {
+async function resolveSkuForSscc(opts: {
   supabase: ReturnType<typeof getSupabaseAdmin>;
   companyId: string;
-  skuIdOrCode: string;
-}): Promise<string> {
-  const { supabase, companyId, skuIdOrCode } = opts;
-  const raw = String(skuIdOrCode || '').trim();
-  if (!raw) throw new Error('sku_id is required');
-  const lookup = isUuid(raw)
-    ? supabase
-        .from('skus')
-        .select('id')
-        .eq('company_id', companyId)
-        .eq('id', raw)
-        .is('deleted_at', null)
-        .maybeSingle()
-    : supabase
-        .from('skus')
-        .select('id')
-        .eq('company_id', companyId)
-        .eq('sku_code', raw.toUpperCase())
-        .is('deleted_at', null)
-        .maybeSingle();
+  skuCode: string;
+}): Promise<{ id: string; gtin: string | null }> {
+  const { supabase, companyId, skuCode } = opts;
+  const normalizedSkuCode = String(skuCode || '').trim().toUpperCase();
+  if (!normalizedSkuCode) throw new Error('sku_code is required');
 
-  const { data: skuRow, error: skuErr } = await lookup;
+  const { data: skuRow, error: skuErr } = await supabase
+    .from('skus')
+    .select('id, gtin')
+    .eq('company_id', companyId)
+    .eq('sku_code', normalizedSkuCode)
+    .is('deleted_at', null)
+    .maybeSingle();
+
   if (skuErr) throw new Error(skuErr.message ?? 'Failed to resolve SKU');
   if (!skuRow?.id) throw new Error(SKU_NOT_FOUND_ERROR);
-  return skuRow.id;
+  if (typeof skuRow.gtin !== 'string' || skuRow.gtin.trim().length === 0) {
+    throw new Error(SKU_GTIN_REQUIRED_ERROR);
+  }
+  return { id: skuRow.id, gtin: skuRow.gtin };
 }
 
 function buildSscc(opts: { extDigit: number; companyPrefixDigits: string; serialRefDigits: string }) {
@@ -108,6 +100,7 @@ export async function POST(req: Request) {
     const {
       company_id: requestedCompanyId,
       sku_id,
+      sku_code,
       batch,
       expiry_date,
       units_per_box,
@@ -142,8 +135,9 @@ export async function POST(req: Request) {
     }
 
     const normalizedExpiry = normalizeDateInput(expiry_date);
-    if (!sku_id || !batch || !normalizedExpiry || !number_of_pallets) {
-      return NextResponse.json({ error: 'sku_id, batch, expiry_date, and number_of_pallets are required' }, { status: 400 });
+    const normalizedSkuCode = String(sku_code || sku_id || '').trim().toUpperCase();
+    if (!normalizedSkuCode || !batch || !normalizedExpiry || !number_of_pallets) {
+      return NextResponse.json({ error: 'sku_code, batch, expiry_date, and number_of_pallets are required' }, { status: 400 });
     }
 
     const palletsCount = Number(number_of_pallets);
@@ -166,7 +160,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'cartons_per_pallet is required when generating Pallet' }, { status: 400 });
     }
 
-    const skuUuid = await resolveSkuId({ supabase, companyId: company_id, skuIdOrCode: sku_id });
+    const sku = await resolveSkuForSscc({ supabase, companyId: company_id, skuCode: normalizedSkuCode });
+    const skuUuid = sku.id;
 
     let totalSSCCCount = 0;
     if (generate_box) totalSSCCCount += palletsCount * boxesPerCarton * cartonsPerPallet;
@@ -319,6 +314,9 @@ export async function POST(req: Request) {
 
     if (err?.message === SKU_NOT_FOUND_ERROR) {
       return NextResponse.json({ error: SKU_NOT_FOUND_ERROR }, { status: 404 });
+    }
+    if (err?.message === SKU_GTIN_REQUIRED_ERROR) {
+      return NextResponse.json({ error: SKU_GTIN_REQUIRED_ERROR }, { status: 400 });
     }
 
     return NextResponse.json({ error: err?.message || 'SSCC generation failed' }, { status: 500 });

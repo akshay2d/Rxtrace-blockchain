@@ -95,6 +95,13 @@ function estimateSsccCodes(params: {
   return total;
 }
 
+function findSkuBySelection(
+  skus: Array<{ id: string; sku_code: string; sku_name: string | null; gtin?: string | null }>,
+  selectedValue: string,
+) {
+  return skus.find((sku) => sku.id === selectedValue || sku.sku_code === selectedValue) || null;
+}
+
 // ---------- CSV Template Generation ----------
 function downloadSSCCCSVTemplate(companyName: string, companyId: string) {
   const headers = [
@@ -244,7 +251,7 @@ async function processSSCCCSV(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         compliance_ack: true,
-        sku_id: sku,
+        sku_code: sku,
         company_id: companyId,
         batch,
         expiry_date: expISO,
@@ -356,7 +363,7 @@ export default function SSCCCodeGenerationPage() {
         if (skuData?.skus) {
           setSkus(skuData.skus);
           if (skuData.skus.length > 0) {
-            setForm(prev => ({ ...prev, skuId: skuData.skus[0].id }));
+            setForm(prev => ({ ...prev, skuId: skuData.skus[0].sku_code }));
           }
         }
       }
@@ -439,6 +446,18 @@ export default function SSCCCodeGenerationPage() {
       return;
     }
 
+    const selectedSku = findSkuBySelection(skus, form.skuId);
+    if (!selectedSku) {
+      setError('SKU not found. Create SKU in SKU Master first.');
+      setLoading(false);
+      return;
+    }
+    if (typeof selectedSku.gtin !== 'string' || selectedSku.gtin.trim().length === 0) {
+      setError('Selected SKU has no GTIN. SSCC generation requires a SKU with a GTIN.');
+      setLoading(false);
+      return;
+    }
+
     // Validate hierarchy: at least one level must be selected
     if (!form.generateBox && !form.generateCarton && !form.generatePallet) {
       setError('Please select at least one SSCC level (Box, Carton, or Pallet)');
@@ -475,7 +494,7 @@ export default function SSCCCodeGenerationPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           compliance_ack: true,
-          sku_id: form.skuId,
+          sku_code: selectedSku.sku_code,
           company_id: companyId,
           batch: form.batch,
           expiry_date: form.expiryDate,
@@ -736,7 +755,7 @@ export default function SSCCCodeGenerationPage() {
                     </SelectTrigger>
                     <SelectContent>
                       {skus.map((s) => (
-                        <SelectItem key={s.id} value={s.id}>
+                        <SelectItem key={s.id} value={s.sku_code}>
                           {s.sku_code} {s.sku_name ? `- ${s.sku_name}` : ''}
                         </SelectItem>
                       ))}
