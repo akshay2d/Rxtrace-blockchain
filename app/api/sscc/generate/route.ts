@@ -85,6 +85,7 @@ export async function POST(req: Request) {
   let entitlementConsumed = false;
   let entitlementCompanyId = '';
   let entitlementQuantity = 0;
+  let entitlementUsageType: UsageType | null = null;
 
   try {
     const supabase = getSupabaseAdmin();
@@ -168,6 +169,12 @@ export async function POST(req: Request) {
     if (generate_carton) totalSSCCCount += palletsCount * cartonsPerPallet;
     if (generate_pallet) totalSSCCCount += palletsCount;
 
+    const usageType = generate_pallet
+      ? UsageType.PALLET_LABEL
+      : generate_carton
+        ? UsageType.CARTON_LABEL
+        : UsageType.BOX_LABEL;
+
     if (totalSSCCCount > MAX_CODES_PER_REQUEST) {
       return NextResponse.json({ error: `Request limit exceeded (${MAX_CODES_PER_REQUEST})`, code: 'limit_exceeded' }, { status: 400 });
     }
@@ -175,7 +182,7 @@ export async function POST(req: Request) {
     // Entitlement (single quota authority)
     const decision = await enforceEntitlement({
       companyId: company_id,
-      usageType: UsageType.SSCC_LABEL,
+      usageType,
       quantity: totalSSCCCount,
       requestId,
       metadata: { source: 'sscc_generate' },
@@ -186,6 +193,7 @@ export async function POST(req: Request) {
     entitlementConsumed = true;
     entitlementCompanyId = company_id;
     entitlementQuantity = totalSSCCCount;
+    entitlementUsageType = usageType;
 
     const prefixDigits = normalizeDigits(sscc_company_prefix || '1234567') || '1234567';
     const baseExt = Number.isInteger(Number(sscc_extension_digit)) ? Number(sscc_extension_digit) : 0;
@@ -304,10 +312,10 @@ export async function POST(req: Request) {
       pallets: insertedPallets,
     });
   } catch (err: any) {
-    if (entitlementConsumed && entitlementCompanyId && entitlementQuantity > 0) {
+    if (entitlementConsumed && entitlementCompanyId && entitlementQuantity > 0 && entitlementUsageType) {
       await refundEntitlement({
         companyId: entitlementCompanyId,
-        usageType: UsageType.SSCC_LABEL,
+        usageType: entitlementUsageType,
         quantity: entitlementQuantity,
       }).catch(() => undefined);
     }
