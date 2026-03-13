@@ -13,7 +13,7 @@ type RevenueSummary = {
 type Company = {
   id: string;
   company_name: string;
-  subscription_status: string | null;
+  profile_completed: boolean | null;
   is_frozen: boolean | null;
   created_at: string | null;
 };
@@ -138,7 +138,9 @@ export default function AdminDashboardPage() {
             {companies.slice(0, 6).map((company) => (
               <div key={company.id} className="flex items-center justify-between border-b pb-2 text-sm">
                 <span className="font-medium">{company.company_name}</span>
-                <span className="text-slate-500">{company.subscription_status || "unknown"}</span>
+                <span className="text-slate-500">
+                  {company.profile_completed ? "profile_complete" : "profile_incomplete"}
+                </span>
               </div>
             ))}
             {companies.length === 0 ? <p className="text-sm text-slate-500">No companies found.</p> : null}

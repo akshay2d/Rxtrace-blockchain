@@ -109,7 +109,7 @@ export async function middleware(request: NextRequest) {
     const resolved = await resolveCompanyForUser(
       supabase,
       session.user.id,
-      'id, subscription_status, profile_completed'
+      'id, profile_completed'
     );
 
     if (!resolved) {
@@ -133,14 +133,7 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(new URL('/dashboard', request.url));
     }
 
-    // Allow access when: (a) has valid trial, OR (b) just completed setup (no status yet)
-    // User must reach dashboard to start trial (Settings) 
-    const status = String(company.subscription_status ?? '').toLowerCase();
-    const allowed = new Set(['trial', 'trialing']);
-    const noStatusYet = status === '' || status === 'null';
-    if (!noStatusYet && !allowed.has(status)) {
-      return NextResponse.redirect(new URL('/pricing', request.url));
-    }
+    // Access control: completed profiles can access dashboard routes.
   }
 
   return supabaseResponse;

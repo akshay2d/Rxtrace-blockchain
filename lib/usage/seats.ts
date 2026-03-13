@@ -15,13 +15,16 @@ export async function getSeatLimits(
   seats_from_addons: number;
 }> {
   const { data: trialRow } = await supabase
-    .from('companies')
-    .select('trial_started_at, trial_expires_at')
-    .eq('id', company_id)
+    .from('company_trials')
+    .select('trial_start, trial_end')
+    .eq('company_id', company_id)
     .maybeSingle();
 
   if (trialRow) {
-    const trialStatus = getTrialStatus(trialRow);
+    const trialStatus = getTrialStatus({
+      trial_start: trialRow.trial_start,
+      trial_end: trialRow.trial_end,
+    });
     if (trialStatus.active) {
       const usedSeats = await getTrialSeatUsage(supabase, company_id);
       const max = TRIAL_LIMITS.seat;

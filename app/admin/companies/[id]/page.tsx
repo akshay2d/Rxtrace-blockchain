@@ -12,11 +12,16 @@ import { Textarea } from '@/components/ui/textarea';
 type Company = {
   id: string;
   company_name: string;
-  subscription_status: string | null;
-  subscription_plan: string | null;
-  trial_started_at: string | null;
-  trial_expires_at: string | null;
-  extra_user_seats: number | null;
+  contact_person: string | null;
+  phone: string | null;
+  address: string | null;
+  industry: string | null;
+  business_type: string | null;
+  firm_type: string | null;
+  business_category: string | null;
+  gst_number: string | null;
+  pan: string | null;
+  profile_completed: boolean | null;
   is_frozen: boolean | null;
   freeze_reason: string | null;
   created_at: string | null;
@@ -148,16 +153,44 @@ export default function CompanyDetailPage() {
             <span className="font-mono">{company?.id || '-'}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-gray-500">Subscription Status</span>
-            <span>{company?.subscription_status || '-'}</span>
+            <span className="text-gray-500">Contact Person</span>
+            <span>{company?.contact_person || '-'}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-gray-500">Plan</span>
-            <span>{company?.subscription_plan || '-'}</span>
+            <span className="text-gray-500">Phone</span>
+            <span>{company?.phone || '-'}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-gray-500">Extra Seats</span>
-            <span>{company?.extra_user_seats ?? 0}</span>
+            <span className="text-gray-500">Address</span>
+            <span>{company?.address || '-'}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-500">Industry</span>
+            <span>{company?.industry || '-'}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-500">Business Type</span>
+            <span>{company?.business_type || '-'}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-500">Firm Type</span>
+            <span>{company?.firm_type || '-'}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-500">Business Category</span>
+            <span>{company?.business_category || '-'}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-500">GST Number</span>
+            <span>{company?.gst_number || '-'}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-500">PAN</span>
+            <span>{company?.pan || '-'}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-500">Profile Completed</span>
+            <span>{company?.profile_completed ? 'Yes' : 'No'}</span>
           </div>
           <div className="flex justify-between items-center">
             <span className="text-gray-500">Frozen</span>

@@ -88,7 +88,6 @@ export default function SettingsPage() {
     address?: string | null;
     pan?: string | null;
     gst_number?: string | null;
-    email?: string | null;
   } | null>(null);
   const [profileLoading, setProfileLoading] = useState(true);
   const [profileError, setProfileError] = useState("");
@@ -120,7 +119,7 @@ export default function SettingsPage() {
 
         const { data } = await supabase
           .from("companies")
-          .select("id, company_name, phone, address, pan, gst_number:gst, email")
+          .select("id, company_name, phone, address, pan, gst_number")
           .eq("user_id", user.id)
           .maybeSingle();
 
@@ -182,7 +181,6 @@ export default function SettingsPage() {
                 address: data.company.address,
                 pan: data.company.pan,
                 gst_number: data.company.gst_number,
-                email: data.company.email,
               }
         );
         setProfileForm({
@@ -352,12 +350,6 @@ export default function SettingsPage() {
               </p>
             </div>
             <div>
-              <p className="text-xs uppercase text-gray-500">Email</p>
-              <p className="text-sm text-gray-900">
-                {companyProfile?.email || "Not provided"}
-              </p>
-            </div>
-            <div>
               <p className="text-xs uppercase text-gray-500">Phone</p>
               <p className="text-sm text-gray-900">
                 {companyProfile?.phone || "Not provided"}
@@ -516,7 +508,6 @@ export default function SettingsPage() {
                       company_name: "",
                       pan,
                       gst_number,
-                      email: "",
                     }
               );
             }}

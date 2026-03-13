@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
   const { data, error, count } = await supabase
     .from("companies")
     .select(
-      "id, user_id, company_name, gst_number:gst, contact_email:email, contact_phone:phone, address, subscription_status, subscription_plan, trial_started_at, trial_expires_at, extra_user_seats, is_frozen, freeze_reason, deleted_at, created_at, updated_at",
+      "id, user_id, company_name, contact_person, phone, address, industry, business_type, firm_type, business_category, gst_number, pan, profile_completed, is_frozen, freeze_reason, deleted_at, created_at, updated_at",
       { count: "exact" }
     )
     .is("deleted_at", null)

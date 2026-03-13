@@ -13,10 +13,10 @@ import { AlertCircle, CheckCircle } from 'lucide-react';
 import { createOrUpdateCompanyProfile } from './actions';
 
 // Type definitions
-type LegalStructure = 'proprietorship' | 'partnership' | 'llp' | 'pvt_ltd' | 'other';
-type BusinessType = 'manufacturer' | 'distributor' | 'wholesaler' | 'exporter' | 'importer' | 'cf_agent';
-type OperationType = 'manufacturing' | 'packing' | 'import' | 'export' | 'distribution' | 'retail';
-type Industry = 'pharma' | 'medical_devices' | 'fmcg' | 'cosmetics' | 'food' | 'packaging' | 'printing';
+type LegalStructure = 'proprietorship' | 'partnership' | 'llp' | 'pvt_ltd';
+type BusinessType = 'manufacturer' | 'distributor' | 'brand_owner' | 'wholesaler' | 'exporter' | 'importer' | 'cf_agent';
+type Industry = 'pharma' | 'medical_devices' | 'fmcg' | 'cosmetics' | 'food' | 'packaging' | 'printing' | 'logistics' | 'dairy';
+type BusinessCategory = Industry;
 
 function CompanySetupContent() {
   const router = useRouter();
@@ -32,10 +32,12 @@ function CompanySetupContent() {
   const [contactPerson, setContactPerson] = useState('');
   const [phone, setPhone] = useState('');
   const [address, setAddress] = useState('');
-  const [legalStructure, setLegalStructure] = useState<LegalStructure | ''>('');
+  const [industry, setIndustry] = useState<Industry | ''>('');
   const [businessType, setBusinessType] = useState<BusinessType | ''>('');
-  const [operationTypes, setOperationTypes] = useState<OperationType[]>([]);
-  const [industries, setIndustries] = useState<Industry[]>([]);
+  const [legalStructure, setLegalStructure] = useState<LegalStructure | ''>('');
+  const [businessCategory, setBusinessCategory] = useState<BusinessCategory | ''>('');
+  const [gstNumber, setGstNumber] = useState('');
+  const [pan, setPan] = useState('');
 
   useEffect(() => {
     (async () => {
@@ -50,44 +52,33 @@ function CompanySetupContent() {
       // Check if company exists (always allow editing, even if profile_completed === true)
       const { data: existingCompany } = await supabase
         .from('companies')
-        .select('id, company_name, contact_person, contact_person_name, phone, address, firm_type, business_category, business_type, profile_completed')
+        .select('id, company_name, contact_person, phone, address, industry, business_type, firm_type, business_category, gst_number, pan, profile_completed')
         .eq('user_id', user.id)
         .maybeSingle();
 
       // Load existing data if available
       if (existingCompany?.id) {
         setCompanyName(existingCompany.company_name || '');
-        setContactPerson(
-          existingCompany.contact_person ||
-          existingCompany.contact_person_name ||
-          ''
-        );
+        setContactPerson(existingCompany.contact_person || '');
         setPhone(existingCompany.phone || '');
         setAddress(existingCompany.address || '');
+        if (existingCompany.industry) {
+          setIndustry(existingCompany.industry as Industry);
+        }
+        if (existingCompany.business_type) {
+          setBusinessType(existingCompany.business_type as BusinessType);
+        }
         if (existingCompany.firm_type) {
           setLegalStructure(existingCompany.firm_type as LegalStructure);
         }
-        // Load business_type (single value matching dropdown)
-        if (existingCompany.business_type) {
-          const bt = existingCompany.business_type.toLowerCase().trim();
-          if (['manufacturer', 'distributor', 'wholesaler', 'exporter', 'importer', 'cf_agent'].includes(bt)) {
-            setBusinessType(bt as BusinessType);
-          }
-        }
-        // Note: operationTypes are not stored in business_type field anymore
-        // They would need to be stored separately if needed in the future
-        // business_category maps to industries (single value in DB, but we support multi-select)
         if (existingCompany.business_category) {
-          const industryMap: Record<string, Industry> = {
-            'pharma': 'pharma',
-            'food': 'food',
-            'dairy': 'food',
-            'logistics': 'packaging',
-          };
-          const mapped = industryMap[existingCompany.business_category];
-          if (mapped) {
-            setIndustries([mapped]);
-          }
+          setBusinessCategory(existingCompany.business_category as BusinessCategory);
+        }
+        if (existingCompany.gst_number) {
+          setGstNumber(existingCompany.gst_number);
+        }
+        if (existingCompany.pan) {
+          setPan(existingCompany.pan);
         }
       }
 
@@ -122,8 +113,8 @@ function CompanySetupContent() {
       setSubmitting(false);
       return;
     }
-    if (!legalStructure) {
-      setError('Type of Company is required');
+    if (!industry) {
+      setError('Industry is required');
       setSubmitting(false);
       return;
     }
@@ -132,22 +123,6 @@ function CompanySetupContent() {
       setSubmitting(false);
       return;
     }
-    if (operationTypes.length === 0) {
-      setError('At least one Type of Operation must be selected');
-      setSubmitting(false);
-      return;
-    }
-    if (industries.length === 0) {
-      setError('At least one Industry must be selected');
-      setSubmitting(false);
-      return;
-    }
-
-    // Map industries to business_category (use first industry as primary)
-    const businessCategory = industries[0] === 'pharma' ? 'pharma' :
-                            industries[0] === 'food' ? 'food' :
-                            industries[0] === 'packaging' ? 'logistics' :
-                            'pharma'; // Default
 
     // Call server action (backend-first execution path)
     const result = await createOrUpdateCompanyProfile({
@@ -155,9 +130,12 @@ function CompanySetupContent() {
       contact_person: contactPerson.trim(),
       phone: phone.trim(),
       address: address.trim(),
-      firm_type: legalStructure,
+      industry,
       business_type: businessType,
-      business_category: businessCategory,
+      firm_type: legalStructure || undefined,
+      business_category: businessCategory || undefined,
+      gst_number: gstNumber.trim() || undefined,
+      pan: pan.trim() || undefined,
     });
 
     if (!result.success) {
@@ -170,30 +148,6 @@ function CompanySetupContent() {
     setTimeout(() => {
       router.push('/dashboard');
     }, 1500);
-  };
-
-  const toggleOperationType = (op: OperationType) => {
-    setOperationTypes(prev => 
-      prev.includes(op) 
-        ? prev.filter(t => t !== op)
-        : [...prev, op]
-    );
-    // Clear error when user makes selection
-    if (error && error.includes('Operation')) {
-      setError('');
-    }
-  };
-
-  const toggleIndustry = (industry: Industry) => {
-    setIndustries(prev => 
-      prev.includes(industry)
-        ? prev.filter(i => i !== industry)
-        : [...prev, industry]
-    );
-    // Clear error when user makes selection
-    if (error && error.includes('Industry')) {
-      setError('');
-    }
   };
 
   // Clear errors when fields become valid
@@ -278,7 +232,7 @@ function CompanySetupContent() {
             Company Information
           </CardTitle>
           <CardDescription>
-            All fields are required to complete setup
+            Required fields are marked with *
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -292,7 +246,7 @@ function CompanySetupContent() {
                 id="companyName"
                 value={companyName}
                 onChange={(e) => handleCompanyNameChange(e.target.value)}
-                placeholder="Enter company name"
+                placeholder="Enter your company name"
                 required
                 disabled={submitting}
                 className="mt-1.5"
@@ -308,7 +262,7 @@ function CompanySetupContent() {
                 id="contactPerson"
                 value={contactPerson}
                 onChange={(e) => handleContactPersonChange(e.target.value)}
-                placeholder="Enter contact person name"
+                placeholder="Full name of responsible person"
                 required
                 disabled={submitting}
                 className="mt-1.5"
@@ -325,7 +279,7 @@ function CompanySetupContent() {
                 type="tel"
                 value={phone}
                 onChange={(e) => handlePhoneChange(e.target.value)}
-                placeholder="Enter phone number"
+                placeholder="Enter contact phone number"
                 required
                 disabled={submitting}
                 className="mt-1.5"
@@ -341,7 +295,7 @@ function CompanySetupContent() {
                 id="address"
                 value={address}
                 onChange={(e) => handleAddressChange(e.target.value)}
-                placeholder="Enter company address"
+                placeholder="Enter registered company address"
                 required
                 rows={3}
                 disabled={submitting}
@@ -349,35 +303,39 @@ function CompanySetupContent() {
               />
             </div>
 
-            {/* 5. Type of Company (Legal Structure) */}
+            {/* 5. Industry */}
             <div>
-              <Label htmlFor="legalStructure" className="text-sm font-medium">
-                Type of Company (Legal Structure) *
+              <Label htmlFor="industry" className="text-sm font-medium">
+                Industry *
               </Label>
               <Select 
-                value={legalStructure} 
+                value={industry} 
                 onValueChange={(v) => {
-                  setLegalStructure(v as LegalStructure);
-                  if (error && error.includes('Company')) {
+                  setIndustry(v as Industry);
+                  if (error && error.includes('Industry')) {
                     setError('');
                   }
                 }}
                 disabled={submitting}
               >
-                <SelectTrigger id="legalStructure" className="mt-1.5">
-                  <SelectValue placeholder="Select legal structure" />
+                <SelectTrigger id="industry" className="mt-1.5">
+                  <SelectValue placeholder="Select your industry" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="proprietorship">Proprietorship</SelectItem>
-                  <SelectItem value="partnership">Partnership</SelectItem>
-                  <SelectItem value="llp">LLP</SelectItem>
-                  <SelectItem value="pvt_ltd">Pvt Ltd</SelectItem>
-                  <SelectItem value="other">Other</SelectItem>
+                  <SelectItem value="pharma">Pharma</SelectItem>
+                  <SelectItem value="medical_devices">Medical Devices</SelectItem>
+                  <SelectItem value="fmcg">FMCG</SelectItem>
+                  <SelectItem value="cosmetics">Cosmetics</SelectItem>
+                  <SelectItem value="food">Food</SelectItem>
+                  <SelectItem value="dairy">Dairy</SelectItem>
+                  <SelectItem value="packaging">Packaging</SelectItem>
+                  <SelectItem value="printing">Printing</SelectItem>
+                  <SelectItem value="logistics">Logistics</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
-            {/* 6. Type of Business */}
+            {/* 6. Business Type */}
             <div>
               <Label htmlFor="businessType" className="text-sm font-medium">
                 Type of Business *
@@ -393,11 +351,12 @@ function CompanySetupContent() {
                 disabled={submitting}
               >
                 <SelectTrigger id="businessType" className="mt-1.5">
-                  <SelectValue placeholder="Select business type" />
+                  <SelectValue placeholder="Manufacturer / Distributor / Brand Owner / Wholesaler" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="manufacturer">Manufacturer</SelectItem>
                   <SelectItem value="distributor">Distributor</SelectItem>
+                  <SelectItem value="brand_owner">Brand Owner</SelectItem>
                   <SelectItem value="wholesaler">Wholesaler</SelectItem>
                   <SelectItem value="exporter">Exporter</SelectItem>
                   <SelectItem value="importer">Importer</SelectItem>
@@ -406,56 +365,83 @@ function CompanySetupContent() {
               </Select>
             </div>
 
-            {/* 7. Type of Operation (Multi-select) */}
+            {/* 7. Firm Type (Optional) */}
             <div>
-              <Label className="text-sm font-medium">
-                Type of Operation (Select all that apply) *
+              <Label htmlFor="legalStructure" className="text-sm font-medium">
+                Firm Type (Optional)
               </Label>
-              <div className="mt-2 space-y-2">
-                {(['manufacturing', 'packing', 'import', 'export', 'distribution', 'retail'] as OperationType[]).map((op: OperationType) => (
-                  <label key={op} className="flex items-center space-x-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={operationTypes.includes(op)}
-                      onChange={() => toggleOperationType(op)}
-                      disabled={submitting}
-                      className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                    />
-                    <span className="text-sm text-gray-700 capitalize">
-                      {op}
-                    </span>
-                  </label>
-                ))}
-              </div>
+              <Select 
+                value={legalStructure} 
+                onValueChange={(v) => setLegalStructure(v as LegalStructure)}
+                disabled={submitting}
+              >
+                <SelectTrigger id="legalStructure" className="mt-1.5">
+                  <SelectValue placeholder="Private Limited / LLP / Proprietorship / Partnership" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="pvt_ltd">Private Limited</SelectItem>
+                  <SelectItem value="llp">LLP</SelectItem>
+                  <SelectItem value="proprietorship">Proprietorship</SelectItem>
+                  <SelectItem value="partnership">Partnership</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
-            {/* 8. Industries (Multi-select) */}
+            {/* 8. Business Category (Optional) */}
             <div>
-              <Label className="text-sm font-medium">
-                Industries (Select all that apply) *
+              <Label htmlFor="businessCategory" className="text-sm font-medium">
+                Business Category (Optional)
               </Label>
-              <div className="mt-2 space-y-2">
-                {([
-                  { value: 'pharma' as Industry, label: 'Pharma' },
-                  { value: 'medical_devices' as Industry, label: 'Medical Devices' },
-                  { value: 'fmcg' as Industry, label: 'FMCG' },
-                  { value: 'cosmetics' as Industry, label: 'Cosmetics' },
-                  { value: 'food' as Industry, label: 'Food' },
-                  { value: 'packaging' as Industry, label: 'Packaging' },
-                  { value: 'printing' as Industry, label: 'Printing' },
-                ]).map(({ value, label }) => (
-                  <label key={value} className="flex items-center space-x-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={industries.includes(value)}
-                      onChange={() => toggleIndustry(value)}
-                      disabled={submitting}
-                      className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                    />
-                    <span className="text-sm text-gray-700">{label}</span>
-                  </label>
-                ))}
-              </div>
+              <Select
+                value={businessCategory}
+                onValueChange={(v) => setBusinessCategory(v as BusinessCategory)}
+                disabled={submitting}
+              >
+                <SelectTrigger id="businessCategory" className="mt-1.5">
+                  <SelectValue placeholder="Select business category" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="pharma">Pharma</SelectItem>
+                  <SelectItem value="medical_devices">Medical Devices</SelectItem>
+                  <SelectItem value="fmcg">FMCG</SelectItem>
+                  <SelectItem value="cosmetics">Cosmetics</SelectItem>
+                  <SelectItem value="food">Food</SelectItem>
+                  <SelectItem value="dairy">Dairy</SelectItem>
+                  <SelectItem value="packaging">Packaging</SelectItem>
+                  <SelectItem value="printing">Printing</SelectItem>
+                  <SelectItem value="logistics">Logistics</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* 9. GST Number (Optional) */}
+            <div>
+              <Label htmlFor="gstNumber" className="text-sm font-medium">
+                GST Number (Optional)
+              </Label>
+              <Input
+                id="gstNumber"
+                value={gstNumber}
+                onChange={(e) => setGstNumber(e.target.value)}
+                placeholder="Enter GST number (optional)"
+                disabled={submitting}
+                className="mt-1.5"
+              />
+            </div>
+
+            {/* 10. PAN (Optional) */}
+            <div>
+              <Label htmlFor="pan" className="text-sm font-medium">
+                PAN (Optional)
+              </Label>
+              <Input
+                id="pan"
+                value={pan}
+                onChange={(e) => setPan(e.target.value)}
+                placeholder="Enter PAN (optional)"
+                disabled={submitting}
+                className="mt-1.5"
+              />
             </div>
 
             {/* Actions */}
@@ -471,7 +457,7 @@ function CompanySetupContent() {
               </Button>
               <Button
                 type="submit"
-                disabled={submitting || !companyName.trim() || !contactPerson.trim() || !phone.trim() || !address.trim() || !legalStructure || !businessType || operationTypes.length === 0 || industries.length === 0}
+                disabled={submitting || !companyName.trim() || !contactPerson.trim() || !phone.trim() || !address.trim() || !industry || !businessType}
                 className="bg-blue-600 hover:bg-blue-700"
               >
                 {submitting ? 'Saving...' : 'Complete Setup'}

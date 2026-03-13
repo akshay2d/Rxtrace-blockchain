@@ -21,12 +21,12 @@ export async function getUnifiedSubscriptionStatus(params: {
 }): Promise<UnifiedSubscriptionStatus> {
   const now = params.now ?? new Date();
 
-  const { data: companyRow, error: companyError } = await params.supabase
-    .from("companies")
-    .select("trial_expires_at")
-    .eq("id", params.companyId)
+  const { data: trialRow, error: trialError } = await params.supabase
+    .from("company_trials")
+    .select("trial_end")
+    .eq("company_id", params.companyId)
     .maybeSingle();
-  if (companyError) throw new Error(companyError.message);
+  if (trialError) throw new Error(trialError.message);
 
   const { data: activeSub, error: subError } = await params.supabase
     .from("company_subscriptions")
@@ -72,7 +72,7 @@ export async function getUnifiedSubscriptionStatus(params: {
     };
   }
 
-  const trialExpiresAtIso = (companyRow as any)?.trial_expires_at ?? null;
+  const trialExpiresAtIso = (trialRow as any)?.trial_end ?? null;
   const trialExpiresAt = trialExpiresAtIso ? new Date(trialExpiresAtIso) : null;
   if (trialExpiresAt && !Number.isNaN(trialExpiresAt.getTime()) && trialExpiresAt.getTime() > now.getTime()) {
     return { status: "pending", trialExpiresAt };

@@ -26,9 +26,12 @@ export async function createOrUpdateCompanyProfile(
     contact_person?: string;
     phone: string;
     address: string;
-    firm_type: string;
+    industry: string;
     business_type: string;
-    business_category: string;
+    firm_type?: string;
+    business_category?: string;
+    gst_number?: string;
+    pan?: string;
   }
 ): Promise<CompanySetupResult> {
   try {
@@ -74,10 +77,10 @@ export async function createOrUpdateCompanyProfile(
         error: 'Address is required'
       };
     }
-    if (!data.firm_type?.trim()) {
+    if (!data.industry?.trim()) {
       return {
         success: false,
-        error: 'Legal structure is required'
+        error: 'Industry is required'
       };
     }
     if (!data.business_type?.trim()) {
@@ -86,39 +89,11 @@ export async function createOrUpdateCompanyProfile(
         error: 'Business type is required'
       };
     }
-    if (!data.business_category?.trim()) {
-      return {
-        success: false,
-        error: 'Business category is required'
-      };
-    }
 
-    // 3. Validate business type enum
-    const validBusinessTypes = ['manufacturer', 'distributor', 'wholesaler', 'exporter', 'importer', 'cf_agent'];
-    const normalizedBusinessType = data.business_type.toLowerCase().trim();
-    if (!validBusinessTypes.includes(normalizedBusinessType)) {
-      return {
-        success: false,
-        error: 'Invalid business type',
-        details: `Must be one of: ${validBusinessTypes.join(', ')}`
-      };
-    }
-
-    // 4. Validate firm type enum
-    const validFirmTypes = ['proprietorship', 'partnership', 'llp', 'pvt_ltd', 'other'];
-    const normalizedFirmType = data.firm_type.toLowerCase().trim();
-    if (!validFirmTypes.includes(normalizedFirmType)) {
-      return {
-        success: false,
-        error: 'Invalid legal structure',
-        details: `Must be one of: ${validFirmTypes.join(', ')}`
-      };
-    }
-
-    // 5. Use admin client for database operations
+    // 3. Use admin client for database operations
     const admin = getSupabaseAdmin();
 
-    // 6. Check if company already exists for this user
+    // 4. Check if company already exists for this user
     const { data: existingCompany, error: checkError } = await admin
       .from('companies')
       .select('id, profile_completed')
@@ -134,17 +109,19 @@ export async function createOrUpdateCompanyProfile(
       };
     }
 
-    // 7. Prepare company data
+    // 5. Prepare company data
     const companyData = {
       user_id: user.id,
       company_name: data.company_name.trim(),
       contact_person: contactPerson,
       phone: data.phone.trim(),
       address: data.address.trim(),
-      email: user.email || null,
-      firm_type: normalizedFirmType,
-      business_type: normalizedBusinessType,
-      business_category: data.business_category.toLowerCase().trim(),
+      industry: data.industry.trim(),
+      business_type: data.business_type.toLowerCase().trim(),
+      firm_type: data.firm_type ? data.firm_type.toLowerCase().trim() : null,
+      business_category: data.business_category ? data.business_category.toLowerCase().trim() : null,
+      gst_number: data.gst_number ? data.gst_number.toUpperCase().trim() : null,
+      pan: data.pan ? data.pan.toUpperCase().trim() : null,
       profile_completed: true,
       updated_at: new Date().toISOString(),
     };
@@ -152,7 +129,7 @@ export async function createOrUpdateCompanyProfile(
     let companyId: string;
 
     if (existingCompany) {
-      // 8a. Update existing company
+      // 6a. Update existing company
       const { data: updatedCompany, error: updateError } = await admin
         .from('companies')
         .update(companyData)
@@ -179,7 +156,7 @@ export async function createOrUpdateCompanyProfile(
       companyId = updatedCompany.id;
       console.log('[Company Setup] Company updated:', companyId);
     } else {
-      // 8b. Insert new company
+      // 6b. Insert new company
       const { data: newCompany, error: insertError } = await admin
         .from('companies')
         .insert({

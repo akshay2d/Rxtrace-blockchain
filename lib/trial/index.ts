@@ -58,13 +58,23 @@ const metricToLimitKey: Record<MetricType, TrialMetricLimitKey> = {
 const trialUsageMetrics: Array<keyof TrialUsageTotals> = ['unit', 'box', 'carton', 'pallet'];
 
 export function getTrialStatus(company: {
+  trial_start?: string | null;
+  trial_end?: string | null;
   trial_started_at?: string | null;
   trial_expires_at?: string | null;
   trial_start_at?: string | null;
   trial_end_at?: string | null;
 }): TrialStatus {
-  const startedRaw = company.trial_start_at ?? company.trial_started_at ?? null;
-  const expiresRaw = company.trial_end_at ?? company.trial_expires_at ?? null;
+  const startedRaw =
+    company.trial_start ??
+    company.trial_start_at ??
+    company.trial_started_at ??
+    null;
+  const expiresRaw =
+    company.trial_end ??
+    company.trial_end_at ??
+    company.trial_expires_at ??
+    null;
 
   const started = startedRaw ? new Date(startedRaw) : null;
   const expires = expiresRaw ? new Date(expiresRaw) : null;
@@ -243,11 +253,7 @@ export async function clearTrialWindowIfConverted(
   if (['trial', 'trialing', 'trial_active'].includes(normalizedStatus)) return;
 
   await supabase
-    .from('companies')
-    .update({
-      trial_started_at: null,
-      trial_expires_at: null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', companyId);
+    .from('company_trials')
+    .delete()
+    .eq('company_id', companyId);
 }

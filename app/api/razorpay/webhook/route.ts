@@ -145,39 +145,36 @@ export async function POST(req: Request) {
               paymentAmountPaise: payment.amount,
             });
           } else {
-          // One trial per company: activate only if no legacy trial window exists and no activation marker exists.
-          const { data: companyRow } = await supabase
-            .from("companies")
-            .select("trial_started_at, trial_expires_at, trial_activated_at")
-            .eq("id", companyId)
+          // One trial per company: activate only if no trial window exists.
+          const { data: trialRow } = await supabase
+            .from("company_trials")
+            .select("trial_start, trial_end")
+            .eq("company_id", companyId)
             .maybeSingle();
 
           const alreadyActivated =
-            Boolean((companyRow as any)?.trial_started_at) ||
-            Boolean((companyRow as any)?.trial_expires_at) ||
-            Boolean((companyRow as any)?.trial_activated_at);
+            Boolean((trialRow as any)?.trial_start) ||
+            Boolean((trialRow as any)?.trial_end);
 
           if (!alreadyActivated) {
             const now = new Date();
             const end = new Date(now);
             end.setUTCDate(end.getUTCDate() + 10);
 
-            const { error: trialUpdateErr } = await supabase
-              .from("companies")
-              .update({
-                // legacy fields used by current app logic
-                trial_started_at: now.toISOString(),
-                trial_expires_at: end.toISOString(),
-                // new Phase 1 fields (future engine)
-                trial_start_at: now.toISOString(),
-                trial_end_at: end.toISOString(),
-                trial_activated_at: now.toISOString(),
-                trial_activated_payment_id: payment.id || null,
-                updated_at: now.toISOString(),
-              })
-              .eq("id", companyId);
+            const { error: trialInsertErr } = await supabase
+              .from("company_trials")
+              .upsert(
+                {
+                  company_id: companyId,
+                  trial_start: now.toISOString(),
+                  trial_end: end.toISOString(),
+                  created_at: now.toISOString(),
+                  updated_at: now.toISOString(),
+                },
+                { onConflict: "company_id" }
+              );
 
-            if (!trialUpdateErr) {
+            if (!trialInsertErr) {
               // Policy A: trial starts with a clean quota slate for this trial window.
               const periodStart = now.toISOString().slice(0, 10); // YYYY-MM-DD
               const periodEnd = end.toISOString().slice(0, 10); // YYYY-MM-DD

@@ -22,61 +22,31 @@ export async function POST(req: NextRequest) {
       contact_person_name,
       firm_type,
       address,
-      email,
       phone,
       pan,
-      gst,
+      gst_number,
+      industry,
       business_category,
       business_type,
     } = await req.json();
 
     const fallbackContactPerson = String(
-      user.user_metadata?.full_name || user.email || email || ''
+      user.user_metadata?.full_name || user.email || ''
     ).trim();
     const resolvedContactPerson = String(contact_person || contact_person_name || '').trim() || fallbackContactPerson;
 
     // Validate required fields
-    if (!company_name || !resolvedContactPerson || !firm_type || !address || !email || !phone || !pan || !business_category || !business_type) {
+    if (!company_name || !resolvedContactPerson || !address || !phone || !industry || !business_type) {
       return NextResponse.json(
-        { error: 'Missing required fields. PAN card is mandatory.' },
-        { status: 400 }
-      );
-    }
-
-    // Validate email format
-    if (!/\S+@\S+\.\S+/.test(email)) {
-      return NextResponse.json(
-        { error: 'Invalid email address' },
+        { error: 'Missing required fields.' },
         { status: 400 }
       );
     }
 
     // Validate firm type
-    const validFirmTypes = ['proprietorship', 'partnership', 'llp', 'pvt_ltd', 'ltd'];
-    if (!validFirmTypes.includes(firm_type)) {
-      return NextResponse.json(
-        { error: 'Invalid firm type' },
-        { status: 400 }
-      );
-    }
-
-    // Validate business fields
-    const validCategories = ['pharma', 'food', 'dairy', 'logistics'];
-    const validTypes = ['manufacturer', 'exporter', 'distributor', 'wholesaler'];
-    
-    if (!validCategories.includes(business_category)) {
-      return NextResponse.json(
-        { error: 'Invalid business category' },
-        { status: 400 }
-      );
-    }
-
-    if (!validTypes.includes(business_type)) {
-      return NextResponse.json(
-        { error: 'Invalid business type' },
-        { status: 400 }
-      );
-    }
+    const normalizedFirmType = String(firm_type || '').trim().toLowerCase();
+    const normalizedBusinessType = String(business_type || '').trim().toLowerCase();
+    const normalizedIndustry = String(industry || '').trim().toLowerCase();
 
     // Check if company already exists for this user
     const { data: existingCompany } = await supabase
@@ -99,19 +69,18 @@ export async function POST(req: NextRequest) {
         user_id: user.id,
         company_name: company_name.trim(),
         contact_person: resolvedContactPerson,
-        contact_person_name: resolvedContactPerson,
-        firm_type,
+        firm_type: normalizedFirmType || null,
         address: address.trim(),
-        email: email.toLowerCase().trim(),
         phone: phone.trim(),
-        pan: pan.toUpperCase().trim(),
-        gst: gst ? gst.toUpperCase().trim() : null,
-        business_category,
-        business_type,
-        subscription_status: null,
+        pan: pan ? pan.toUpperCase().trim() : null,
+        gst_number: gst_number ? gst_number.toUpperCase().trim() : null,
+        industry: normalizedIndustry,
+        business_category: business_category ? String(business_category).trim().toLowerCase() : null,
+        business_type: normalizedBusinessType,
         created_at: new Date().toISOString(),
+        profile_completed: true,
       })
-      .select('id, company_name, email')
+      .select('id, company_name')
       .single();
 
     if (insertError) {
@@ -162,7 +131,6 @@ export async function POST(req: NextRequest) {
       company: {
         id: company.id,
         company_name: company.company_name,
-        email: company.email,
       },
     }, { status: 201 });
   } catch (error) {

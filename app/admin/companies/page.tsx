@@ -17,15 +17,17 @@ type Company = {
   user_id: string;
   created_at: string;
   gst_number?: string;
-  contact_email?: string;
-  contact_phone?: string;
+  contact_person?: string;
+  phone?: string;
   address?: string;
-  trial_status?: 'Active' | 'Expired' | 'Not Used';
-  trial_end?: string | null;
-  trial_status_raw?: string | null;
-  trial_expires_at?: string | null;
+  industry?: string;
+  business_type?: string;
+  firm_type?: string | null;
+  business_category?: string | null;
+  pan?: string | null;
   is_frozen?: boolean | null;
   freeze_reason?: string | null;
+  profile_completed?: boolean | null;
 };
 
 async function parseApiJson(response: Response) {
@@ -46,25 +48,6 @@ function createIdempotencyKey(): string {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function inferTrialStatus(company: Company): { trial_status: Company['trial_status']; trial_end: string | null } {
-  const trialEnd = company.trial_expires_at || null;
-  if (trialEnd) {
-    return {
-      trial_status: new Date(trialEnd) > new Date() ? 'Active' : 'Expired',
-      trial_end: trialEnd,
-    };
-  }
-
-  const raw = String(company.trial_status_raw || '').trim().toLowerCase();
-  if (['trial', 'trialing', 'active'].includes(raw)) {
-    return { trial_status: 'Active', trial_end: null };
-  }
-  if (['expired', 'cancelled', 'ended'].includes(raw)) {
-    return { trial_status: 'Expired', trial_end: null };
-  }
-  return { trial_status: 'Not Used', trial_end: null };
-}
-
 export default function CompaniesManagement() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(false);
@@ -73,10 +56,15 @@ export default function CompaniesManagement() {
   const [editingCompany, setEditingCompany] = useState<Company | null>(null);
   const [formData, setFormData] = useState({
     company_name: '',
+    contact_person: '',
+    phone: '',
+    address: '',
+    industry: '',
+    business_type: '',
+    firm_type: '',
+    business_category: '',
     gst_number: '',
-    contact_email: '',
-    contact_phone: '',
-    address: ''
+    pan: '',
   });
   // Trials are webhook-only; admin trial reset is intentionally disabled.
 
@@ -96,11 +84,7 @@ export default function CompaniesManagement() {
       }
 
       const rows = Array.isArray(payload.companies) ? payload.companies : [];
-      const normalized = rows.map((company: Company) => ({
-        ...company,
-        ...inferTrialStatus(company),
-      }));
-      setCompanies(normalized);
+      setCompanies(rows);
     } catch (error: any) {
       console.error('Error:', error);
       alert('Failed to fetch companies: ' + error.message);
@@ -133,7 +117,18 @@ export default function CompaniesManagement() {
 
       setShowForm(false);
       setEditingCompany(null);
-      setFormData({ company_name: '', gst_number: '', contact_email: '', contact_phone: '', address: '' });
+      setFormData({
+        company_name: '',
+        contact_person: '',
+        phone: '',
+        address: '',
+        industry: '',
+        business_type: '',
+        firm_type: '',
+        business_category: '',
+        gst_number: '',
+        pan: '',
+      });
       fetchCompanies();
     } catch (error: any) {
       console.error('Error:', error);
@@ -172,10 +167,15 @@ export default function CompaniesManagement() {
     setEditingCompany(company);
     setFormData({
       company_name: company.company_name,
+      contact_person: company.contact_person || '',
+      phone: company.phone || '',
+      address: company.address || '',
+      industry: company.industry || '',
+      business_type: company.business_type || '',
+      firm_type: company.firm_type || '',
+      business_category: company.business_category || '',
       gst_number: company.gst_number || '',
-      contact_email: company.contact_email || '',
-      contact_phone: company.contact_phone || '',
-      address: company.address || ''
+      pan: company.pan || '',
     });
     setShowForm(true);
   }
@@ -183,7 +183,18 @@ export default function CompaniesManagement() {
   function closeForm() {
     setShowForm(false);
     setEditingCompany(null);
-    setFormData({ company_name: '', gst_number: '', contact_email: '', contact_phone: '', address: '' });
+    setFormData({
+      company_name: '',
+      contact_person: '',
+      phone: '',
+      address: '',
+      industry: '',
+      business_type: '',
+      firm_type: '',
+      business_category: '',
+      gst_number: '',
+      pan: '',
+    });
   }
 
   async function handleToggleFreeze(company: Company) {
@@ -244,7 +255,7 @@ export default function CompaniesManagement() {
 
   const filteredCompanies = companies.filter(company =>
     company.company_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    company.contact_email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    company.contact_person?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     company.gst_number?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
@@ -266,11 +277,11 @@ export default function CompaniesManagement() {
 
       {/* Search */}
       <Card>
-        <CardContent className="pt-6">
+      <CardContent className="pt-6">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
             <Input
-              placeholder="Search by company name, email, or GST number..."
+              placeholder="Search by company name, contact person, or GST number..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-10"
@@ -322,7 +333,7 @@ export default function CompaniesManagement() {
                 <X className="w-4 h-4" />
               </Button>
             </CardHeader>
-            <CardContent>
+      <CardContent>
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
                   <Label htmlFor="company_name">Company Name *</Label>
@@ -335,21 +346,56 @@ export default function CompaniesManagement() {
                 </div>
 
                 <div>
-                  <Label htmlFor="contact_email">Contact Email</Label>
+                  <Label htmlFor="contact_person">Contact Person</Label>
                   <Input
-                    id="contact_email"
-                    type="email"
-                    value={formData.contact_email}
-                    onChange={(e) => setFormData({ ...formData, contact_email: e.target.value })}
+                    id="contact_person"
+                    value={formData.contact_person}
+                    onChange={(e) => setFormData({ ...formData, contact_person: e.target.value })}
                   />
                 </div>
 
                 <div>
-                  <Label htmlFor="contact_phone">Contact Phone</Label>
+                  <Label htmlFor="phone">Phone</Label>
                   <Input
-                    id="contact_phone"
-                    value={formData.contact_phone}
-                    onChange={(e) => setFormData({ ...formData, contact_phone: e.target.value })}
+                    id="phone"
+                    value={formData.phone}
+                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="industry">Industry</Label>
+                  <Input
+                    id="industry"
+                    value={formData.industry}
+                    onChange={(e) => setFormData({ ...formData, industry: e.target.value })}
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="business_type">Business Type</Label>
+                  <Input
+                    id="business_type"
+                    value={formData.business_type}
+                    onChange={(e) => setFormData({ ...formData, business_type: e.target.value })}
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="firm_type">Firm Type</Label>
+                  <Input
+                    id="firm_type"
+                    value={formData.firm_type}
+                    onChange={(e) => setFormData({ ...formData, firm_type: e.target.value })}
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="business_category">Business Category</Label>
+                  <Input
+                    id="business_category"
+                    value={formData.business_category}
+                    onChange={(e) => setFormData({ ...formData, business_category: e.target.value })}
                   />
                 </div>
 
@@ -359,6 +405,15 @@ export default function CompaniesManagement() {
                     id="gst_number"
                     value={formData.gst_number}
                     onChange={(e) => setFormData({ ...formData, gst_number: e.target.value })}
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="pan">PAN</Label>
+                  <Input
+                    id="pan"
+                    value={formData.pan}
+                    onChange={(e) => setFormData({ ...formData, pan: e.target.value })}
                   />
                 </div>
 
@@ -419,21 +474,27 @@ function CompanyCard({
         </div>
       </CardHeader>
       <CardContent className="space-y-2">
-        {company.contact_email && (
+        {company.contact_person && (
           <div className="text-sm">
-            <span className="text-gray-500">📧 Email:</span>
-            <div className="font-medium text-xs">{company.contact_email}</div>
+            <span className="text-gray-500">Contact:</span>
+            <div className="font-medium text-xs">{company.contact_person}</div>
           </div>
         )}
-        {company.contact_phone && (
+        {company.phone && (
           <div className="text-sm">
-            <span className="text-gray-500">📱 Phone:</span>
-            <div className="font-medium">{company.contact_phone}</div>
+            <span className="text-gray-500">Phone:</span>
+            <div className="font-medium">{company.phone}</div>
+          </div>
+        )}
+        {company.industry && (
+          <div className="text-sm">
+            <span className="text-gray-500">Industry:</span>
+            <div className="font-medium text-xs">{company.industry}</div>
           </div>
         )}
         {company.gst_number && (
           <div className="text-sm">
-            <span className="text-gray-500">🏛 GST:</span>
+            <span className="text-gray-500">GST:</span>
             <div className="font-mono text-xs">{company.gst_number}</div>
           </div>
         )}
@@ -495,3 +556,9 @@ function CompanyCard({
     </Card>
   );
 }
+
+
+
+
+
+

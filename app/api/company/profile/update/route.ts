@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
     // Get user's company
     const { data: company, error: companyError } = await supabase
       .from('companies')
-      .select('id, user_id, email, company_name, phone, pan, gst_number:gst, address')
+      .select('id, user_id, company_name, phone, pan, gst_number, address')
       .eq('user_id', user.id)
       .maybeSingle();
 
@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (gst_number !== undefined) {
-      updateData.gst = gst_number ? gst_number.toUpperCase().trim() : null;
+      updateData.gst_number = gst_number ? gst_number.toUpperCase().trim() : null;
     }
 
     if (address !== undefined) {
@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
       .update(updateData)
       .eq('id', company.id)
       .eq('user_id', user.id) // Ensure user owns this company
-      .select('id, company_name, phone, pan, gst_number:gst, address, email, user_id')
+      .select('id, company_name, phone, pan, gst_number, address, user_id')
       .single();
 
     if (updateError) {
@@ -89,7 +89,6 @@ export async function POST(req: NextRequest) {
         pan: updatedCompany.pan,
         gst_number: updatedCompany.gst_number,
         address: updatedCompany.address,
-        email: updatedCompany.email, // Read-only, returned for display
         user_id: updatedCompany.user_id, // Read-only, returned for display
       },
     });

@@ -36,14 +36,14 @@ export async function POST(req: NextRequest) {
   }
 
   // Block if trial already activated (one trial per company)
-  const { data: company, error: companyErr } = await owner.supabase
-    .from("companies")
-    .select("trial_activated_at, trial_started_at, trial_expires_at, trial_end_at")
-    .eq("id", owner.companyId)
+  const { data: trialRow, error: trialErr } = await owner.supabase
+    .from("company_trials")
+    .select("trial_start, trial_end")
+    .eq("company_id", owner.companyId)
     .maybeSingle();
-  if (companyErr) return NextResponse.json({ error: companyErr.message }, { status: 500 });
+  if (trialErr) return NextResponse.json({ error: trialErr.message }, { status: 500 });
 
-  if ((company as any)?.trial_activated_at || (company as any)?.trial_started_at) {
+  if (trialRow?.trial_start || trialRow?.trial_end) {
     return NextResponse.json({ error: "TRIAL_ALREADY_ACTIVATED" }, { status: 409 });
   }
 
@@ -158,4 +158,3 @@ export async function POST(req: NextRequest) {
     },
   });
 }
-
