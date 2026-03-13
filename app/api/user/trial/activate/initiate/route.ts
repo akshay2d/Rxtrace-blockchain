@@ -18,6 +18,11 @@ function buildPurpose(companyId: string) {
   return `trial_activation_company_${companyId}`;
 }
 
+function buildTrialReceipt(correlationId: string) {
+  const compact = correlationId.replace(/-/g, "");
+  return `trial_${compact.slice(0, 30)}`;
+}
+
 function buildRazorpayClient(keyId: string, keySecret: string) {
   return new Razorpay({ key_id: keyId, key_secret: keySecret });
 }
@@ -26,13 +31,16 @@ export async function POST(req: NextRequest) {
   const owner = await requireOwnerContext();
   if (!owner.ok) return owner.response;
 
-  const correlationId = getOrGenerateCorrelationId(await headers(), "user");
+  let correlationId = getOrGenerateCorrelationId(await headers(), "user");
   const headerKey = req.headers.get("idempotency-key");
 
   const body = await req.json().catch(() => ({}));
   const idempotencyKey = normalizeIdempotencyKey((body as any)?.idempotency_key || headerKey);
   if (!idempotencyKey) {
     return NextResponse.json({ error: "Missing Idempotency-Key header" }, { status: 400 });
+  }
+  if (idempotencyKey && correlationId !== idempotencyKey) {
+    correlationId = idempotencyKey;
   }
 
   // Block if trial already activated (one trial per company)
@@ -49,11 +57,12 @@ export async function POST(req: NextRequest) {
 
   // Idempotency: reuse an existing created order for this company/idempotency key if present.
   const purpose = buildPurpose(owner.companyId);
+  const receipt = buildTrialReceipt(correlationId);
   const { data: existingOrder, error: orderErr } = await owner.supabase
     .from("razorpay_orders")
     .select("order_id, amount_paise, currency, receipt, status, created_at")
     .eq("purpose", purpose)
-    .eq("receipt", `trial:${idempotencyKey}`)
+    .eq("receipt", receipt)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -85,7 +94,6 @@ export async function POST(req: NextRequest) {
   }
 
   // Create Razorpay order (server-side)
-  const receipt = `trial:${idempotencyKey}`;
   let created: any;
   try {
     const razorpay = buildRazorpayClient(keyId, keySecret);
@@ -94,8 +102,8 @@ export async function POST(req: NextRequest) {
       currency: "INR",
       receipt,
       notes: {
-        purpose,
         plan: "10_day_trial",
+        purpose,
         company_id: owner.companyId,
         owner_user_id: owner.userId,
         correlation_id: correlationId,
@@ -103,10 +111,10 @@ export async function POST(req: NextRequest) {
     });
   } catch (error: any) {
     console.error("RAZORPAY ORDER ERROR:", {
-      error: error?.message || String(error),
+      message: error?.message,
+      description: error?.error?.description,
+      code: error?.error?.code,
       correlation_id: correlationId,
-      company_id: owner.companyId,
-      receipt,
     });
     return NextResponse.json(
       { error: "RAZORPAY_ORDER_CREATE_FAILED", correlation_id: correlationId },
