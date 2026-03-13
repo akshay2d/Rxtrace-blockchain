@@ -13,7 +13,7 @@ export type EntitlementDecision = {
   reason_code: string;
   remaining: number;
   consumed: number;
-  fallback_used: "base" | "bonus" | "wallet" | "trial" | null;
+  fallback_used: "base" | "bonus" | "trial" | null;
 };
 
 const usageTypeToMetric: Record<UsageType, CanonicalMetric> = {
@@ -40,8 +40,14 @@ const usageTypeToMetricType: Record<UsageType, "UNIT" | "BOX" | "CARTON" | "SSCC
 
 const nonConsumingUsageTypes: Set<UsageType> = new Set([
   UsageType.LABEL_PREVIEW,
-  UsageType.ERP_INGEST,
 ]);
+
+export type EntitlementBatchItem = {
+  usageType: UsageType;
+  quantity: number;
+  requestId?: string;
+  metadata?: Record<string, any>;
+};
 
 function mapErrorToReasonCode(error?: string): EntitlementDecision["reason_code"] {
   const value = (error || "").toUpperCase();
@@ -174,5 +180,69 @@ export async function refundEntitlement(params: {
     return { ok: true };
   } catch (error: any) {
     return { ok: false, error: error?.message || String(error) };
+  }
+}
+
+export async function consumeEntitlementBatch(params: {
+  companyId: string;
+  items: EntitlementBatchItem[];
+}): Promise<{
+  ok: boolean;
+  error?: string;
+  consumed: EntitlementBatchItem[];
+  decisions: EntitlementDecision[];
+}> {
+  const consumed: EntitlementBatchItem[] = [];
+  const decisions: EntitlementDecision[] = [];
+
+  for (const item of params.items) {
+    if (!Number.isFinite(item.quantity) || item.quantity <= 0) continue;
+
+    const decision = await enforceEntitlement({
+      companyId: params.companyId,
+      usageType: item.usageType,
+      quantity: item.quantity,
+      requestId: item.requestId,
+      metadata: item.metadata,
+    });
+    decisions.push(decision);
+
+    if (!decision.allow) {
+      for (const prior of consumed.reverse()) {
+        await refundEntitlement({
+          companyId: params.companyId,
+          usageType: prior.usageType,
+          quantity: prior.quantity,
+        });
+      }
+      return {
+        ok: false,
+        error: decision.reason_code,
+        consumed: [],
+        decisions,
+      };
+    }
+
+    consumed.push(item);
+  }
+
+  return {
+    ok: true,
+    consumed,
+    decisions,
+  };
+}
+
+export async function refundEntitlementBatch(params: {
+  companyId: string;
+  items: EntitlementBatchItem[];
+}): Promise<void> {
+  for (const item of params.items) {
+    if (!Number.isFinite(item.quantity) || item.quantity <= 0) continue;
+    await refundEntitlement({
+      companyId: params.companyId,
+      usageType: item.usageType,
+      quantity: item.quantity,
+    });
   }
 }

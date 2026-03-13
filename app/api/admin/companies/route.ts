@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
   const { data, error, count } = await supabase
     .from("companies")
     .select(
-      "id, user_id, company_name, gst_number:gst, contact_email:email, contact_phone:phone, address, subscription_status, subscription_plan, trial_started_at, trial_expires_at, extra_user_seats, deleted_at, created_at, updated_at",
+      "id, user_id, company_name, gst_number:gst, contact_email:email, contact_phone:phone, address, subscription_status, subscription_plan, trial_started_at, trial_expires_at, extra_user_seats, is_frozen, freeze_reason, deleted_at, created_at, updated_at",
       { count: "exact" }
     )
     .is("deleted_at", null)
@@ -38,33 +38,6 @@ export async function GET(req: NextRequest) {
     return errorResponse(500, "INTERNAL_ERROR", error.message, correlationId);
   }
 
-  const companyIds = (data || []).map((row) => row.id).filter(Boolean);
-  let walletStatusByCompanyId = new Map<string, string>();
-
-  if (companyIds.length > 0) {
-    const { data: walletRows, error: walletError } = await supabase
-      .from("company_wallets")
-      .select("company_id, status")
-      .in("company_id", companyIds);
-
-    if (walletError) {
-      return errorResponse(500, "INTERNAL_ERROR", walletError.message, correlationId);
-    }
-
-    for (const walletRow of walletRows || []) {
-      if (walletRow.company_id) {
-        walletStatusByCompanyId.set(walletRow.company_id, walletRow.status || "ACTIVE");
-      }
-    }
-  }
-
-  const companiesWithWalletStatus = (data || []).map((row) => ({
-    ...row,
-    company_wallets: {
-      status: walletStatusByCompanyId.get(row.id) || "ACTIVE",
-    },
-  }));
-
   return successResponse(
     200,
     {
@@ -72,7 +45,7 @@ export async function GET(req: NextRequest) {
       page,
       page_size: pageSize,
       total: count || 0,
-      companies: companiesWithWalletStatus,
+      companies: data || [],
     },
     correlationId
   );

@@ -9,4 +9,4 @@ export enum UsageType {
   ERP_INGEST = "ERP_INGEST",
 }
 
-export type QuotaKind = "unit" | "sscc";
+export type QuotaKind = "unit" | "box" | "carton" | "pallet";

@@ -24,8 +24,8 @@ type Company = {
   trial_end?: string | null;
   trial_status_raw?: string | null;
   trial_expires_at?: string | null;
-  wallet_status?: 'ACTIVE' | 'FROZEN';
-  company_wallets?: Array<{ status?: 'ACTIVE' | 'FROZEN' }> | { status?: 'ACTIVE' | 'FROZEN' } | null;
+  is_frozen?: boolean | null;
+  freeze_reason?: string | null;
 };
 
 async function parseApiJson(response: Response) {
@@ -96,18 +96,10 @@ export default function CompaniesManagement() {
       }
 
       const rows = Array.isArray(payload.companies) ? payload.companies : [];
-      const normalized = rows.map((company: Company) => {
-        const walletRel = company.company_wallets;
-        const walletStatus = Array.isArray(walletRel)
-          ? walletRel[0]?.status
-          : walletRel?.status;
-
-        return {
-          ...company,
-          wallet_status: walletStatus === 'FROZEN' ? 'FROZEN' : 'ACTIVE',
-          ...inferTrialStatus(company),
-        };
-      });
+      const normalized = rows.map((company: Company) => ({
+        ...company,
+        ...inferTrialStatus(company),
+      }));
       setCompanies(normalized);
     } catch (error: any) {
       console.error('Error:', error);
@@ -195,8 +187,7 @@ export default function CompaniesManagement() {
   }
 
   async function handleToggleFreeze(company: Company) {
-    const currentStatus = company.wallet_status || 'ACTIVE';
-    const newStatus = currentStatus === 'ACTIVE' ? 'FROZEN' : 'ACTIVE';
+    const newStatus = company.is_frozen ? 'ACTIVE' : 'FROZEN';
 
     try {
       const response = await fetch(`/api/admin/companies/${company.id}/freeze`, {
@@ -410,7 +401,7 @@ function CompanyCard({
   onEdit: (c: Company) => void;
   onDelete: (c: Company) => void;
 }) {
-  const status: 'ACTIVE' | 'FROZEN' = company.wallet_status === 'FROZEN' ? 'FROZEN' : 'ACTIVE';
+  const status: 'ACTIVE' | 'FROZEN' = company.is_frozen ? 'FROZEN' : 'ACTIVE';
 
   return (
     <Card className="hover:shadow-lg transition">

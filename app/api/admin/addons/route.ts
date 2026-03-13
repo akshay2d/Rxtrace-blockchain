@@ -15,22 +15,22 @@ import { appendAdminMutationAuditEvent } from "@/lib/admin/audit";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const STRUCTURAL_KEYS = new Set(["seat", "plant", "handset"]);
-const VARIABLE_KEYS = new Set(["unit", "box", "carton", "pallet"]);
-const VALID_KEYS = new Set([...STRUCTURAL_KEYS, ...VARIABLE_KEYS]);
+const CAPACITY_KEYS = new Set(["seat", "plant", "handset"]);
+const CODE_KEYS = new Set(["unit", "box", "carton", "pallet"]);
+const VALID_KEYS = new Set([...CAPACITY_KEYS, ...CODE_KEYS]);
 
 type NormalizedAddOn = {
   name: string;
   description: string | null;
   price: number;
   unit: string;
+  pricing_unit_size: number;
   recurring: boolean;
   display_order: number;
   is_active?: boolean;
   addon_kind: "structural" | "variable_quota";
   entitlement_key: "seat" | "plant" | "handset" | "unit" | "box" | "carton" | "pallet";
   billing_mode: "recurring" | "one_time";
-  razorpay_item_id: string | null;
 };
 
 function parseNumber(value: unknown, fallback = 0): number {
@@ -63,8 +63,8 @@ function normalizeAddOnPayload(body: Record<string, unknown>, isUpdate: boolean)
   const recurringRaw = body.recurring;
   const price = parseNumber(body.price, NaN);
   const displayOrder = parseNumber(body.display_order, 0);
+  const pricingUnitSize = Math.max(1, Math.trunc(parseNumber(body.pricing_unit_size, 1)));
   const isActive = typeof body.is_active === "boolean" ? body.is_active : undefined;
-  const razorpayItemId = normalizeText(body.razorpay_item_id) || null;
 
   if (!isUpdate) {
     if (!name) return { error: "name is required" };
@@ -73,7 +73,7 @@ function normalizeAddOnPayload(body: Record<string, unknown>, isUpdate: boolean)
 
   const entitlement =
     (entitlementRaw && VALID_KEYS.has(entitlementRaw) ? entitlementRaw : inferEntitlementFromName(name || "unit")) as NormalizedAddOn["entitlement_key"];
-  const inferredKind: NormalizedAddOn["addon_kind"] = STRUCTURAL_KEYS.has(entitlement) ? "structural" : "variable_quota";
+  const inferredKind: NormalizedAddOn["addon_kind"] = CAPACITY_KEYS.has(entitlement) ? "structural" : "variable_quota";
   const addonKind = (kindRaw === "structural" || kindRaw === "variable_quota" ? kindRaw : inferredKind) as NormalizedAddOn["addon_kind"];
   const billingMode =
     (billingModeRaw === "recurring" || billingModeRaw === "one_time"
@@ -82,33 +82,30 @@ function normalizeAddOnPayload(body: Record<string, unknown>, isUpdate: boolean)
       ? "recurring"
       : "one_time") as NormalizedAddOn["billing_mode"];
 
-  if (addonKind === "structural" && !STRUCTURAL_KEYS.has(entitlement)) {
-    return { error: "structural add-ons must use entitlement_key seat|plant|handset" };
+  if (addonKind === "structural" && !CAPACITY_KEYS.has(entitlement)) {
+    return { error: "capacity add-ons must use entitlement_key seat|plant|handset" };
   }
-  if (addonKind === "variable_quota" && !VARIABLE_KEYS.has(entitlement)) {
-    return { error: "variable_quota add-ons must use entitlement_key unit|box|carton|pallet" };
+  if (addonKind === "variable_quota" && !CODE_KEYS.has(entitlement)) {
+    return { error: "code add-ons must use entitlement_key unit|box|carton|pallet" };
   }
 
-  const recurring =
-    typeof recurringRaw === "boolean"
-      ? recurringRaw
-      : billingMode === "recurring";
+  const recurring = typeof recurringRaw === "boolean" ? recurringRaw : billingMode === "recurring";
 
-  const normalized: NormalizedAddOn = {
-    name,
-    description: description || null,
-    price: Number.isFinite(price) ? price : 0,
-    unit,
-    recurring,
-    display_order: Math.max(0, Math.trunc(displayOrder)),
-    is_active: isActive,
-    addon_kind: addonKind,
-    entitlement_key: entitlement,
-    billing_mode: billingMode,
-    razorpay_item_id: razorpayItemId,
+  return {
+    value: {
+      name,
+      description: description || null,
+      price: Number.isFinite(price) ? price : 0,
+      unit,
+      pricing_unit_size: pricingUnitSize,
+      recurring,
+      display_order: Math.max(0, Math.trunc(displayOrder)),
+      is_active: isActive,
+      addon_kind: addonKind,
+      entitlement_key: entitlement,
+      billing_mode: billingMode,
+    },
   };
-
-  return { value: normalized };
 }
 
 export async function GET() {
@@ -119,10 +116,7 @@ export async function GET() {
   if (auth.error) return errorResponse(403, "FORBIDDEN", "Admin access required", correlationId);
 
   const supabase = getSupabaseAdmin();
-  const { data, error } = await supabase
-    .from("add_ons")
-    .select("*")
-    .order("display_order", { ascending: true });
+  const { data, error } = await supabase.from("add_ons").select("*").order("display_order", { ascending: true });
 
   if (error) return errorResponse(500, "INTERNAL_ERROR", error.message, correlationId);
   return successResponse(200, { success: true, add_ons: data || [] }, correlationId);
@@ -161,11 +155,7 @@ export async function POST(req: NextRequest) {
   if (idempotency.kind === "replay") return successResponse(idempotency.statusCode, idempotency.payload, correlationId);
 
   const supabase = getSupabaseAdmin();
-  const { data: addOn, error } = await supabase
-    .from("add_ons")
-    .insert(normalized.value)
-    .select()
-    .single();
+  const { data: addOn, error } = await supabase.from("add_ons").insert(normalized.value).select("*").single();
 
   if (error) return errorResponse(500, "INTERNAL_ERROR", error.message, correlationId);
 
@@ -231,12 +221,7 @@ export async function PUT(req: NextRequest) {
   if (idempotency.kind === "replay") return successResponse(idempotency.statusCode, idempotency.payload, correlationId);
 
   const supabase = getSupabaseAdmin();
-
-  const { data: before, error: beforeError } = await supabase
-    .from("add_ons")
-    .select("*")
-    .eq("id", id)
-    .maybeSingle();
+  const { data: before, error: beforeError } = await supabase.from("add_ons").select("*").eq("id", id).maybeSingle();
 
   if (beforeError) return errorResponse(500, "INTERNAL_ERROR", beforeError.message, correlationId);
   if (!before) return errorResponse(404, "NOT_FOUND", "Add-on not found", correlationId);
@@ -246,6 +231,7 @@ export async function PUT(req: NextRequest) {
   if ("description" in (body as any)) updates.description = normalized.value.description;
   if ("price" in (body as any)) updates.price = normalized.value.price;
   if ("unit" in (body as any)) updates.unit = normalized.value.unit;
+  if ("pricing_unit_size" in (body as any)) updates.pricing_unit_size = normalized.value.pricing_unit_size;
   if ("recurring" in (body as any) || "billing_mode" in (body as any)) updates.recurring = normalized.value.recurring;
   if ("display_order" in (body as any)) updates.display_order = normalized.value.display_order;
   if ("is_active" in (body as any)) updates.is_active = normalized.value.is_active;
@@ -254,17 +240,11 @@ export async function PUT(req: NextRequest) {
     updates.entitlement_key = normalized.value.entitlement_key;
     updates.billing_mode = normalized.value.billing_mode;
   }
-  if ("razorpay_item_id" in (body as any)) updates.razorpay_item_id = normalized.value.razorpay_item_id;
   if (Object.keys(updates).length === 0) {
     return errorResponse(400, "BAD_REQUEST", "No update fields provided", correlationId);
   }
 
-  const { data: addOn, error } = await supabase
-    .from("add_ons")
-    .update(updates)
-    .eq("id", id)
-    .select()
-    .single();
+  const { data: addOn, error } = await supabase.from("add_ons").update(updates).eq("id", id).select("*").single();
 
   if (error) return errorResponse(500, "INTERNAL_ERROR", error.message, correlationId);
 

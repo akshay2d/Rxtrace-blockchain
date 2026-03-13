@@ -2,7 +2,7 @@
 -- Handles:
 -- - subscription.* lifecycle events
 -- - invoice.paid / invoice.payment_failed
--- - order.paid / payment.captured mapped to combined checkout top-up leg
+-- - order.paid / payment.captured mapped to combined checkout add-on leg
 -- Keeps idempotency via webhook_events.event_id unique constraint.
 
 CREATE OR REPLACE FUNCTION public.process_razorpay_webhook_event(
@@ -25,8 +25,6 @@ DECLARE
 
   v_company_id uuid;
   v_amount numeric;
-  v_wallet_tx record;
-
   v_subscription_id text;
   v_subscription_event text;
   v_subscription_status text;
@@ -319,7 +317,7 @@ BEGIN
   END IF;
 
   -- =========================================================
-  -- Order / payment events (top-up leg + wallet topups)
+  -- Order / payment events
   -- =========================================================
   IF p_event_type IN ('order.paid', 'payment.captured') THEN
     v_order_id := COALESCE(
@@ -328,7 +326,6 @@ BEGIN
     );
     v_payment_id := p_payload #>> '{payload,payment,entity,id}';
 
-    -- 1) Legacy wallet top-ups (existing behavior)
     IF v_order_id IS NOT NULL AND btrim(v_order_id) <> '' THEN
       UPDATE public.razorpay_orders
       SET status = 'paid',
@@ -338,33 +335,7 @@ BEGIN
         AND status <> 'paid'
       RETURNING * INTO v_order_row;
 
-      IF v_order_row IS NOT NULL THEN
-        IF v_order_row.purpose ~ '^wallet_topup_company_.+$' THEN
-          v_company_id := substring(v_order_row.purpose from '^wallet_topup_company_(.+)$')::uuid;
-          v_amount := coalesce(v_order_row.amount, 0);
-
-          IF v_company_id IS NOT NULL AND v_amount > 0 THEN
-            SELECT * INTO v_wallet_tx
-            FROM public.wallet_update_and_record(
-              p_company_id := v_company_id::text,
-              p_op := 'TOPUP',
-              p_amount := v_amount,
-              p_reference := 'razorpay_topup:' || v_order_id,
-              p_created_by := NULL
-            );
-
-            v_result := v_result || jsonb_build_object(
-              'wallet_topup', jsonb_build_object(
-                'company_id', v_company_id,
-                'amount', v_amount,
-                'wallet_tx_id', v_wallet_tx.id
-              )
-            );
-          END IF;
-        END IF;
-      END IF;
-
-      -- 2) Canonical checkout top-up leg mapping (order_id -> checkout_sessions)
+      -- Canonical checkout add-on leg mapping (order_id -> checkout_sessions)
       SELECT *
       INTO v_checkout_session
       FROM public.checkout_sessions cs

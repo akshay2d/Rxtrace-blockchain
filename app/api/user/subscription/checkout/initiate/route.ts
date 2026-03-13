@@ -21,6 +21,14 @@ function isExpired(expiresAt: string): boolean {
   return Date.now() > ts;
 }
 
+function normalizeStatus(value: unknown): string {
+  const parsed = String(value || "").trim().toLowerCase();
+  if (["active", "authenticated", "activated", "charged"].includes(parsed)) return "active";
+  if (["cancelled", "canceled"].includes(parsed)) return "cancelled";
+  if (["pending", "trial", "trialing"].includes(parsed)) return "pending";
+  return "expired";
+}
+
 export async function POST(req: NextRequest) {
   const owner = await requireOwnerContext();
   if (!owner.ok) return owner.response;
@@ -42,7 +50,7 @@ export async function POST(req: NextRequest) {
     const { data: existingSession, error: existingError } = await owner.supabase
       .from("checkout_sessions")
       .select(
-        "id, quote_hash, status, selected_plan_template_id, selected_plan_version_id, totals_json, expires_at, provider_subscription_id, provider_topup_order_id, subscription_payload_json, topup_payload_json"
+        "id, quote_hash, status, selected_plan_template_id, selected_plan_version_id, totals_json, expires_at, subscription_payload_json, topup_payload_json"
       )
       .eq("company_id", owner.companyId)
       .eq("idempotency_key", idempotencyKey)
@@ -61,7 +69,7 @@ export async function POST(req: NextRequest) {
         correlation_id: correlationId,
         checkout: {
           subscription: (existingSession as any).subscription_payload_json || null,
-          topup: (existingSession as any).topup_payload_json || null,
+          add_ons: (existingSession as any).topup_payload_json || null,
         },
       });
     }
@@ -83,7 +91,7 @@ export async function POST(req: NextRequest) {
 
     const { data: selectedTemplate, error: templateError } = await owner.supabase
       .from("subscription_plan_templates")
-      .select("id, name, razorpay_plan_id, billing_cycle, amount_from_razorpay, is_active")
+      .select("*")
       .eq("id", quote.selected_plan_template_id)
       .eq("is_active", true)
       .maybeSingle();
@@ -92,7 +100,7 @@ export async function POST(req: NextRequest) {
 
     const { data: selectedVersion, error: versionError } = await owner.supabase
       .from("subscription_plan_versions")
-      .select("id, version_number, is_active")
+      .select("*")
       .eq("id", quote.selected_plan_version_id)
       .eq("template_id", quote.selected_plan_template_id)
       .eq("is_active", true)
@@ -102,26 +110,25 @@ export async function POST(req: NextRequest) {
 
     const subscriptionPayload = {
       mode: "subscription",
-      provider: "razorpay",
-      action: "create_subscription",
-      plan_name: (selectedTemplate as any).name,
-      billing_cycle: (selectedTemplate as any).billing_cycle,
-      amount_paise: (selectedTemplate as any).amount_from_razorpay,
-      razorpay_plan_id: (selectedTemplate as any).razorpay_plan_id,
-      coupon_offer_id: quote.coupon?.razorpay_offer_id || null,
+      action: "payment_pending",
+      plan_name: quote.plan.name,
+      description: quote.plan.description,
+      billing_cycle: quote.plan.billing_cycle,
+      plan_price_paise: quote.plan.plan_price_paise,
+      pricing_unit_size: quote.plan.pricing_unit_size,
+      quotas: quote.plan.quotas,
+      capacities: quote.plan.capacities,
     };
 
-    const hasTopup = Array.isArray(quote.variable_topups) && quote.variable_topups.length > 0;
-    const topupPayload = hasTopup
-      ? {
-          mode: "one_time_topup",
-          provider: "razorpay",
-          action: "create_order",
-          currency: "INR",
-          amount_paise: quote.totals.variable_topups_paise,
-          lines: quote.variable_topups,
-        }
-      : null;
+    const addOnPayload =
+      quote.capacity_addons.length || quote.code_addons.length
+        ? {
+            mode: "add_ons",
+            action: "payment_pending",
+            capacity_addons: quote.capacity_addons,
+            code_addons: quote.code_addons,
+          }
+        : null;
 
     const now = new Date().toISOString();
     const { data: inserted, error: insertError } = await owner.supabase
@@ -132,26 +139,67 @@ export async function POST(req: NextRequest) {
         idempotency_key: idempotencyKey,
         quote_hash: quoteHash,
         quote_payload_json: quote,
-        status: "subscription_initiated",
+        status: "quote_locked",
         selected_plan_template_id: quote.selected_plan_template_id,
         selected_plan_version_id: quote.selected_plan_version_id,
-        coupon_code: quote.coupon?.code || null,
-        coupon_id: quote.coupon?.id || null,
-        coupon_snapshot_json: quote.coupon || null,
         subscription_payload_json: subscriptionPayload,
-        topup_payload_json: topupPayload,
+        topup_payload_json: addOnPayload,
         totals_json: quote.totals,
         expires_at: quote.expires_at,
         correlation_id: correlationId,
         metadata: {
           initiated_by: owner.userId,
           initiated_at: now,
-          has_variable_topup: hasTopup,
+          phase: "phase_3_checkout_pending_payment",
         },
       })
       .select("id, status, expires_at")
       .single();
     if (insertError) return NextResponse.json({ error: insertError.message }, { status: 500 });
+
+    const { data: latestSubscription, error: subReadError } = await owner.supabase
+      .from("company_subscriptions")
+      .select("id, status")
+      .eq("company_id", owner.companyId)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (subReadError) return NextResponse.json({ error: subReadError.message }, { status: 500 });
+
+    const pendingSnapshot = {
+      company_id: owner.companyId,
+      status: "pending",
+      plan_template_id: quote.selected_plan_template_id,
+      plan_version_id: quote.selected_plan_version_id,
+      billing_cycle: quote.plan.billing_cycle,
+      start_date: now,
+      renewal_date: null,
+      unit_subscription_quota: quote.plan.quotas.unit,
+      box_subscription_quota: quote.plan.quotas.box,
+      carton_subscription_quota: quote.plan.quotas.carton,
+      pallet_subscription_quota: quote.plan.quotas.pallet,
+      seat_limit: quote.plan.capacities.seat,
+      plant_limit: quote.plan.capacities.plant,
+      handset_limit: quote.plan.capacities.handset,
+      metadata: {
+        pending_checkout_session_id: (inserted as any).id,
+        updated_from_phase_2_checkout: now,
+      },
+      updated_at: now,
+    };
+
+    if (!latestSubscription) {
+      const { error: subInsertError } = await owner.supabase
+        .from("company_subscriptions")
+        .insert(pendingSnapshot);
+      if (subInsertError) return NextResponse.json({ error: subInsertError.message }, { status: 500 });
+    } else if (normalizeStatus((latestSubscription as any).status) !== "active") {
+      const { error: subUpdateError } = await owner.supabase
+        .from("company_subscriptions")
+        .update(pendingSnapshot)
+        .eq("id", (latestSubscription as any).id);
+      if (subUpdateError) return NextResponse.json({ error: subUpdateError.message }, { status: 500 });
+    }
 
     return NextResponse.json({
       success: true,
@@ -161,9 +209,9 @@ export async function POST(req: NextRequest) {
       correlation_id: correlationId,
       checkout: {
         subscription: subscriptionPayload,
-        topup: topupPayload,
+        add_ons: addOnPayload,
       },
-      webhook_activation_pending: true,
+      payment_required_in_phase_3: true,
     });
   } catch (error: any) {
     return NextResponse.json(

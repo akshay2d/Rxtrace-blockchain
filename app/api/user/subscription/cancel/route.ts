@@ -34,11 +34,18 @@ export async function POST(req: NextRequest) {
   if (idem.kind === "conflict") return NextResponse.json({ error: "IDEMPOTENCY_CONFLICT" }, { status: 409 });
   if (idem.kind === "replay") return NextResponse.json(idem.payload, { status: idem.statusCode });
 
+  const now = new Date().toISOString();
   const { data: updated, error } = await owner.supabase
     .from("company_subscriptions")
-    .update({ cancel_at_period_end: true, updated_at: new Date().toISOString() })
+    .update({
+      status: "cancelled",
+      cancel_at_period_end: true,
+      next_billing_at: null,
+      renewal_date: null,
+      updated_at: now,
+    })
     .eq("company_id", owner.companyId)
-    .in("status", ["active", "authenticated", "pending", "paused", "past_due"])
+    .in("status", ["active", "authenticated", "pending", "paused", "past_due", "expired"])
     .select("status, cancel_at_period_end, current_period_end, next_billing_at")
     .maybeSingle();
 

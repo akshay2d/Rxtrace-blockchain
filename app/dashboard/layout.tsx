@@ -1,12 +1,37 @@
 import Sidebar from "@/components/layout/Sidebar";
 import Header from "@/components/layout/Header";
 import { SubscriptionProvider } from "@/lib/hooks/useSubscription";
+import { redirect } from "next/navigation";
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { supabaseServer } from "@/lib/supabase/server";
+import { resolveCompanyForUser } from "@/lib/company/resolve";
 
-export default function DashboardLayout({
+export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const supabase = await supabaseServer();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    redirect("/auth/signin");
+  }
+
+  const admin = getSupabaseAdmin();
+  const resolved = await resolveCompanyForUser(admin, user.id, "id, profile_completed");
+
+  if (!resolved) {
+    redirect("/onboarding/company-setup");
+  }
+
+  const company = resolved.company as Record<string, unknown>;
+  if (company.profile_completed === false) {
+    redirect("/onboarding/company-setup?reason=complete_profile");
+  }
+
   return (
     <SubscriptionProvider>
       <div className="flex h-screen bg-gray-100">

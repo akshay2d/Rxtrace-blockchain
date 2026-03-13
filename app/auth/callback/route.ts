@@ -1,8 +1,18 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
+import { getSupabaseAdmin } from '@/lib/supabase/admin';
+import { resolveCompanyForUser } from '@/lib/company/resolve';
 
 export const dynamic = 'force-dynamic';
+
+const COMPANY_SETUP_ROUTE = '/onboarding/company-setup';
+
+function getSafeNextPath(nextPath: string | null): string | null {
+  if (!nextPath || !nextPath.startsWith('/')) return null;
+  if (nextPath.startsWith('//')) return null;
+  return nextPath;
+}
 
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url);
@@ -17,6 +27,8 @@ export async function GET(request: Request) {
       new URL(`/auth/signin?error=${encodeURIComponent(errorDescription || error)}`, request.url)
     );
   }
+
+  let userId: string | null = null;
 
   if (code) {
     const cookieStore = await cookies();
@@ -53,12 +65,27 @@ export async function GET(request: Request) {
         new URL('/auth/signin?error=Authentication failed', request.url)
       );
     }
+
+    userId = data.session.user.id;
   }
 
   // Check if there's a next parameter for redirect
-  const nextUrl = requestUrl.searchParams.get('next');
-  // Production: default to dashboard; middleware will redirect to company-setup or pricing as needed
-  const redirectTo = nextUrl || '/dashboard';
+  const nextPath = getSafeNextPath(requestUrl.searchParams.get('next'));
+  let redirectTo = nextPath || '/dashboard';
+
+  if (userId) {
+    const admin = getSupabaseAdmin();
+    const resolved = await resolveCompanyForUser(admin, userId, 'id');
+    const hasCompany = Boolean(resolved?.companyId);
+
+    if (!hasCompany) {
+      if (!nextPath || nextPath.startsWith('/dashboard')) {
+        redirectTo = COMPANY_SETUP_ROUTE;
+      }
+    } else if (nextPath && (nextPath === COMPANY_SETUP_ROUTE || nextPath.startsWith(`${COMPANY_SETUP_ROUTE}/`))) {
+      redirectTo = '/dashboard';
+    }
+  }
 
   // URL to redirect to after sign in process completes
   return NextResponse.redirect(new URL(redirectTo, request.url));

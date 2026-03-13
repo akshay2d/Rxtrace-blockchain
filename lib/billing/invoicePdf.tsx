@@ -12,10 +12,8 @@ type InvoiceRow = {
   status: string;
   paid_at?: string | null;
   reference?: string | null;
-  charge_tx_id?: string | null;
   base_amount?: number | null;
   addons_amount?: number | null;
-  wallet_applied?: number | null;
   tax_rate?: number | null;
   tax_amount?: number | null;
   has_gst?: boolean | null;
@@ -67,8 +65,6 @@ function InvoicePdfDoc({ invoice, company }: { invoice: InvoiceRow; company: Com
   const addons = invoice.addons_amount != null ? toNumber(invoice.addons_amount) : toNumber(invoice?.metadata?.pricing?.addons);
   const discountAmount = invoice.discount_amount != null ? toNumber(invoice.discount_amount) : toNumber(invoice?.metadata?.pricing?.discount);
   const taxAmount = invoice.tax_amount != null ? toNumber(invoice.tax_amount) : toNumber(invoice?.metadata?.pricing?.tax);
-  const walletApplied = toNumber(invoice.wallet_applied);
-  const due = Math.max(0, Number((amount - walletApplied).toFixed(2)));
   const billingCycle = invoice.billing_cycle ?? invoice?.metadata?.billing_cycle ?? null;
 
   const periodStart = invoice.period_start ? new Date(invoice.period_start).toLocaleDateString('en-IN') : '—';
@@ -165,29 +161,10 @@ function InvoicePdfDoc({ invoice, company }: { invoice: InvoiceRow; company: Com
               <Text style={styles.bold}>{formatINR(amount)}</Text>
             </View>
 
-            {walletApplied > 0 ? (
-              <>
-                <View style={styles.tableRow}>
-                  <Text>Payment (Wallet)</Text>
-                  <Text>-{formatINR(walletApplied)}</Text>
-                </View>
-                <View style={styles.tableRow}>
-                  <Text style={styles.bold}>Amount due</Text>
-                  <Text style={styles.bold}>{formatINR(due)}</Text>
-                </View>
-                {invoice.charge_tx_id ? (
-                  <View style={styles.tableRow}>
-                    <Text style={styles.muted}>Wallet charge tx</Text>
-                    <Text style={styles.muted}>{invoice.charge_tx_id}</Text>
-                  </View>
-                ) : null}
-              </>
-            ) : (
-              <View style={styles.tableRow}>
-                <Text style={styles.bold}>Amount due</Text>
-                <Text style={styles.bold}>{formatINR(amount)}</Text>
-              </View>
-            )}
+            <View style={styles.tableRow}>
+              <Text style={styles.bold}>Amount due</Text>
+              <Text style={styles.bold}>{formatINR(amount)}</Text>
+            </View>
           </View>
         </View>
 

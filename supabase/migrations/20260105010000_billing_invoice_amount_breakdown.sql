@@ -1,10 +1,9 @@
--- Add invoice breakdown + wallet payment fields
+-- Add invoice breakdown fields
 -- Keeps existing `amount` as the invoice gross total (plan base + monthly add-ons).
 
 ALTER TABLE IF EXISTS public.billing_invoices
   ADD COLUMN IF NOT EXISTS base_amount NUMERIC(18, 2),
-  ADD COLUMN IF NOT EXISTS addons_amount NUMERIC(18, 2),
-  ADD COLUMN IF NOT EXISTS wallet_applied NUMERIC(18, 2) NOT NULL DEFAULT 0;
+  ADD COLUMN IF NOT EXISTS addons_amount NUMERIC(18, 2);
 
 -- Best-effort backfill from metadata.pricing (written by cron runner)
 UPDATE public.billing_invoices

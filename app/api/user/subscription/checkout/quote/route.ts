@@ -26,10 +26,16 @@ export async function POST(req: NextRequest) {
       companyId: owner.companyId,
       ownerUserId: owner.userId,
       planTemplateId,
-      structuralAddons: Array.isArray((body as any)?.structural_addons) ? (body as any).structural_addons : [],
-      variableTopups: Array.isArray((body as any)?.variable_topups) ? (body as any).variable_topups : [],
-      variableQuota: (body as any)?.variable_quota || undefined,
-      couponCode: String((body as any)?.coupon_code || "").trim() || null,
+      capacityAddons: Array.isArray((body as any)?.capacity_addons)
+        ? (body as any).capacity_addons
+        : Array.isArray((body as any)?.structural_addons)
+        ? (body as any).structural_addons
+        : [],
+      codeAddons: Array.isArray((body as any)?.code_addons)
+        ? (body as any).code_addons
+        : Array.isArray((body as any)?.variable_topups)
+        ? (body as any).variable_topups
+        : [],
     };
 
     const quote = buildCheckoutQuote(quoteInput, catalog);
@@ -46,9 +52,8 @@ export async function POST(req: NextRequest) {
     if (
       message.includes("PLAN_NOT_AVAILABLE") ||
       message.includes("ADDON_NOT_AVAILABLE") ||
-      message.includes("INVALID_STRUCTURAL_ADDON_SELECTION") ||
-      message.includes("INVALID_VARIABLE_ADDON_SELECTION") ||
-      message.includes("COUPON_INVALID")
+      message.includes("INVALID_CAPACITY_ADDON_SELECTION") ||
+      message.includes("INVALID_CODE_ADDON_SELECTION")
     ) {
       return NextResponse.json({ error: message }, { status: 400 });
     }
@@ -58,4 +63,3 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
-

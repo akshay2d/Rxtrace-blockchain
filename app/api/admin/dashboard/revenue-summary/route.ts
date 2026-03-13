@@ -25,14 +25,6 @@ export async function GET() {
     return errorResponse(500, "INTERNAL_ERROR", invoiceError.message, correlationId);
   }
 
-  const { data: walletRows, error: walletError } = await supabase
-    .from("wallet_transactions")
-    .select("amount, type");
-
-  if (walletError) {
-    return errorResponse(500, "INTERNAL_ERROR", walletError.message, correlationId);
-  }
-
   let subscriptionRevenue = 0;
   let addOnRevenue = 0;
   for (const row of invoiceRows || []) {
@@ -43,13 +35,6 @@ export async function GET() {
     addOnRevenue += addOns;
   }
 
-  let walletEarnings = 0;
-  for (const row of walletRows || []) {
-    if (String((row as any).type || "").toLowerCase() === "debit") {
-      walletEarnings += Number((row as any).amount || 0);
-    }
-  }
-
   return successResponse(
     200,
     {
@@ -57,7 +42,6 @@ export async function GET() {
       totals: {
         subscription_revenue_paise: subscriptionRevenue,
         addon_revenue_paise: addOnRevenue,
-        wallet_earnings_paise: walletEarnings,
       },
     },
     correlationId

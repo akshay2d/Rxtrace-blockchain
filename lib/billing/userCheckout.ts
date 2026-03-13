@@ -4,35 +4,42 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 export type CheckoutMetric = "seat" | "plant" | "handset" | "unit" | "box" | "carton" | "pallet";
 export type AddOnKind = "structural" | "variable_quota";
 export type BillingMode = "recurring" | "one_time";
-export type CouponScope = "subscription" | "addons" | "both";
 
 export type ActivePlan = {
   template_id: string;
   template_name: string;
+  description: string | null;
   billing_cycle: "monthly" | "yearly";
-  amount_from_razorpay: number;
+  plan_price_paise: number;
+  pricing_unit_size: number;
   version_id: string;
   version_number: number;
-  limits: {
+  quota_units: {
     unit: number;
     box: number;
     carton: number;
     pallet: number;
+  };
+  quotas: {
+    unit: number;
+    box: number;
+    carton: number;
+    pallet: number;
+  };
+  capacities: {
     seat: number;
     plant: number;
     handset: number;
-    grace_unit: number;
-    grace_box: number;
-    grace_carton: number;
-    grace_pallet: number;
   };
 };
 
 export type ActiveAddOn = {
   id: string;
   name: string;
+  description: string | null;
   price: number;
   unit: string;
+  pricing_unit_size: number;
   addon_kind: AddOnKind;
   entitlement_key: CheckoutMetric;
   billing_mode: BillingMode;
@@ -40,27 +47,12 @@ export type ActiveAddOn = {
   is_active: boolean;
 };
 
-export type ActiveCoupon = {
-  id: string;
-  code: string;
-  type: "percentage" | "flat";
-  value: number;
-  scope: CouponScope;
-  usage_limit: number | null;
-  usage_count: number;
-  valid_from: string;
-  valid_to: string | null;
-  razorpay_offer_id: string | null;
-};
-
 export type CheckoutQuoteInput = {
   companyId: string;
   ownerUserId: string;
   planTemplateId: string;
-  structuralAddons?: Array<{ addon_id: string; quantity: number }>;
-  variableTopups?: Array<{ addon_id: string; quantity: number }>;
-  variableQuota?: Partial<Record<"unit" | "box" | "carton" | "pallet", number>>;
-  couponCode?: string | null;
+  capacityAddons?: Array<{ addon_id: string; quantity: number }>;
+  codeAddons?: Array<{ addon_id: string; quantity: number }>;
 };
 
 export type CheckoutQuotePayload = {
@@ -72,41 +64,38 @@ export type CheckoutQuotePayload = {
   selected_plan_version_id: string;
   plan: {
     name: string;
+    description: string | null;
     billing_cycle: "monthly" | "yearly";
-    amount_paise: number;
-    limits: ActivePlan["limits"];
+    plan_price_paise: number;
+    pricing_unit_size: number;
+    quota_units: ActivePlan["quota_units"];
+    quotas: ActivePlan["quotas"];
+    capacities: ActivePlan["capacities"];
   };
-  structural_addons: Array<{
+  capacity_addons: Array<{
     addon_id: string;
     name: string;
     entitlement_key: CheckoutMetric;
     quantity: number;
     unit_price_paise: number;
     line_total_paise: number;
+    allocated_capacity: number;
   }>;
-  variable_topups: Array<{
+  code_addons: Array<{
     addon_id: string;
     name: string;
     entitlement_key: CheckoutMetric;
     quantity: number;
+    pricing_unit_size: number;
+    allocated_quota: number;
     unit_price_paise: number;
     line_total_paise: number;
   }>;
-  coupon: {
-    id: string;
-    code: string;
-    type: "percentage" | "flat";
-    value: number;
-    scope: CouponScope;
-    discount_paise: number;
-    razorpay_offer_id: string | null;
-  } | null;
   totals: {
     currency: "INR";
     subscription_paise: number;
-    structural_addons_paise: number;
-    variable_topups_paise: number;
-    discount_paise: number;
+    capacity_addons_paise: number;
+    code_addons_paise: number;
     grand_total_paise: number;
   };
 };
@@ -143,7 +132,6 @@ export function checkoutQuoteHash(payload: CheckoutQuotePayload): string {
 function getCheckoutSigningSecret(): string {
   const value =
     process.env.CHECKOUT_QUOTE_SECRET?.trim() ||
-    process.env.RAZORPAY_KEY_SECRET?.trim() ||
     process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
   if (!value) {
     throw new Error("CHECKOUT_SIGNING_SECRET_MISSING");
@@ -160,8 +148,9 @@ export function signCheckoutQuote(payload: CheckoutQuotePayload): { quote_hash: 
 export function verifyCheckoutQuoteSignature(payload: CheckoutQuotePayload, signature: string): boolean {
   if (!signature?.trim()) return false;
   const { signature: expected } = signCheckoutQuote(payload);
-  const a = Buffer.from(signature, "utf8");
-  const b = Buffer.from(expected, "utf8");
+  const encoder = new TextEncoder();
+  const a = encoder.encode(signature);
+  const b = encoder.encode(expected);
   if (a.length !== b.length) return false;
   return crypto.timingSafeEqual(a, b);
 }
@@ -169,11 +158,10 @@ export function verifyCheckoutQuoteSignature(payload: CheckoutQuotePayload, sign
 export async function loadCheckoutCatalog(supabase: SupabaseClient): Promise<{
   plans: ActivePlan[];
   addOns: ActiveAddOn[];
-  coupons: ActiveCoupon[];
 }> {
   const { data: templates, error: templateError } = await supabase
     .from("subscription_plan_templates")
-    .select("id, name, billing_cycle, amount_from_razorpay, is_active")
+    .select("*")
     .eq("is_active", true)
     .order("name", { ascending: true });
   if (templateError) throw new Error(templateError.message);
@@ -182,9 +170,7 @@ export async function loadCheckoutCatalog(supabase: SupabaseClient): Promise<{
   const { data: versions, error: versionError } = templateIds.length
     ? await supabase
         .from("subscription_plan_versions")
-        .select(
-          "id, template_id, version_number, unit_limit, box_limit, carton_limit, pallet_limit, seat_limit, plant_limit, handset_limit, grace_unit, grace_box, grace_carton, grace_pallet, is_active"
-        )
+        .select("*")
         .in("template_id", templateIds)
         .eq("is_active", true)
         .order("version_number", { ascending: false })
@@ -202,25 +188,33 @@ export async function loadCheckoutCatalog(supabase: SupabaseClient): Promise<{
     .map((template: any) => {
       const version = activeVersionByTemplate.get(template.id);
       if (!version) return null;
+      const pricingUnitSize = Math.max(1, toPositiveInt(template.pricing_unit_size || 1));
+      const quotaUnits = {
+        unit: toPositiveInt(version.unit_quota_units || Math.floor(toPositiveInt(version.unit_limit) / pricingUnitSize)),
+        box: toPositiveInt(version.box_quota_units || Math.floor(toPositiveInt(version.box_limit) / pricingUnitSize)),
+        carton: toPositiveInt(version.carton_quota_units || Math.floor(toPositiveInt(version.carton_limit) / pricingUnitSize)),
+        pallet: toPositiveInt(version.pallet_quota_units || Math.floor(toPositiveInt(version.pallet_limit) / pricingUnitSize)),
+      };
       return {
         template_id: String(template.id),
         template_name: String(template.name || ""),
+        description: template.description || null,
         billing_cycle: template.billing_cycle === "yearly" ? "yearly" : "monthly",
-        amount_from_razorpay: Math.max(0, Math.trunc(toNumber(template.amount_from_razorpay, 0))),
+        plan_price_paise: Math.max(0, Math.trunc(toNumber(template.plan_price ?? template.amount_from_razorpay, 0))),
+        pricing_unit_size: pricingUnitSize,
         version_id: String(version.id),
         version_number: toPositiveInt(version.version_number),
-        limits: {
+        quota_units: quotaUnits,
+        quotas: {
           unit: toPositiveInt(version.unit_limit),
           box: toPositiveInt(version.box_limit),
           carton: toPositiveInt(version.carton_limit),
           pallet: toPositiveInt(version.pallet_limit),
+        },
+        capacities: {
           seat: toPositiveInt(version.seat_limit),
           plant: toPositiveInt(version.plant_limit),
           handset: toPositiveInt(version.handset_limit),
-          grace_unit: toPositiveInt(version.grace_unit),
-          grace_box: toPositiveInt(version.grace_box),
-          grace_carton: toPositiveInt(version.grace_carton),
-          grace_pallet: toPositiveInt(version.grace_pallet),
         },
       } as ActivePlan;
     })
@@ -228,7 +222,7 @@ export async function loadCheckoutCatalog(supabase: SupabaseClient): Promise<{
 
   const { data: addOnRows, error: addOnError } = await supabase
     .from("add_ons")
-    .select("id, name, price, unit, addon_kind, entitlement_key, billing_mode, recurring, is_active, display_order")
+    .select("*")
     .eq("is_active", true)
     .order("display_order", { ascending: true });
   if (addOnError) throw new Error(addOnError.message);
@@ -236,8 +230,10 @@ export async function loadCheckoutCatalog(supabase: SupabaseClient): Promise<{
   const addOns: ActiveAddOn[] = (addOnRows || []).map((row: any) => ({
     id: String(row.id),
     name: String(row.name || ""),
+    description: row.description || null,
     price: toNumber(row.price, 0),
     unit: String(row.unit || "unit"),
+    pricing_unit_size: Math.max(1, toPositiveInt(row.pricing_unit_size || 1)),
     addon_kind: row.addon_kind === "structural" ? "structural" : "variable_quota",
     entitlement_key: row.entitlement_key as CheckoutMetric,
     billing_mode: row.billing_mode === "recurring" ? "recurring" : "one_time",
@@ -245,40 +241,7 @@ export async function loadCheckoutCatalog(supabase: SupabaseClient): Promise<{
     is_active: row.is_active === true,
   }));
 
-  const nowIso = new Date().toISOString();
-  const { data: couponRows, error: couponError } = await supabase
-    .from("discounts")
-    .select("id, code, type, value, scope, usage_limit, usage_count, valid_from, valid_to, is_active, razorpay_offer_id")
-    .eq("is_active", true);
-  if (couponError) throw new Error(couponError.message);
-
-  const coupons: ActiveCoupon[] = (couponRows || [])
-    .map((row: any) => ({
-      id: String(row.id),
-      code: String(row.code || "").toUpperCase(),
-      type: row.type === "flat" ? "flat" : "percentage",
-      value: toNumber(row.value, 0),
-      scope:
-        row.scope === "subscription" || row.scope === "addons" || row.scope === "both"
-          ? (row.scope as CouponScope)
-          : "both",
-      usage_limit: row.usage_limit === null ? null : toPositiveInt(row.usage_limit),
-      usage_count: toPositiveInt(row.usage_count),
-      valid_from: row.valid_from || nowIso,
-      valid_to: row.valid_to || null,
-      razorpay_offer_id: row.razorpay_offer_id || null,
-    }))
-    .filter((coupon) => {
-      const now = new Date(nowIso).getTime();
-      const from = new Date(coupon.valid_from).getTime();
-      const to = coupon.valid_to ? new Date(coupon.valid_to).getTime() : null;
-      if (Number.isNaN(from) || now < from) return false;
-      if (to !== null && !Number.isNaN(to) && now > to) return false;
-      if (coupon.usage_limit !== null && coupon.usage_count >= coupon.usage_limit) return false;
-      return true;
-    });
-
-  return { plans, addOns, coupons };
+  return { plans, addOns };
 }
 
 function normalizeSelectionArray(input: unknown): Array<{ addon_id: string; quantity: number }> {
@@ -299,65 +262,11 @@ function mergeSelectionByAddonId(entries: Array<{ addon_id: string; quantity: nu
   return Array.from(totals.entries()).map(([addon_id, quantity]) => ({ addon_id, quantity }));
 }
 
-export function normalizeVariableQuotaInput(
-  input: Partial<Record<"unit" | "box" | "carton" | "pallet", number>> | undefined,
-  addOns: ActiveAddOn[]
-): Array<{ addon_id: string; quantity: number }> {
-  if (!input) return [];
-  const variableCandidates = addOns.filter(
-    (row) => row.addon_kind === "variable_quota" && row.billing_mode === "one_time"
-  );
-  const byKey = new Map<string, ActiveAddOn>();
-  for (const addon of variableCandidates) {
-    if (!byKey.has(addon.entitlement_key)) byKey.set(addon.entitlement_key, addon);
-  }
-  const output: Array<{ addon_id: string; quantity: number }> = [];
-  for (const key of ["unit", "box", "carton", "pallet"] as const) {
-    const qty = toPositiveInt(input[key]);
-    if (!qty) continue;
-    const addon = byKey.get(key);
-    if (!addon) throw new Error(`NO_VARIABLE_ADDON_FOR_${key.toUpperCase()}`);
-    output.push({ addon_id: addon.id, quantity: qty });
-  }
-  return output;
-}
-
-function applyCouponDiscount(params: {
-  coupon: ActiveCoupon | null;
-  subscriptionSubtotal: number;
-  addonsSubtotal: number;
-}): {
-  discountTotal: number;
-} {
-  const { coupon, subscriptionSubtotal, addonsSubtotal } = params;
-  if (!coupon) return { discountTotal: 0 };
-
-  let eligibleSubtotal = 0;
-  if (coupon.scope === "subscription") {
-    eligibleSubtotal = subscriptionSubtotal;
-  } else if (coupon.scope === "addons") {
-    eligibleSubtotal = addonsSubtotal;
-  } else {
-    eligibleSubtotal = subscriptionSubtotal + addonsSubtotal;
-  }
-  if (eligibleSubtotal <= 0) return { discountTotal: 0 };
-
-  let discount = 0;
-  if (coupon.type === "percentage") {
-    const pct = Math.min(Math.max(coupon.value, 0), 100);
-    discount = Math.round((eligibleSubtotal * pct) / 100);
-  } else {
-    discount = toPaiseFromINR(coupon.value);
-  }
-  return { discountTotal: Math.max(0, Math.min(discount, eligibleSubtotal)) };
-}
-
 export function buildCheckoutQuote(
   input: CheckoutQuoteInput,
   catalog: {
     plans: ActivePlan[];
     addOns: ActiveAddOn[];
-    coupons: ActiveCoupon[];
   }
 ): CheckoutQuotePayload {
   const plan = catalog.plans.find((row) => row.template_id === input.planTemplateId);
@@ -366,66 +275,52 @@ export function buildCheckoutQuote(
   const now = new Date();
   const expiresAt = new Date(now.getTime() + 10 * 60 * 1000);
 
-  const rawStructuralSelections = normalizeSelectionArray(input.structuralAddons);
-  const rawVariableSelections = normalizeSelectionArray(input.variableTopups);
-  const mappedVariableFromKeys = normalizeVariableQuotaInput(input.variableQuota, catalog.addOns);
-
-  const structuralSelections = mergeSelectionByAddonId(rawStructuralSelections);
-  const variableSelections = mergeSelectionByAddonId([...rawVariableSelections, ...mappedVariableFromKeys]);
+  const capacitySelections = mergeSelectionByAddonId(normalizeSelectionArray(input.capacityAddons));
+  const codeSelections = mergeSelectionByAddonId(normalizeSelectionArray(input.codeAddons));
 
   const addOnsById = new Map(catalog.addOns.map((addon) => [addon.id, addon]));
-  const structuralLines: CheckoutQuotePayload["structural_addons"] = [];
-  for (const selection of structuralSelections) {
+  const capacityLines: CheckoutQuotePayload["capacity_addons"] = [];
+  for (const selection of capacitySelections) {
     const addon = addOnsById.get(selection.addon_id);
     if (!addon) throw new Error("ADDON_NOT_AVAILABLE");
     if (!(addon.addon_kind === "structural" && addon.billing_mode === "recurring")) {
-      throw new Error("INVALID_STRUCTURAL_ADDON_SELECTION");
+      throw new Error("INVALID_CAPACITY_ADDON_SELECTION");
     }
-    structuralLines.push({
+    const unitPrice = toPaiseFromINR(addon.price);
+    capacityLines.push({
       addon_id: addon.id,
       name: addon.name,
       entitlement_key: addon.entitlement_key,
       quantity: selection.quantity,
-      unit_price_paise: toPaiseFromINR(addon.price),
-      line_total_paise: toPaiseFromINR(addon.price) * selection.quantity,
+      allocated_capacity: selection.quantity,
+      unit_price_paise: unitPrice,
+      line_total_paise: unitPrice * selection.quantity,
     });
   }
 
-  const variableLines: CheckoutQuotePayload["variable_topups"] = [];
-  for (const selection of variableSelections) {
+  const codeLines: CheckoutQuotePayload["code_addons"] = [];
+  for (const selection of codeSelections) {
     const addon = addOnsById.get(selection.addon_id);
     if (!addon) throw new Error("ADDON_NOT_AVAILABLE");
     if (!(addon.addon_kind === "variable_quota" && addon.billing_mode === "one_time")) {
-      throw new Error("INVALID_VARIABLE_ADDON_SELECTION");
+      throw new Error("INVALID_CODE_ADDON_SELECTION");
     }
-    variableLines.push({
+    const unitPrice = toPaiseFromINR(addon.price);
+    codeLines.push({
       addon_id: addon.id,
       name: addon.name,
       entitlement_key: addon.entitlement_key,
       quantity: selection.quantity,
-      unit_price_paise: toPaiseFromINR(addon.price),
-      line_total_paise: toPaiseFromINR(addon.price) * selection.quantity,
+      pricing_unit_size: addon.pricing_unit_size,
+      allocated_quota: selection.quantity * addon.pricing_unit_size,
+      unit_price_paise: unitPrice,
+      line_total_paise: unitPrice * selection.quantity,
     });
   }
 
-  const subscriptionSubtotal = plan.amount_from_razorpay;
-  const structuralSubtotal = structuralLines.reduce((sum, line) => sum + line.line_total_paise, 0);
-  const variableSubtotal = variableLines.reduce((sum, line) => sum + line.line_total_paise, 0);
-  const addonsSubtotal = structuralSubtotal + variableSubtotal;
-
-  const couponCode = String(input.couponCode || "").trim().toUpperCase();
-  const coupon =
-    couponCode.length > 0
-      ? catalog.coupons.find((row) => row.code === couponCode) || null
-      : null;
-  if (couponCode && !coupon) throw new Error("COUPON_INVALID");
-
-  const { discountTotal } = applyCouponDiscount({
-    coupon,
-    subscriptionSubtotal,
-    addonsSubtotal,
-  });
-  const grandTotal = Math.max(0, subscriptionSubtotal + addonsSubtotal - discountTotal);
+  const subscriptionSubtotal = plan.plan_price_paise;
+  const capacitySubtotal = capacityLines.reduce((sum, line) => sum + line.line_total_paise, 0);
+  const codeSubtotal = codeLines.reduce((sum, line) => sum + line.line_total_paise, 0);
 
   return {
     company_id: input.companyId,
@@ -436,31 +331,22 @@ export function buildCheckoutQuote(
     selected_plan_version_id: plan.version_id,
     plan: {
       name: plan.template_name,
+      description: plan.description,
       billing_cycle: plan.billing_cycle,
-      amount_paise: plan.amount_from_razorpay,
-      limits: plan.limits,
+      plan_price_paise: plan.plan_price_paise,
+      pricing_unit_size: plan.pricing_unit_size,
+      quota_units: plan.quota_units,
+      quotas: plan.quotas,
+      capacities: plan.capacities,
     },
-    structural_addons: structuralLines,
-    variable_topups: variableLines,
-    coupon: coupon
-      ? {
-          id: coupon.id,
-          code: coupon.code,
-          type: coupon.type,
-          value: coupon.value,
-          scope: coupon.scope,
-          discount_paise: discountTotal,
-          razorpay_offer_id: coupon.razorpay_offer_id,
-        }
-      : null,
+    capacity_addons: capacityLines,
+    code_addons: codeLines,
     totals: {
       currency: "INR",
       subscription_paise: subscriptionSubtotal,
-      structural_addons_paise: structuralSubtotal,
-      variable_topups_paise: variableSubtotal,
-      discount_paise: discountTotal,
-      grand_total_paise: grandTotal,
+      capacity_addons_paise: capacitySubtotal,
+      code_addons_paise: codeSubtotal,
+      grand_total_paise: subscriptionSubtotal + capacitySubtotal + codeSubtotal,
     },
   };
 }
-

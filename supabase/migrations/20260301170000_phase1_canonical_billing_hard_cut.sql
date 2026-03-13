@@ -420,7 +420,6 @@ CREATE TABLE IF NOT EXISTS public.billing_invoices (
   addons_amount numeric(18,2) DEFAULT 0,
   discount_amount numeric(18,2) DEFAULT 0,
   tax_amount numeric(18,2) DEFAULT 0,
-  wallet_applied numeric(18,2) DEFAULT 0,
   currency text NOT NULL DEFAULT 'INR',
   provider text NOT NULL DEFAULT 'razorpay',
   provider_invoice_id text,

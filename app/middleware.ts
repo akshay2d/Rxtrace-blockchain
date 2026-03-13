@@ -3,6 +3,8 @@ import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 import { resolveCompanyForUser } from '@/lib/company/resolve';
 
+const COMPANY_SETUP_ROUTE = '/onboarding/company-setup';
+
 export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
     request,
@@ -78,16 +80,30 @@ export async function middleware(request: NextRequest) {
 
   const isProtectedArea =
     pathname.startsWith('/dashboard') ||
-    pathname.startsWith('/regulator');
+    pathname.startsWith('/regulator') ||
+    pathname.startsWith('/onboarding');
 
   if (isProtectedArea && !session) {
     return NextResponse.redirect(new URL('/auth/signin', request.url));
   }
 
-  // Dashboard: canonical company resolver (owner + active seat). No owner-only logic.
-  if (session && pathname.startsWith('/dashboard')) {
-    if (pathname === '/dashboard/company-setup' || pathname.startsWith('/dashboard/company-setup/')) {
-      return supabaseResponse;
+  const isDashboardRoute = pathname.startsWith('/dashboard');
+  const isOnboardingCompanySetupRoute =
+    pathname === COMPANY_SETUP_ROUTE || pathname.startsWith(`${COMPANY_SETUP_ROUTE}/`);
+  const isLegacyDashboardCompanySetupRoute =
+    pathname === '/dashboard/company-setup' || pathname.startsWith('/dashboard/company-setup/');
+  // Dashboard/onboarding: canonical company resolver (owner + active seat). No owner-only logic.
+  if (session && (isDashboardRoute || pathname.startsWith('/onboarding'))) {
+    if (!isDashboardRoute && !isOnboardingCompanySetupRoute) {
+      return NextResponse.redirect(new URL(COMPANY_SETUP_ROUTE, request.url));
+    }
+
+    if (isLegacyDashboardCompanySetupRoute) {
+      return NextResponse.redirect(new URL(COMPANY_SETUP_ROUTE, request.url));
+    }
+
+    if (isOnboardingCompanySetupRoute && pathname !== COMPANY_SETUP_ROUTE) {
+      return NextResponse.redirect(new URL(COMPANY_SETUP_ROUTE, request.url));
     }
 
     const resolved = await resolveCompanyForUser(
@@ -97,17 +113,24 @@ export async function middleware(request: NextRequest) {
     );
 
     if (!resolved) {
-      return NextResponse.redirect(new URL('/dashboard/company-setup', request.url));
+      if (isOnboardingCompanySetupRoute) {
+        return supabaseResponse;
+      }
+      return NextResponse.redirect(new URL(COMPANY_SETUP_ROUTE, request.url));
     }
 
     const company = resolved.company as Record<string, unknown>;
     if (company.profile_completed === false) {
-      if (pathname.startsWith('/dashboard/settings/erp-integration')) {
+      if (isOnboardingCompanySetupRoute || pathname.startsWith('/dashboard/settings/erp-integration')) {
         return supabaseResponse;
       }
-      const companySetupUrl = new URL('/dashboard/company-setup', request.url);
+      const companySetupUrl = new URL(COMPANY_SETUP_ROUTE, request.url);
       companySetupUrl.searchParams.set('reason', 'complete_profile');
       return NextResponse.redirect(companySetupUrl);
+    }
+
+    if (isOnboardingCompanySetupRoute) {
+      return NextResponse.redirect(new URL('/dashboard', request.url));
     }
 
     // Allow access when: (a) has valid trial, OR (b) just completed setup (no status yet)
@@ -124,5 +147,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/regulator/:path*', '/api/:path*', '/pricing', '/auth/callback'],
+  matcher: ['/dashboard/:path*', '/regulator/:path*', '/onboarding/:path*', '/api/:path*', '/pricing', '/auth/callback'],
 };

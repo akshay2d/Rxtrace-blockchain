@@ -11,6 +11,10 @@ import { RefreshCw, Plus, Upload } from 'lucide-react';
 type PlanVersion = {
   id: string;
   version_number: number;
+  unit_quota_units: number;
+  box_quota_units: number;
+  carton_quota_units: number;
+  pallet_quota_units: number;
   unit_limit: number;
   box_limit: number;
   carton_limit: number;
@@ -18,23 +22,20 @@ type PlanVersion = {
   seat_limit: number;
   plant_limit: number;
   handset_limit: number;
-  grace_unit: number;
-  grace_box: number;
-  grace_carton: number;
-  grace_pallet: number;
   is_active: boolean;
   change_note: string | null;
-  created_at: string;
+  created_at: string | null;
 };
 
 type PlanTemplate = {
   id: string;
   name: string;
-  razorpay_plan_id: string;
+  description: string | null;
   billing_cycle: 'monthly' | 'yearly';
-  amount_from_razorpay: number;
+  plan_price: number;
+  pricing_unit_size: number;
   is_active: boolean;
-  updated_at: string;
+  updated_at: string | null;
 };
 
 type PlanView = {
@@ -46,40 +47,34 @@ type PlanView = {
 
 type PlanPayload = {
   name: string;
-  razorpay_plan_id: string;
+  description: string;
   billing_cycle: 'monthly' | 'yearly';
-  amount_from_razorpay: string;
+  plan_price: string;
+  pricing_unit_size: string;
   change_note: string;
-  unit_limit: string;
-  box_limit: string;
-  carton_limit: string;
-  pallet_limit: string;
+  unit_quota_units: string;
+  box_quota_units: string;
+  carton_quota_units: string;
+  pallet_quota_units: string;
   seat_limit: string;
   plant_limit: string;
   handset_limit: string;
-  grace_unit: string;
-  grace_box: string;
-  grace_carton: string;
-  grace_pallet: string;
 };
 
 const DEFAULT_PAYLOAD: PlanPayload = {
   name: '',
-  razorpay_plan_id: '',
+  description: '',
   billing_cycle: 'monthly',
-  amount_from_razorpay: '0',
+  plan_price: '0',
+  pricing_unit_size: '10000',
   change_note: '',
-  unit_limit: '0',
-  box_limit: '0',
-  carton_limit: '0',
-  pallet_limit: '0',
+  unit_quota_units: '0',
+  box_quota_units: '0',
+  carton_quota_units: '0',
+  pallet_quota_units: '0',
   seat_limit: '0',
   plant_limit: '0',
   handset_limit: '0',
-  grace_unit: '0',
-  grace_box: '0',
-  grace_carton: '0',
-  grace_pallet: '0',
 };
 
 function createIdempotencyKey(): string {
@@ -101,36 +96,33 @@ function formatINRFromPaise(value: number): string {
 
 function buildVersionBody(form: PlanPayload) {
   return {
-    unit_limit: parseNonNegativeInt(form.unit_limit),
-    box_limit: parseNonNegativeInt(form.box_limit),
-    carton_limit: parseNonNegativeInt(form.carton_limit),
-    pallet_limit: parseNonNegativeInt(form.pallet_limit),
+    unit_quota_units: parseNonNegativeInt(form.unit_quota_units),
+    box_quota_units: parseNonNegativeInt(form.box_quota_units),
+    carton_quota_units: parseNonNegativeInt(form.carton_quota_units),
+    pallet_quota_units: parseNonNegativeInt(form.pallet_quota_units),
     seat_limit: parseNonNegativeInt(form.seat_limit),
     plant_limit: parseNonNegativeInt(form.plant_limit),
     handset_limit: parseNonNegativeInt(form.handset_limit),
-    grace_unit: parseNonNegativeInt(form.grace_unit),
-    grace_box: parseNonNegativeInt(form.grace_box),
-    grace_carton: parseNonNegativeInt(form.grace_carton),
-    grace_pallet: parseNonNegativeInt(form.grace_pallet),
     change_note: form.change_note.trim() || null,
   };
 }
 
-function mapVersionToPayload(version: PlanVersion): PlanPayload {
+function mapVersionToPayload(version: PlanVersion, template: PlanTemplate): PlanPayload {
   return {
     ...DEFAULT_PAYLOAD,
+    name: template.name,
+    description: template.description || '',
+    billing_cycle: template.billing_cycle,
+    plan_price: String(template.plan_price ?? 0),
+    pricing_unit_size: String(template.pricing_unit_size ?? 10000),
     change_note: version.change_note || '',
-    unit_limit: String(version.unit_limit ?? 0),
-    box_limit: String(version.box_limit ?? 0),
-    carton_limit: String(version.carton_limit ?? 0),
-    pallet_limit: String(version.pallet_limit ?? 0),
+    unit_quota_units: String(version.unit_quota_units ?? 0),
+    box_quota_units: String(version.box_quota_units ?? 0),
+    carton_quota_units: String(version.carton_quota_units ?? 0),
+    pallet_quota_units: String(version.pallet_quota_units ?? 0),
     seat_limit: String(version.seat_limit ?? 0),
     plant_limit: String(version.plant_limit ?? 0),
     handset_limit: String(version.handset_limit ?? 0),
-    grace_unit: String(version.grace_unit ?? 0),
-    grace_box: String(version.grace_box ?? 0),
-    grace_carton: String(version.grace_carton ?? 0),
-    grace_pallet: String(version.grace_pallet ?? 0),
   };
 }
 
@@ -182,13 +174,7 @@ export default function SubscriptionPlansPage() {
   function openCreateVersion(plan: PlanView) {
     setCreatingTemplate(false);
     setTargetTemplateId(plan.template.id);
-    setForm({
-      ...mapVersionToPayload(plan.active_version || (plan.versions[0] as PlanVersion)),
-      name: plan.template.name,
-      razorpay_plan_id: plan.template.razorpay_plan_id,
-      billing_cycle: plan.template.billing_cycle,
-      amount_from_razorpay: String(plan.template.amount_from_razorpay ?? 0),
-    });
+    setForm(mapVersionToPayload(plan.active_version || (plan.versions[0] as PlanVersion), plan.template));
     setMessage(null);
     setError(null);
   }
@@ -209,9 +195,10 @@ export default function SubscriptionPlansPage() {
       const body = isNewTemplate
         ? {
             name: form.name.trim(),
-            razorpay_plan_id: form.razorpay_plan_id.trim(),
+            description: form.description.trim() || null,
             billing_cycle: form.billing_cycle,
-            amount_from_razorpay: parseNonNegativeInt(form.amount_from_razorpay),
+            plan_price: parseNonNegativeInt(form.plan_price),
+            pricing_unit_size: Math.max(1, parseNonNegativeInt(form.pricing_unit_size)),
             version,
             publish: true,
           }
@@ -221,10 +208,8 @@ export default function SubscriptionPlansPage() {
             publish: true,
           };
 
-      if (isNewTemplate) {
-        if (!body.name || !body.razorpay_plan_id) {
-          throw new Error('Plan name and Razorpay Plan ID are required');
-        }
+      if (isNewTemplate && !body.name) {
+        throw new Error('Plan name is required');
       }
 
       const res = await fetch('/api/admin/subscription-plans', {
@@ -239,7 +224,7 @@ export default function SubscriptionPlansPage() {
       if (!res.ok || !data.success) {
         throw new Error(data.message || data.error || 'Failed to save plan');
       }
-      setMessage(isNewTemplate ? 'Plan template created and published' : 'New plan version created and published');
+      setMessage(isNewTemplate ? 'Plan created and published' : 'New plan version created and published');
       closeForm();
       await fetchPlans();
     } catch (err: any) {
@@ -280,19 +265,19 @@ export default function SubscriptionPlansPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-3xl font-bold text-[#0052CC]">Subscription Plans</h1>
-          <p className="text-sm text-gray-600 mt-1">DB-backed template + version management with publish controls.</p>
+          <p className="mt-1 text-sm text-gray-600">Admin-controlled plan pricing, quota units, and capacity limits.</p>
         </div>
         <div className="flex gap-2">
           <Button onClick={fetchPlans} disabled={loading || saving} variant="outline">
-            <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
           <Button onClick={openCreateTemplate} disabled={saving}>
-            <Plus className="w-4 h-4 mr-2" />
-            New Plan Template
+            <Plus className="mr-2 h-4 w-4" />
+            New Plan
           </Button>
         </div>
       </div>
@@ -304,23 +289,19 @@ export default function SubscriptionPlansPage() {
         <Card>
           <CardHeader>
             <CardTitle>
-              {creatingTemplate ? 'Create Template + Publish v1' : `Create New Version (${targetPlan?.template.name || ''})`}
+              {creatingTemplate ? 'Create Plan + Publish v1' : `Create New Version (${targetPlan?.template.name || ''})`}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             {creatingTemplate && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label>Plan Name *</Label>
                   <Input value={form.name} onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))} />
                 </div>
                 <div className="space-y-2">
-                  <Label>Razorpay Plan ID *</Label>
-                  <Input
-                    placeholder="plan_xxx"
-                    value={form.razorpay_plan_id}
-                    onChange={(e) => setForm((prev) => ({ ...prev, razorpay_plan_id: e.target.value }))}
-                  />
+                  <Label>Description</Label>
+                  <Input value={form.description} onChange={(e) => setForm((prev) => ({ ...prev, description: e.target.value }))} />
                 </div>
                 <div className="space-y-2">
                   <Label>Billing Cycle *</Label>
@@ -334,30 +315,31 @@ export default function SubscriptionPlansPage() {
                   </select>
                 </div>
                 <div className="space-y-2">
-                  <Label>Amount from Razorpay (paise)</Label>
+                  <Label>Plan Price (paise)</Label>
+                  <Input type="number" min={0} value={form.plan_price} onChange={(e) => setForm((prev) => ({ ...prev, plan_price: e.target.value }))} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Pricing Unit Size</Label>
                   <Input
                     type="number"
-                    min={0}
-                    value={form.amount_from_razorpay}
-                    onChange={(e) => setForm((prev) => ({ ...prev, amount_from_razorpay: e.target.value }))}
+                    min={1}
+                    value={form.pricing_unit_size}
+                    onChange={(e) => setForm((prev) => ({ ...prev, pricing_unit_size: e.target.value }))}
                   />
+                  <p className="text-xs text-gray-500">Example: 10000 means 1 pricing unit equals 10,000 generated codes.</p>
                 </div>
               </div>
             )}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               {[
-                ['Unit Limit', 'unit_limit'],
-                ['Box Limit', 'box_limit'],
-                ['Carton Limit', 'carton_limit'],
-                ['Pallet Limit', 'pallet_limit'],
+                ['Unit Quota Units', 'unit_quota_units'],
+                ['Box Quota Units', 'box_quota_units'],
+                ['Carton Quota Units', 'carton_quota_units'],
+                ['Pallet Quota Units', 'pallet_quota_units'],
                 ['Seat Limit', 'seat_limit'],
                 ['Plant Limit', 'plant_limit'],
                 ['Handset Limit', 'handset_limit'],
-                ['Grace Unit', 'grace_unit'],
-                ['Grace Box', 'grace_box'],
-                ['Grace Carton', 'grace_carton'],
-                ['Grace Pallet', 'grace_pallet'],
               ].map(([label, key]) => (
                 <div key={key} className="space-y-2">
                   <Label>{label}</Label>
@@ -382,7 +364,7 @@ export default function SubscriptionPlansPage() {
 
             <div className="flex gap-2">
               <Button onClick={submitForm} disabled={saving}>
-                <Upload className="w-4 h-4 mr-2" />
+                <Upload className="mr-2 h-4 w-4" />
                 {saving ? 'Saving...' : 'Save & Publish'}
               </Button>
               <Button variant="outline" onClick={closeForm} disabled={saving}>
@@ -393,7 +375,7 @@ export default function SubscriptionPlansPage() {
         </Card>
       )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         {plans.map((plan) => (
           <Card key={plan.template.id}>
             <CardHeader>
@@ -402,52 +384,65 @@ export default function SubscriptionPlansPage() {
                 <Badge variant={plan.template.is_active ? 'default' : 'secondary'}>
                   {plan.template.is_active ? 'Active' : 'Inactive'}
                 </Badge>
-                <Badge variant="outline">
-                  Published v{plan.active_version?.version_number ?? '-'}
-                </Badge>
+                <Badge variant="outline">Published v{plan.active_version?.version_number ?? '-'}</Badge>
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
               <div className="grid grid-cols-2 gap-3">
-                <p><span className="text-gray-500">Razorpay Plan ID:</span> <span className="font-mono">{plan.template.razorpay_plan_id}</span></p>
                 <p><span className="text-gray-500">Billing:</span> {plan.template.billing_cycle}</p>
-                <p><span className="text-gray-500">Amount:</span> {formatINRFromPaise(plan.template.amount_from_razorpay)}</p>
+                <p><span className="text-gray-500">Price:</span> {formatINRFromPaise(plan.template.plan_price)}</p>
+                <p><span className="text-gray-500">Unit Size:</span> {plan.template.pricing_unit_size.toLocaleString()}</p>
                 <p><span className="text-gray-500">Versions:</span> {plan.versions_count}</p>
               </div>
 
+              {plan.template.description ? <p className="text-gray-600">{plan.template.description}</p> : null}
+
               {plan.active_version ? (
-                <div className="grid grid-cols-2 gap-2 border rounded-md p-3">
-                  <p>Unit: {plan.active_version.unit_limit}</p>
-                  <p>Box: {plan.active_version.box_limit}</p>
-                  <p>Carton: {plan.active_version.carton_limit}</p>
-                  <p>Pallet: {plan.active_version.pallet_limit}</p>
-                  <p>Seat: {plan.active_version.seat_limit}</p>
-                  <p>Plant: {plan.active_version.plant_limit}</p>
-                  <p>Handset: {plan.active_version.handset_limit}</p>
+                <div className="rounded-md border p-3">
+                  <p className="mb-2 font-medium text-slate-900">Active Quotas</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <p>Unit: {plan.active_version.unit_limit.toLocaleString()}</p>
+                    <p>Box: {plan.active_version.box_limit.toLocaleString()}</p>
+                    <p>Carton: {plan.active_version.carton_limit.toLocaleString()}</p>
+                    <p>Pallet: {plan.active_version.pallet_limit.toLocaleString()}</p>
+                    <p>Seats: {plan.active_version.seat_limit}</p>
+                    <p>Plants: {plan.active_version.plant_limit}</p>
+                    <p>Handsets: {plan.active_version.handset_limit}</p>
+                  </div>
                 </div>
-              ) : (
-                <p className="text-gray-500">No active version</p>
-              )}
+              ) : null}
 
               <div className="flex gap-2">
-                <Button size="sm" variant="outline" onClick={() => openCreateVersion(plan)} disabled={saving}>
-                  Create New Version
+                <Button variant="outline" onClick={() => openCreateVersion(plan)} disabled={saving}>
+                  Create Version
                 </Button>
               </div>
 
-              <div className="space-y-1">
-                {plan.versions.slice(0, 5).map((version) => (
-                  <div key={version.id} className="flex items-center justify-between text-xs border rounded px-2 py-1">
-                    <span>
-                      v{version.version_number} {version.change_note ? `• ${version.change_note}` : ''}
-                    </span>
-                    {version.is_active ? (
-                      <Badge variant="outline">Published</Badge>
-                    ) : (
-                      <Button size="sm" variant="ghost" className="h-6 px-2" onClick={() => publishVersion(plan, version)} disabled={saving}>
-                        Publish
-                      </Button>
-                    )}
+              <div className="space-y-2 rounded-md border p-3">
+                <p className="font-medium text-slate-900">Versions</p>
+                {plan.versions.map((version) => (
+                  <div key={version.id} className="rounded border p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        <Badge variant={version.is_active ? 'default' : 'secondary'}>v{version.version_number}</Badge>
+                        {version.is_active ? <Badge variant="outline">Published</Badge> : null}
+                      </div>
+                      {!version.is_active ? (
+                        <Button size="sm" variant="outline" onClick={() => publishVersion(plan, version)} disabled={saving}>
+                          Publish
+                        </Button>
+                      ) : null}
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-gray-600">
+                      <p>Unit Units: {version.unit_quota_units}</p>
+                      <p>Box Units: {version.box_quota_units}</p>
+                      <p>Carton Units: {version.carton_quota_units}</p>
+                      <p>Pallet Units: {version.pallet_quota_units}</p>
+                      <p>Seat Limit: {version.seat_limit}</p>
+                      <p>Plant Limit: {version.plant_limit}</p>
+                      <p>Handset Limit: {version.handset_limit}</p>
+                    </div>
+                    {version.change_note ? <p className="mt-2 text-xs text-gray-500">{version.change_note}</p> : null}
                   </div>
                 ))}
               </div>
@@ -458,4 +453,3 @@ export default function SubscriptionPlansPage() {
     </div>
   );
 }
-

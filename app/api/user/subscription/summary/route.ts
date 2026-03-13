@@ -15,6 +15,14 @@ function daysRemaining(expiresAtIso: string | null): number {
   return Math.ceil(diffMs / (24 * 60 * 60 * 1000));
 }
 
+function normalizeStatus(value: unknown): "active" | "pending" | "expired" | "cancelled" {
+  const parsed = String(value || "").trim().toLowerCase();
+  if (["active", "authenticated", "activated", "charged"].includes(parsed)) return "active";
+  if (["cancelled", "canceled"].includes(parsed)) return "cancelled";
+  if (["pending", "trial", "trialing"].includes(parsed)) return "pending";
+  return "expired";
+}
+
 export async function GET() {
   const owner = await requireOwnerContext();
   if (!owner.ok) return owner.response;
@@ -52,33 +60,42 @@ export async function GET() {
       return NextResponse.json({ error: invoiceError.message }, { status: 500 });
     }
 
-    const decisionFromState = (state: string): "TRIAL_EXPIRED" | "NO_ACTIVE_SUBSCRIPTION" | null => {
-      if (state === "TRIAL_EXPIRED") return "TRIAL_EXPIRED";
-      if (state === "NO_ACTIVE_SUBSCRIPTION") return "NO_ACTIVE_SUBSCRIPTION";
-      return null;
-    };
+    const codeTypes = ["unit", "box", "carton", "pallet"] as const;
+    const quotaTable = codeTypes.map((metric) => {
+      const subscriptionAllocated = entitlement.limits?.[metric] ?? 0;
+      const addonAllocated = entitlement.topups?.[metric] ?? 0;
+      const consumed = entitlement.usage?.[metric] ?? 0;
+      const remaining = entitlement.remaining?.[metric] ?? 0;
+      return {
+        metric,
+        allocated: subscriptionAllocated + addonAllocated,
+        subscription_allocated: subscriptionAllocated,
+        addon_allocated: addonAllocated,
+        consumed,
+        remaining,
+      };
+    });
 
     const decisions = {
       generation: (() => {
-        const stateCode = decisionFromState(entitlement.state);
-        if (entitlement.blocked && stateCode) return { blocked: true, code: stateCode as const };
-        const remaining =
-          (entitlement.remaining.unit ?? 0) +
-          (entitlement.remaining.box ?? 0) +
-          (entitlement.remaining.carton ?? 0) +
-          (entitlement.remaining.pallet ?? 0);
+        const status = subscriptionStatus.status;
+        if (status === "cancelled") return { blocked: true, code: "NO_ACTIVE_SUBSCRIPTION" as const };
+        if (status === "expired") return { blocked: true, code: "NO_ACTIVE_SUBSCRIPTION" as const };
+        const remaining = quotaTable.reduce((sum, row) => sum + row.remaining, 0);
         if (remaining <= 0) return { blocked: true, code: "QUOTA_EXHAUSTED" as const };
         return { blocked: false, code: null };
       })(),
       seats: (() => {
-        const stateCode = decisionFromState(entitlement.state);
-        if (entitlement.blocked && stateCode) return { blocked: true, code: stateCode as const };
+        if (["cancelled", "expired"].includes(subscriptionStatus.status)) {
+          return { blocked: true, code: "NO_ACTIVE_SUBSCRIPTION" as const };
+        }
         if ((entitlement.remaining.seat ?? 0) <= 0) return { blocked: true, code: "QUOTA_EXHAUSTED" as const };
         return { blocked: false, code: null };
       })(),
       plants: (() => {
-        const stateCode = decisionFromState(entitlement.state);
-        if (entitlement.blocked && stateCode) return { blocked: true, code: stateCode as const };
+        if (["cancelled", "expired"].includes(subscriptionStatus.status)) {
+          return { blocked: true, code: "NO_ACTIVE_SUBSCRIPTION" as const };
+        }
         if ((entitlement.remaining.plant ?? 0) <= 0) return { blocked: true, code: "QUOTA_EXHAUSTED" as const };
         return { blocked: false, code: null };
       })(),
@@ -99,14 +116,19 @@ export async function GET() {
       },
       subscription: currentSubscription
         ? {
-            status: String((currentSubscription as any).status || "").toLowerCase() || null,
+            status: normalizeStatus((currentSubscription as any).status),
             cancel_at_period_end: Boolean((currentSubscription as any).cancel_at_period_end),
             current_period_start: (currentSubscription as any).current_period_start ?? null,
             current_period_end: (currentSubscription as any).current_period_end ?? null,
             next_billing_at: (currentSubscription as any).next_billing_at ?? null,
+            start_date: (currentSubscription as any).start_date ?? null,
+            renewal_date: (currentSubscription as any).renewal_date ?? null,
             plan_name: subTemplate?.name ?? null,
-            billing_cycle: subTemplate?.billing_cycle ?? null,
-            amount_paise: subTemplate?.amount_from_razorpay ?? 0,
+            billing_cycle:
+              (currentSubscription as any).billing_cycle ??
+              subTemplate?.billing_cycle ??
+              null,
+            plan_price_paise: subTemplate?.plan_price ?? 0,
           }
         : null,
       subscriptionStatus: {
@@ -114,8 +136,9 @@ export async function GET() {
         trialExpiresAt: subscriptionStatus.trialExpiresAt ? subscriptionStatus.trialExpiresAt.toISOString() : null,
       },
       entitlement,
+      quota_table: quotaTable,
       decisions,
-      structural_addons: (structuralAddOns || [])
+      capacity_addons: (structuralAddOns || [])
         .filter((row: any) => {
           const addon = row.add_ons;
           return addon?.addon_kind === "structural" && addon?.billing_mode === "recurring";
@@ -127,6 +150,12 @@ export async function GET() {
           quantity: row.quantity,
           status: row.status,
         })),
+      add_on_balances: {
+        unit: entitlement.topups?.unit ?? 0,
+        box: entitlement.topups?.box ?? 0,
+        carton: entitlement.topups?.carton ?? 0,
+        pallet: entitlement.topups?.pallet ?? 0,
+      },
       invoices: (invoices || []).map((row: any) => ({
         invoice_type: row.invoice_type,
         status: row.status,
@@ -144,8 +173,6 @@ export async function GET() {
       })),
     });
   } catch (error: any) {
-    console.error("DASHBOARD SUMMARY ERROR:", error);
-
     return NextResponse.json(
       { error: error?.message ?? "Dashboard summary failed" },
       { status: 500 }

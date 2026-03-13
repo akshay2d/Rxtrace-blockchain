@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabase/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
 import { writeAuditLog } from '@/lib/audit';
-import { enforceEntitlement, refundEntitlement } from '@/lib/entitlement/enforce';
+import { consumeEntitlementBatch, refundEntitlementBatch } from '@/lib/entitlement/enforce';
+import { UsageType } from '@/lib/entitlement/usageTypes';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -282,18 +283,33 @@ export async function POST(req: Request) {
 
     const totalToInsert = palletsToInsert.length + cartonsToInsert.length + boxesToInsert.length;
 
-    // Enforce SSCC quota for ERP ingestion (one SSCC code = one SSCC consumption)
+    // Enforce each hierarchy level against its own quota pool.
     if (totalToInsert > 0) {
-      const decision = await enforceEntitlement({
-        supabase: admin,
+      const consumption = await consumeEntitlementBatch({
         companyId,
-        metric: 'pallet',
-        qty: totalToInsert,
-        requestId: `erp:sscc_ingest:${requestId}`,
-        source: 'api',
+        items: [
+          {
+            usageType: UsageType.BOX_LABEL,
+            quantity: boxesToInsert.length,
+            requestId: `erp:sscc_ingest:box:${requestId}`,
+            metadata: { source: 'erp_sscc_ingest', level: 'box' },
+          },
+          {
+            usageType: UsageType.CARTON_LABEL,
+            quantity: cartonsToInsert.length,
+            requestId: `erp:sscc_ingest:carton:${requestId}`,
+            metadata: { source: 'erp_sscc_ingest', level: 'carton' },
+          },
+          {
+            usageType: UsageType.PALLET_LABEL,
+            quantity: palletsToInsert.length,
+            requestId: `erp:sscc_ingest:pallet:${requestId}`,
+            metadata: { source: 'erp_sscc_ingest', level: 'pallet' },
+          },
+        ],
       });
 
-      if (!decision.ok) {
+      if (!consumption.ok) {
         return NextResponse.json(
           { error: 'QUOTA_EXCEEDED', code: 'quota_exceeded', results },
           { status: 403 }
@@ -324,13 +340,9 @@ export async function POST(req: Request) {
         }
       } catch (insertError: any) {
         try {
-          await refundEntitlement({
-            supabase: admin,
+          await refundEntitlementBatch({
             companyId,
-            metric: 'pallet',
-            qty: totalToInsert,
-            requestId: `erp:sscc_ingest:${requestId}`,
-            source: 'api',
+            items: consumption.consumed,
           });
         } catch {
           // best-effort

@@ -156,7 +156,7 @@ function CompanySetupContent() {
 
     setSuccess(true);
     setTimeout(() => {
-      router.push('/dashboard/settings');
+      router.push('/dashboard');
     }, 1500);
   };
 

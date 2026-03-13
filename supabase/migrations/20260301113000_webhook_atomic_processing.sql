@@ -17,9 +17,6 @@ DECLARE
   v_order_id text;
   v_payment_id text;
   v_order_row record;
-  v_company_id text;
-  v_amount numeric;
-  v_wallet_tx record;
   v_result jsonb := '{}'::jsonb;
 BEGIN
   IF p_event_id IS NULL OR btrim(p_event_id) = '' THEN
@@ -71,33 +68,7 @@ BEGIN
         AND status <> 'paid'
       RETURNING * INTO v_order_row;
 
-      IF v_order_row IS NOT NULL THEN
-        IF v_order_row.purpose ~ '^wallet_topup_company_.+$' THEN
-          v_company_id := substring(v_order_row.purpose from '^wallet_topup_company_(.+)$');
-          v_amount := coalesce(v_order_row.amount, 0);
-
-          IF v_company_id IS NOT NULL AND v_amount > 0 THEN
-            SELECT * INTO v_wallet_tx
-            FROM public.wallet_update_and_record(
-              p_company_id := v_company_id,
-              p_op := 'TOPUP',
-              p_amount := v_amount,
-              p_reference := 'razorpay_topup:' || v_order_id,
-              p_created_by := NULL
-            );
-
-            v_result := jsonb_build_object(
-              'topup', jsonb_build_object(
-                'alreadyProcessed', false,
-                'companyId', v_company_id,
-                'amount', v_amount,
-                'wallet_tx_id', v_wallet_tx.id,
-                'balance_after', v_wallet_tx.balance_after
-              )
-            );
-          END IF;
-        END IF;
-      ELSE
+      IF v_order_row IS NULL THEN
         v_result := jsonb_build_object(
           'topup', jsonb_build_object(
             'alreadyProcessed', true,

@@ -29,26 +29,26 @@ export async function GET() {
       plans: catalog.plans.map((plan) => ({
         template_id: plan.template_id,
         name: plan.template_name,
+        description: plan.description,
         billing_cycle: plan.billing_cycle,
-        amount_paise: plan.amount_from_razorpay,
+        plan_price_paise: plan.plan_price_paise,
+        pricing_unit_size: plan.pricing_unit_size,
         version_id: plan.version_id,
         version_number: plan.version_number,
-        limits: plan.limits,
+        quota_units: plan.quota_units,
+        quotas: plan.quotas,
+        capacities: plan.capacities,
       })),
       add_ons: catalog.addOns.map((addon) => ({
         id: addon.id,
         name: addon.name,
+        description: addon.description,
         price_inr: addon.price,
+        pricing_unit_size: addon.pricing_unit_size,
         unit: addon.unit,
         addon_kind: addon.addon_kind,
         entitlement_key: addon.entitlement_key,
         billing_mode: addon.billing_mode,
-      })),
-      eligible_coupons: catalog.coupons.map((coupon) => ({
-        code: coupon.code,
-        type: coupon.type,
-        value: coupon.value,
-        scope: coupon.scope,
       })),
       subscriptionStatus: {
         status: subscriptionStatus.status,
@@ -61,9 +61,14 @@ export async function GET() {
             current_period_start: (currentSubscription as any).current_period_start,
             current_period_end: (currentSubscription as any).current_period_end,
             next_billing_at: (currentSubscription as any).next_billing_at,
+            start_date: (currentSubscription as any).start_date ?? null,
+            renewal_date: (currentSubscription as any).renewal_date ?? null,
             plan_name: (currentSubscription as any).subscription_plan_templates?.name ?? null,
-            billing_cycle: (currentSubscription as any).subscription_plan_templates?.billing_cycle ?? null,
-            amount_paise: (currentSubscription as any).subscription_plan_templates?.amount_from_razorpay ?? 0,
+            billing_cycle:
+              (currentSubscription as any).billing_cycle ??
+              (currentSubscription as any).subscription_plan_templates?.billing_cycle ??
+              null,
+            plan_price_paise: (currentSubscription as any).subscription_plan_templates?.plan_price ?? 0,
           }
         : null,
     });

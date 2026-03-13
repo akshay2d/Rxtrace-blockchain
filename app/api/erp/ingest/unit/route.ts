@@ -3,10 +3,10 @@ import { supabaseServer } from '@/lib/supabase/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
 import { writeAuditLog } from '@/lib/audit';
 import { generateCanonicalGS1 } from '@/lib/gs1Canonical';
-import { parseGS1 } from '@/lib/parseGS1';
 import { resolveCodeMode } from '@/lib/codeMode';
 import { buildPicUnitPayload } from '@/lib/picPayload';
 import { enforceEntitlement, refundEntitlement } from '@/lib/entitlement/enforce';
+import { UsageType } from '@/lib/entitlement/usageTypes';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -291,15 +291,14 @@ export async function POST(req: Request) {
     // Enforce unit quota for ERP ingestion (one row = one UNIT consumption)
     if (validRows.length > 0) {
       const decision = await enforceEntitlement({
-        supabase: admin,
         companyId,
-        metric: 'unit',
-        qty: validRows.length,
+        usageType: UsageType.UNIT_LABEL,
+        quantity: validRows.length,
         requestId: `erp:unit_ingest:${requestId}`,
-        source: 'api',
+        metadata: { source: 'erp_unit_ingest' },
       });
 
-      if (!decision.ok) {
+      if (!decision.allow) {
         return NextResponse.json(
           { error: 'QUOTA_EXCEEDED', code: 'quota_exceeded', results },
           { status: 403 }
@@ -320,12 +319,9 @@ export async function POST(req: Request) {
           // Refund quota if we already consumed it and insert failed.
           try {
             await refundEntitlement({
-              supabase: admin,
               companyId,
-              metric: 'unit',
-              qty: validRows.length,
-              requestId: `erp:unit_ingest:${requestId}`,
-              source: 'api',
+              usageType: UsageType.UNIT_LABEL,
+              quantity: validRows.length,
             });
           } catch {
             // best-effort; do not mask primary error

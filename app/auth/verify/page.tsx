@@ -140,8 +140,25 @@ function VerifyOTPContent() {
         }
       }
 
-      // 3. Redirect to dashboard; middleware will send to company-setup if no company (new user) or allow access if already set up
-      router.replace('/dashboard');
+      // 3. Resolve authenticated user and route by owner company presence.
+      const { data: userData, error: userError } = await supabaseClient().auth.getUser();
+      if (userError || !userData?.user?.id) {
+        router.replace('/auth/signin?verified=1');
+        return;
+      }
+
+      const { data: ownerCompany } = await supabaseClient()
+        .from('companies')
+        .select('id')
+        .eq('user_id', userData.user.id)
+        .maybeSingle();
+
+      if (ownerCompany?.id) {
+        router.replace('/dashboard');
+        return;
+      }
+
+      router.replace('/onboarding/company-setup');
     } catch (error) {
       console.error('Verification error:', error);
       setError('An unexpected error occurred. Please try again.');

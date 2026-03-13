@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
-import { billingConfig } from "@/app/lib/billingConfig";
 import { parsePayload } from "@/lib/parsePayload";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { compareGS1Payloads, normalizeGS1Payload } from "@/lib/gs1Canonical";
 import { resolveCompanyIdFromRequest } from "@/lib/company/resolve";
 
 const GS = String.fromCharCode(29);
+
 function normalizeMachinePayload(input: string): string {
   return String(input || "")
     .replace(/[()]/g, "")
@@ -13,30 +13,29 @@ function normalizeMachinePayload(input: string): string {
     .replace(/\s/g, "");
 }
 
-// Helper: Check if date is expired (format: YYMMDD or YYYY-MM-DD)
 function isExpired(expiryStr: string): boolean {
   try {
-    let year: number, month: number, day: number;
-    
-    if (expiryStr.includes('-')) {
-      // Format: YYYY-MM-DD
-      const parts = expiryStr.split('-');
+    let year: number;
+    let month: number;
+    let day: number;
+
+    if (expiryStr.includes("-")) {
+      const parts = expiryStr.split("-");
       year = parseInt(parts[0]);
       month = parseInt(parts[1]);
       day = parseInt(parts[2]);
     } else if (expiryStr.length === 6) {
-      // Format: YYMMDD
       year = 2000 + parseInt(expiryStr.substring(0, 2));
       month = parseInt(expiryStr.substring(2, 4));
       day = parseInt(expiryStr.substring(4, 6));
     } else {
-      return false; // Unknown format, assume not expired
+      return false;
     }
 
     const expiryDate = new Date(year, month - 1, day);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    
+
     return expiryDate < today;
   } catch {
     return false;
@@ -46,7 +45,7 @@ function isExpired(expiryStr: string): boolean {
 async function buildHierarchyForPallet(opts: {
   supabase: ReturnType<typeof getSupabaseAdmin>;
   palletId: string;
-  companyId: string;  // Priority 1 fix: Add company_id parameter for multi-tenant isolation
+  companyId: string;
 }) {
   const { supabase, palletId, companyId } = opts;
 
@@ -54,14 +53,14 @@ async function buildHierarchyForPallet(opts: {
     .from("pallets")
     .select("id, sscc, sscc_with_ai, sku_id, created_at, meta")
     .eq("id", palletId)
-    .eq("company_id", companyId)  // Priority 1 fix: Add company filter
+    .eq("company_id", companyId)
     .maybeSingle();
   if (!pallet?.id) return null;
 
   const { data: cartons } = await supabase
     .from("cartons")
     .select("id, pallet_id, sscc, sscc_with_ai, code, sku_id, created_at, meta")
-    .eq("company_id", companyId)  // Priority 1 fix: Add company filter
+    .eq("company_id", companyId)
     .eq("pallet_id", palletId)
     .order("created_at", { ascending: true });
 
@@ -70,7 +69,7 @@ async function buildHierarchyForPallet(opts: {
     ? await supabase
         .from("boxes")
         .select("id, carton_id, pallet_id, sscc, sscc_with_ai, code, sku_id, created_at, meta")
-        .eq("company_id", companyId)  // Priority 1 fix: Add company filter
+        .eq("company_id", companyId)
         .in("carton_id", cartonIds)
         .order("created_at", { ascending: true })
     : { data: [] as any[] };
@@ -80,7 +79,7 @@ async function buildHierarchyForPallet(opts: {
     ? await supabase
         .from("labels_units")
         .select("id, box_id, serial, created_at")
-        .eq("company_id", companyId)  // Priority 1 fix: Add company filter for security
+        .eq("company_id", companyId)
         .in("box_id", boxIds)
         .order("created_at", { ascending: true })
     : { data: [] as any[] };
@@ -125,21 +124,12 @@ export async function POST(req: Request) {
     }
 
     if (!raw) {
-      return NextResponse.json(
-        { success: false, error: "Missing raw payload" },
-        { status: 400 }
-      );
+      return NextResponse.json({ success: false, error: "Missing raw payload" }, { status: 400 });
     }
 
-    /* ------------------------------------------------
-       1️⃣ Parse GS1 payload (company_id may be resolved from payload or provided)
-    ------------------------------------------------ */
     const parsedAny = parsePayload(raw);
     if (parsedAny.mode === "INVALID") {
-      return NextResponse.json(
-        { success: false, error: parsedAny.error || "Invalid payload" },
-        { status: 400 }
-      );
+      return NextResponse.json({ success: false, error: parsedAny.error || "Invalid payload" }, { status: 400 });
     }
 
     const data =
@@ -152,19 +142,15 @@ export async function POST(req: Request) {
             sscc: undefined,
           } as any);
 
-    /* ------------------------------------------------
-       2️⃣ Resolve company_id (from scanned entity)
-    ------------------------------------------------ */
     let resolvedCompanyId = authCompanyId;
 
-    // If no company_id, try to resolve from scanned entity
     if (!resolvedCompanyId && data.serialNo) {
       const { data: unit } = await supabase
         .from("labels_units")
         .select("company_id")
         .eq("serial", data.serialNo)
         .maybeSingle();
-      
+
       if (unit?.company_id) {
         resolvedCompanyId = unit.company_id;
       }
@@ -176,30 +162,30 @@ export async function POST(req: Request) {
         .select("company_id")
         .eq("sscc", data.sscc)
         .maybeSingle();
-      
+
       if (palletRow?.company_id) {
         resolvedCompanyId = palletRow.company_id;
       }
-      
+
       if (!resolvedCompanyId) {
         const { data: cartonRow } = await supabase
           .from("cartons")
           .select("company_id")
           .or(`sscc.eq.${data.sscc},code.eq.${data.sscc}`)
           .maybeSingle();
-        
+
         if (cartonRow?.company_id) {
           resolvedCompanyId = cartonRow.company_id;
         }
       }
-      
+
       if (!resolvedCompanyId) {
         const { data: boxRow } = await supabase
           .from("boxes")
           .select("company_id")
           .or(`sscc.eq.${data.sscc},code.eq.${data.sscc}`)
           .maybeSingle();
-        
+
         if (boxRow?.company_id) {
           resolvedCompanyId = boxRow.company_id;
         }
@@ -213,40 +199,6 @@ export async function POST(req: Request) {
       );
     }
 
-    /* ------------------------------------------------
-       3️⃣ Check company paid scan module (if enabled)
-    ------------------------------------------------ */
-    const { data: headsRow } = await supabase
-      .from("companies")
-      .select("id")
-      .eq("company_id", resolvedCompanyId)
-      .maybeSingle();
-
-    const heads: any = null;
-    
-    // If company has active_heads configured, check high_scan
-    if (false) {
-      return NextResponse.json(
-        { success: false, error: "Scan module not enabled" },
-        { status: 403 }
-      );
-    }
-
-    /* ------------------------------------------------
-       3️⃣b Master switch: scanning_enabled (if configured)
-       This is separate from activation/token generation.
-    ------------------------------------------------ */
-    const scanningEnabled = true;
-    if (!scanningEnabled) {
-      return NextResponse.json(
-        { success: false, error: 'Scanning disabled by admin' },
-        { status: 403 }
-      );
-    }
-
-    /* ------------------------------------------------
-       4️⃣ Evaluate expiry status (CRITICAL BLOCKER FIX)
-    ------------------------------------------------ */
     let expiryStatus: "VALID" | "EXPIRED" = "VALID";
     let scanStatus: "SUCCESS" | "ERROR" = "SUCCESS";
     let errorReason: string | null = null;
@@ -260,14 +212,10 @@ export async function POST(req: Request) {
       }
     }
 
-    /* ------------------------------------------------
-       5️⃣ Resolve hierarchy
-    ------------------------------------------------ */
     let level: "unit" | "box" | "carton" | "pallet" | null = null;
     let result: any = null;
 
     if (data.sscc) {
-      // 1) Pallet by SSCC
       const { data: palletRow } = await supabase
         .from("pallets")
         .select("id")
@@ -280,7 +228,6 @@ export async function POST(req: Request) {
         level = "pallet";
       }
 
-      // 2) Carton by SSCC/code
       if (!result) {
         const { data: carton } = await supabase
           .from("cartons")
@@ -334,7 +281,6 @@ export async function POST(req: Request) {
         }
       }
 
-      // 3) Box by SSCC/code
       if (!result) {
         const { data: box } = await supabase
           .from("boxes")
@@ -413,7 +359,6 @@ export async function POST(req: Request) {
               .maybeSingle()
           : { data: null as any };
 
-        // Validate payload integrity: compare scanned payload with stored payload
         const storedPayload = (unit as any).payload ?? unit.gs1_payload;
         const codeMode = ((unit as any).code_mode ?? "GS1") as "GS1" | "PIC";
         if (storedPayload) {
@@ -422,35 +367,33 @@ export async function POST(req: Request) {
               ? compareGS1Payloads(storedPayload, raw)
               : normalizeMachinePayload(storedPayload) === normalizeMachinePayload(raw);
           if (!payloadsMatch) {
-            // Log the mismatch for audit
             await supabase.from("scan_logs").insert({
               company_id: unit.company_id || resolvedCompanyId,
-              handset_id: null, // Optional device context
+              handset_id: null,
               raw_scan: raw,
               parsed: data,
-              metadata: { 
+              metadata: {
                 level: "unit",
                 status: "PAYLOAD_MISMATCH",
                 stored_payload: codeMode === "GS1" ? normalizeGS1Payload(storedPayload) : normalizeMachinePayload(storedPayload),
                 scanned_payload: codeMode === "GS1" ? normalizeGS1Payload(raw) : normalizeMachinePayload(raw),
                 unit_id: unit.id,
-                device_context: device_context || null
+                device_context: device_context || null,
               },
-              status: "FAILED"
+              status: "FAILED",
             });
-            
+
             return NextResponse.json(
-              { 
-                success: false, 
+              {
+                success: false,
                 error: "Payload mismatch - code may be tampered or invalid",
-                code: "PAYLOAD_MISMATCH"
+                code: "PAYLOAD_MISMATCH",
               },
               { status: 400 }
             );
           }
         }
-        
-        // Ensure resolvedCompanyId matches unit's company_id
+
         if (unit.company_id && unit.company_id !== resolvedCompanyId) {
           resolvedCompanyId = unit.company_id;
         }
@@ -471,75 +414,28 @@ export async function POST(req: Request) {
     }
 
     if (!result || !level) {
-      return NextResponse.json(
-        { success: false, error: "Code not found in hierarchy" },
-        { status: 404 }
-      );
+      return NextResponse.json({ success: false, error: "Code not found in hierarchy" }, { status: 404 });
     }
 
-    /* ------------------------------------------------
-       6️⃣ Billing
-    ------------------------------------------------ */
-    const price =
-      level === "box"
-        ? billingConfig.pricing.scan.box
-        : level === "carton"
-        ? billingConfig.pricing.scan.carton
-        : level === "pallet"
-        ? billingConfig.pricing.scan.pallet
-        : 0;
-
-    if (price > 0) {
-      const billingRes = await fetch(
-        `${process.env.NEXT_PUBLIC_BASE_URL}/api/billing/charge`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            company_id: resolvedCompanyId,
-            type: "scan",
-            subtype: level,
-            count: 1
-          })
-        }
-      );
-
-      const billingJson = await billingRes.json();
-      if (!billingJson.success) {
-        return NextResponse.json(
-          { success: false, error: billingJson.error },
-          { status: 402 }
-        );
-      }
-    }
-
-    /* ------------------------------------------------
-       7️⃣ Check for duplicate scans (same serial scanned before)
-    ------------------------------------------------ */
     const { data: priorScans } = await supabase
-      .from('scan_logs')
-      .select('id, scanned_at, metadata')
-      .eq('company_id', resolvedCompanyId)
-      .eq('metadata->>serial', data.serialNo || '')
-      .order('scanned_at', { ascending: true })
+      .from("scan_logs")
+      .select("id, scanned_at, metadata")
+      .eq("company_id", resolvedCompanyId)
+      .eq("metadata->>serial", data.serialNo || "")
+      .order("scanned_at", { ascending: true })
       .limit(1);
 
-    const isDuplicate = priorScans && priorScans.length > 0 && data.serialNo;
-    
-    // Override status if duplicate
+    const isDuplicate = Boolean(priorScans && priorScans.length > 0 && data.serialNo);
     if (isDuplicate) {
-      scanStatus = "SUCCESS"; // Duplicate is still SUCCESS, but logged separately
+      scanStatus = "SUCCESS";
     }
 
-    /* ------------------------------------------------
-       8️⃣ Log scan (CRITICAL: Include expiry status and duplicate check)
-    ------------------------------------------------ */
-    const metadata: any = { 
+    const metadata: any = {
       level,
       serial: data.serialNo || null,
       expiry_status: expiryStatus,
-      ...(isDuplicate ? { status: 'DUPLICATE', first_scanned_at: priorScans[0].scanned_at } : {}),
-      ...(device_context ? { device_context } : {})
+      ...(isDuplicate ? { status: "DUPLICATE", first_scanned_at: priorScans?.[0]?.scanned_at } : {}),
+      ...(device_context ? { device_context } : {}),
     };
 
     if (errorReason) {
@@ -548,27 +444,21 @@ export async function POST(req: Request) {
 
     await supabase.from("scan_logs").insert({
       company_id: resolvedCompanyId,
-      handset_id: null, // Optional device context (deprecated, kept for backward compatibility)
+      handset_id: null,
       raw_scan: raw,
       parsed: data,
       code_id: result?.id || null,
       scanned_at: new Date().toISOString(),
       metadata,
-      status: scanStatus
+      status: scanStatus,
     });
 
-    /* ------------------------------------------------
-       8️⃣ Success
-    ------------------------------------------------ */
     return NextResponse.json({
       success: true,
       level,
-      data: result
+      data: result,
     });
   } catch (err: any) {
-    return NextResponse.json(
-      { success: false, error: err.message || String(err) },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: err.message || String(err) }, { status: 500 });
   }
 }

@@ -180,7 +180,7 @@ AS $$
 DECLARE
   v_company record;
   v_entitlement record;
-  v_wallet_status text;
+  v_is_frozen boolean;
   v_inserted public.plants%ROWTYPE;
   v_name text;
   v_street text;
@@ -214,13 +214,9 @@ BEGIN
     RAISE EXCEPTION 'FORBIDDEN';
   END IF;
 
-  SELECT cw.status
-  INTO v_wallet_status
-  FROM public.company_wallets cw
-  WHERE cw.company_id = p_company_id
-  LIMIT 1;
+  v_is_frozen := COALESCE(v_company.is_frozen, false);
 
-  IF coalesce(v_wallet_status, 'ACTIVE') = 'FROZEN' THEN
+  IF v_is_frozen THEN
     RAISE EXCEPTION 'COMPANY_FROZEN';
   END IF;
 

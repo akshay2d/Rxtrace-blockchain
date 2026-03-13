@@ -16,10 +16,20 @@ export type SubscriptionSummaryResponse = {
     current_period_start: string | null;
     current_period_end: string | null;
     next_billing_at: string | null;
+    start_date?: string | null;
+    renewal_date?: string | null;
     plan_name: string | null;
     billing_cycle: string | null;
-    amount_paise: number;
+    plan_price_paise?: number;
   };
+  quota_table?: Array<{
+    metric: string;
+    allocated: number;
+    subscription_allocated: number;
+    addon_allocated: number;
+    consumed: number;
+    remaining: number;
+  }>;
   entitlement: {
     state: string;
     trial_active: boolean;
@@ -69,4 +79,3 @@ export function useSubscriptionSummary() {
 
   return { data, loading, error, refresh };
 }
-

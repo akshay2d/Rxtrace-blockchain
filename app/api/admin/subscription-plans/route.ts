@@ -16,17 +16,13 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type PlanVersionInput = {
-  unit_limit: number;
-  box_limit: number;
-  carton_limit: number;
-  pallet_limit: number;
+  unit_quota_units: number;
+  box_quota_units: number;
+  carton_quota_units: number;
+  pallet_quota_units: number;
   seat_limit: number;
   plant_limit: number;
   handset_limit: number;
-  grace_unit: number;
-  grace_box: number;
-  grace_carton: number;
-  grace_pallet: number;
   is_active: boolean;
   change_note: string | null;
 };
@@ -41,28 +37,64 @@ function nonNegativeInt(value: unknown, fallback = 0): number {
   return Math.max(0, Math.trunc(parsed));
 }
 
+function toPaise(value: unknown): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) return 0;
+  return Math.round(parsed);
+}
+
+function computeFinalQuota(units: number, pricingUnitSize: number): number {
+  return Math.max(0, units) * Math.max(1, pricingUnitSize);
+}
+
 function normalizeVersionInput(input: Record<string, unknown>): PlanVersionInput {
   return {
-    unit_limit: nonNegativeInt(input.unit_limit),
-    box_limit: nonNegativeInt(input.box_limit),
-    carton_limit: nonNegativeInt(input.carton_limit),
-    pallet_limit: nonNegativeInt(input.pallet_limit),
+    unit_quota_units: nonNegativeInt(input.unit_quota_units ?? input.unit_quota),
+    box_quota_units: nonNegativeInt(input.box_quota_units ?? input.box_quota),
+    carton_quota_units: nonNegativeInt(input.carton_quota_units ?? input.carton_quota),
+    pallet_quota_units: nonNegativeInt(input.pallet_quota_units ?? input.pallet_quota),
     seat_limit: nonNegativeInt(input.seat_limit),
     plant_limit: nonNegativeInt(input.plant_limit),
     handset_limit: nonNegativeInt(input.handset_limit),
-    grace_unit: nonNegativeInt(input.grace_unit),
-    grace_box: nonNegativeInt(input.grace_box),
-    grace_carton: nonNegativeInt(input.grace_carton),
-    grace_pallet: nonNegativeInt(input.grace_pallet),
     is_active: input.is_active === true,
     change_note: normalizeText(input.change_note) || null,
+  };
+}
+
+function mapVersionForResponse(row: any, pricingUnitSize: number) {
+  const unitQuotaUnits = nonNegativeInt(row.unit_quota_units);
+  const boxQuotaUnits = nonNegativeInt(row.box_quota_units);
+  const cartonQuotaUnits = nonNegativeInt(row.carton_quota_units);
+  const palletQuotaUnits = nonNegativeInt(row.pallet_quota_units);
+  const resolvedPricingUnitSize = Math.max(1, nonNegativeInt(pricingUnitSize, 1));
+
+  return {
+    id: row.id,
+    template_id: row.template_id,
+    version_number: nonNegativeInt(row.version_number, 1),
+    unit_quota_units: unitQuotaUnits,
+    box_quota_units: boxQuotaUnits,
+    carton_quota_units: cartonQuotaUnits,
+    pallet_quota_units: palletQuotaUnits,
+    unit_limit: nonNegativeInt(row.unit_limit ?? computeFinalQuota(unitQuotaUnits, resolvedPricingUnitSize)),
+    box_limit: nonNegativeInt(row.box_limit ?? computeFinalQuota(boxQuotaUnits, resolvedPricingUnitSize)),
+    carton_limit: nonNegativeInt(row.carton_limit ?? computeFinalQuota(cartonQuotaUnits, resolvedPricingUnitSize)),
+    pallet_limit: nonNegativeInt(row.pallet_limit ?? computeFinalQuota(palletQuotaUnits, resolvedPricingUnitSize)),
+    seat_limit: nonNegativeInt(row.seat_limit),
+    plant_limit: nonNegativeInt(row.plant_limit),
+    handset_limit: nonNegativeInt(row.handset_limit),
+    is_active: row.is_active === true,
+    effective_from: row.effective_from ?? null,
+    effective_to: row.effective_to ?? null,
+    change_note: row.change_note ?? null,
+    created_at: row.created_at ?? null,
   };
 }
 
 async function fetchTemplateWithVersions(supabase: ReturnType<typeof getSupabaseAdmin>, templateId: string) {
   const { data: template, error: templateError } = await supabase
     .from("subscription_plan_templates")
-    .select("id, name, razorpay_plan_id, billing_cycle, amount_from_razorpay, is_active, updated_at")
+    .select("*")
     .eq("id", templateId)
     .maybeSingle();
 
@@ -71,17 +103,28 @@ async function fetchTemplateWithVersions(supabase: ReturnType<typeof getSupabase
 
   const { data: versions, error: versionsError } = await supabase
     .from("subscription_plan_versions")
-    .select(
-      "id, template_id, version_number, unit_limit, box_limit, carton_limit, pallet_limit, seat_limit, plant_limit, handset_limit, grace_unit, grace_box, grace_carton, grace_pallet, is_active, effective_from, effective_to, change_note, created_at"
-    )
+    .select("*")
     .eq("template_id", templateId)
     .order("version_number", { ascending: false });
 
   if (versionsError) throw new Error(versionsError.message);
+  const mappedVersions = (versions || []).map((row: any) =>
+    mapVersionForResponse(row, nonNegativeInt((template as any).pricing_unit_size, 1))
+  );
+
   return {
-    template,
-    versions: versions || [],
-    active_version: (versions || []).find((v: any) => v.is_active) || (versions || [])[0] || null,
+    template: {
+      id: (template as any).id,
+      name: (template as any).name,
+      description: (template as any).description ?? null,
+      billing_cycle: (template as any).billing_cycle === "yearly" ? "yearly" : "monthly",
+      plan_price: toPaise((template as any).plan_price ?? (template as any).amount_from_razorpay),
+      pricing_unit_size: Math.max(1, nonNegativeInt((template as any).pricing_unit_size, 1)),
+      is_active: (template as any).is_active === true,
+      updated_at: (template as any).updated_at ?? null,
+    },
+    versions: mappedVersions,
+    active_version: mappedVersions.find((row: any) => row.is_active) || mappedVersions[0] || null,
   };
 }
 
@@ -96,7 +139,7 @@ export async function GET() {
 
   const { data: templates, error: templatesError } = await supabase
     .from("subscription_plan_templates")
-    .select("id, name, razorpay_plan_id, billing_cycle, amount_from_razorpay, is_active, updated_at")
+    .select("*")
     .order("name", { ascending: true });
 
   if (templatesError) {
@@ -107,9 +150,7 @@ export async function GET() {
   const { data: versions, error: versionsError } = templateIds.length
     ? await supabase
         .from("subscription_plan_versions")
-        .select(
-          "id, template_id, version_number, unit_limit, box_limit, carton_limit, pallet_limit, seat_limit, plant_limit, handset_limit, grace_unit, grace_box, grace_carton, grace_pallet, is_active, effective_from, effective_to, change_note, created_at"
-        )
+        .select("*")
         .in("template_id", templateIds)
         .order("version_number", { ascending: false })
     : { data: [], error: null as any };
@@ -126,10 +167,21 @@ export async function GET() {
   }
 
   const plans = (templates || []).map((template: any) => {
-    const rows = grouped.get(template.id) || [];
-    const activeVersion = rows.find((v) => v.is_active) || rows[0] || null;
+    const pricingUnitSize = Math.max(1, nonNegativeInt(template.pricing_unit_size, 1));
+    const rows = (grouped.get(template.id) || []).map((row) => mapVersionForResponse(row, pricingUnitSize));
+    const activeVersion = rows.find((row) => row.is_active) || rows[0] || null;
+
     return {
-      template,
+      template: {
+        id: template.id,
+        name: template.name,
+        description: template.description ?? null,
+        billing_cycle: template.billing_cycle === "yearly" ? "yearly" : "monthly",
+        plan_price: toPaise(template.plan_price ?? template.amount_from_razorpay),
+        pricing_unit_size: pricingUnitSize,
+        is_active: template.is_active === true,
+        updated_at: template.updated_at ?? null,
+      },
       active_version: activeVersion,
       versions_count: rows.length,
       versions: rows,
@@ -157,25 +209,21 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json().catch(() => ({}));
   const templateId = normalizeText((body as any).template_id);
-  const templateName = normalizeText((body as any).name);
-  const razorpayPlanId = normalizeText((body as any).razorpay_plan_id);
+  const name = normalizeText((body as any).name);
+  const description = normalizeText((body as any).description) || null;
   const billingCycle = normalizeText((body as any).billing_cycle).toLowerCase();
-  const amountFromRazorpay = Number((body as any).amount_from_razorpay ?? 0);
+  const planPrice = toPaise((body as any).plan_price);
+  const pricingUnitSize = Math.max(1, nonNegativeInt((body as any).pricing_unit_size, 1));
   const publish = (body as any).publish !== false;
   const versionInput = normalizeVersionInput(((body as any).version || body) as Record<string, unknown>);
 
-  if (!templateId) {
-    if (!templateName || !razorpayPlanId || !["monthly", "yearly"].includes(billingCycle)) {
-      return errorResponse(
-        400,
-        "BAD_REQUEST",
-        "name, razorpay_plan_id, and billing_cycle(monthly|yearly) are required when template_id is not provided",
-        correlationId
-      );
-    }
-  }
-  if (!Number.isFinite(amountFromRazorpay) || amountFromRazorpay < 0) {
-    return errorResponse(400, "BAD_REQUEST", "amount_from_razorpay must be a non-negative number", correlationId);
+  if (!templateId && (!name || !["monthly", "yearly"].includes(billingCycle))) {
+    return errorResponse(
+      400,
+      "BAD_REQUEST",
+      "name and billing_cycle(monthly|yearly) are required when template_id is not provided",
+      correlationId
+    );
   }
 
   const idempotency = await checkAdminIdempotency({
@@ -198,13 +246,14 @@ export async function POST(req: NextRequest) {
     const { data: createdTemplate, error: createTemplateError } = await supabase
       .from("subscription_plan_templates")
       .insert({
-        name: templateName,
-        razorpay_plan_id: razorpayPlanId,
+        name,
+        description,
         billing_cycle: billingCycle,
-        amount_from_razorpay: Math.trunc(amountFromRazorpay),
+        plan_price: planPrice,
+        pricing_unit_size: pricingUnitSize,
         is_active: true,
       })
-      .select()
+      .select("*")
       .single();
     if (createTemplateError) return errorResponse(500, "INTERNAL_ERROR", createTemplateError.message, correlationId);
     resolvedTemplateId = String((createdTemplate as any).id);
@@ -213,6 +262,13 @@ export async function POST(req: NextRequest) {
     if (!current) return errorResponse(404, "NOT_FOUND", "Template not found", correlationId);
     beforeState = current as unknown as Record<string, unknown>;
   }
+
+  const { data: templateRow, error: templateError } = await supabase
+    .from("subscription_plan_templates")
+    .select("*")
+    .eq("id", resolvedTemplateId)
+    .single();
+  if (templateError) return errorResponse(500, "INTERNAL_ERROR", templateError.message, correlationId);
 
   const { data: latestVersionRow, error: latestVersionError } = await supabase
     .from("subscription_plan_versions")
@@ -224,17 +280,29 @@ export async function POST(req: NextRequest) {
   if (latestVersionError) return errorResponse(500, "INTERNAL_ERROR", latestVersionError.message, correlationId);
 
   const nextVersionNumber = Number((latestVersionRow as any)?.version_number || 0) + 1;
+  const resolvedUnitSize = Math.max(1, nonNegativeInt((templateRow as any).pricing_unit_size, 1));
 
   const { data: version, error: versionError } = await supabase
     .from("subscription_plan_versions")
     .insert({
       template_id: resolvedTemplateId,
       version_number: nextVersionNumber,
-      ...versionInput,
+      unit_quota_units: versionInput.unit_quota_units,
+      box_quota_units: versionInput.box_quota_units,
+      carton_quota_units: versionInput.carton_quota_units,
+      pallet_quota_units: versionInput.pallet_quota_units,
+      unit_limit: computeFinalQuota(versionInput.unit_quota_units, resolvedUnitSize),
+      box_limit: computeFinalQuota(versionInput.box_quota_units, resolvedUnitSize),
+      carton_limit: computeFinalQuota(versionInput.carton_quota_units, resolvedUnitSize),
+      pallet_limit: computeFinalQuota(versionInput.pallet_quota_units, resolvedUnitSize),
+      seat_limit: versionInput.seat_limit,
+      plant_limit: versionInput.plant_limit,
+      handset_limit: versionInput.handset_limit,
       is_active: publish || versionInput.is_active,
       effective_from: new Date().toISOString(),
+      change_note: versionInput.change_note,
     })
-    .select()
+    .select("*")
     .single();
 
   if (versionError) return errorResponse(500, "INTERNAL_ERROR", versionError.message, correlationId);
@@ -261,7 +329,7 @@ export async function POST(req: NextRequest) {
     success: true,
     template: currentState.template,
     active_version: currentState.active_version,
-    created_version: version,
+    created_version: currentState.versions.find((row: any) => row.id === (version as any).id) || null,
   };
 
   await appendAdminMutationAuditEvent({
@@ -326,89 +394,31 @@ export async function PUT(req: NextRequest) {
   if (!beforeState) return errorResponse(404, "NOT_FOUND", "Template not found", correlationId);
 
   const templateUpdates: Record<string, unknown> = {};
-  const templateName = normalizeText((body as any).name);
-  const razorpayPlanId = normalizeText((body as any).razorpay_plan_id);
-  const billingCycle = normalizeText((body as any).billing_cycle).toLowerCase();
-  const amountFromRazorpay = (body as any).amount_from_razorpay;
-
-  if ("name" in (body as any)) templateUpdates.name = templateName;
-  if ("razorpay_plan_id" in (body as any)) templateUpdates.razorpay_plan_id = razorpayPlanId;
+  if ("name" in (body as any)) templateUpdates.name = normalizeText((body as any).name);
+  if ("description" in (body as any)) templateUpdates.description = normalizeText((body as any).description) || null;
   if ("billing_cycle" in (body as any)) {
+    const billingCycle = normalizeText((body as any).billing_cycle).toLowerCase();
     if (!["monthly", "yearly"].includes(billingCycle)) {
       return errorResponse(400, "BAD_REQUEST", "billing_cycle must be monthly or yearly", correlationId);
     }
     templateUpdates.billing_cycle = billingCycle;
   }
-  if ("amount_from_razorpay" in (body as any)) {
-    const parsed = Number(amountFromRazorpay);
-    if (!Number.isFinite(parsed) || parsed < 0) {
-      return errorResponse(400, "BAD_REQUEST", "amount_from_razorpay must be a non-negative number", correlationId);
-    }
-    templateUpdates.amount_from_razorpay = Math.trunc(parsed);
+  if ("plan_price" in (body as any)) templateUpdates.plan_price = toPaise((body as any).plan_price);
+  if ("pricing_unit_size" in (body as any)) {
+    templateUpdates.pricing_unit_size = Math.max(1, nonNegativeInt((body as any).pricing_unit_size, 1));
   }
-  if ("is_active" in (body as any)) templateUpdates.is_active = Boolean((body as any).is_active);
+  if ("is_active" in (body as any)) templateUpdates.is_active = (body as any).is_active === true;
 
   if (Object.keys(templateUpdates).length > 0) {
-    const { error: templateUpdateError } = await supabase
+    const { error: templateError } = await supabase
       .from("subscription_plan_templates")
       .update(templateUpdates)
       .eq("id", templateId);
-    if (templateUpdateError) return errorResponse(500, "INTERNAL_ERROR", templateUpdateError.message, correlationId);
+    if (templateError) return errorResponse(500, "INTERNAL_ERROR", templateError.message, correlationId);
   }
 
-  let createdVersion: Record<string, unknown> | null = null;
-  const hasVersionPayload = Boolean((body as any).version);
   const activateVersionId = normalizeText((body as any).activate_version_id);
-  const publishNewVersion = (body as any).publish !== false;
-
-  if (Object.keys(templateUpdates).length === 0 && !hasVersionPayload && !activateVersionId) {
-    return errorResponse(400, "BAD_REQUEST", "No update fields provided", correlationId);
-  }
-
-  if (hasVersionPayload) {
-    const versionInput = normalizeVersionInput((body as any).version);
-    const nextVersionNumber = Number(beforeState.versions?.[0]?.version_number || 0) + 1;
-
-    const { data: insertedVersion, error: insertVersionError } = await supabase
-      .from("subscription_plan_versions")
-      .insert({
-        template_id: templateId,
-        version_number: nextVersionNumber,
-        ...versionInput,
-        is_active: publishNewVersion || versionInput.is_active,
-        effective_from: new Date().toISOString(),
-      })
-      .select()
-      .single();
-    if (insertVersionError) return errorResponse(500, "INTERNAL_ERROR", insertVersionError.message, correlationId);
-    createdVersion = (insertedVersion || null) as Record<string, unknown> | null;
-
-    if (publishNewVersion) {
-      const { error: deactivateError } = await supabase
-        .from("subscription_plan_versions")
-        .update({ is_active: false })
-        .eq("template_id", templateId)
-        .neq("id", String((insertedVersion as any).id));
-      if (deactivateError) return errorResponse(500, "INTERNAL_ERROR", deactivateError.message, correlationId);
-
-      const { error: activateError } = await supabase
-        .from("subscription_plan_versions")
-        .update({ is_active: true })
-        .eq("id", String((insertedVersion as any).id));
-      if (activateError) return errorResponse(500, "INTERNAL_ERROR", activateError.message, correlationId);
-    }
-  }
-
   if (activateVersionId) {
-    const { data: existingVersion, error: versionLookupError } = await supabase
-      .from("subscription_plan_versions")
-      .select("id")
-      .eq("id", activateVersionId)
-      .eq("template_id", templateId)
-      .maybeSingle();
-    if (versionLookupError) return errorResponse(500, "INTERNAL_ERROR", versionLookupError.message, correlationId);
-    if (!existingVersion) return errorResponse(404, "NOT_FOUND", "Version not found for template", correlationId);
-
     const { error: deactivateError } = await supabase
       .from("subscription_plan_versions")
       .update({ is_active: false })
@@ -418,28 +428,28 @@ export async function PUT(req: NextRequest) {
     const { error: activateError } = await supabase
       .from("subscription_plan_versions")
       .update({ is_active: true })
-      .eq("id", activateVersionId);
+      .eq("id", activateVersionId)
+      .eq("template_id", templateId);
     if (activateError) return errorResponse(500, "INTERNAL_ERROR", activateError.message, correlationId);
   }
 
-  const afterState = await fetchTemplateWithVersions(supabase, templateId);
-  if (!afterState) return errorResponse(500, "INTERNAL_ERROR", "Failed to load updated plan state", correlationId);
+  const currentState = await fetchTemplateWithVersions(supabase, templateId);
+  if (!currentState) return errorResponse(500, "INTERNAL_ERROR", "Failed to load updated plan state", correlationId);
 
   const payload = {
     success: true,
-    template: afterState.template,
-    active_version: afterState.active_version,
-    created_version: createdVersion,
+    template: currentState.template,
+    active_version: currentState.active_version,
   };
 
   await appendAdminMutationAuditEvent({
     adminId: auth.userId,
     endpoint,
-    action: "ADMIN_PLAN_UPDATED",
+    action: activateVersionId ? "ADMIN_PLAN_VERSION_PUBLISHED" : "ADMIN_PLAN_TEMPLATE_UPDATED",
     entityType: "subscription_plan_template",
     entityId: templateId,
     beforeState: beforeState as unknown as Record<string, unknown>,
-    afterState: afterState as unknown as Record<string, unknown>,
+    afterState: currentState as unknown as Record<string, unknown>,
     correlationId,
     supabase,
   });

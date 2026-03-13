@@ -85,7 +85,7 @@ export default function AdminLayout({
             <li>
               <Link href="/admin/discounts">
                 <Button variant="ghost" className="w-full justify-start gap-3 hover:bg-green-200">
-                  <Tag className="h-5 w-5" /> Discounts & Coupons
+                  <Tag className="h-5 w-5" /> Discounts
                 </Button>
               </Link>
             </li>

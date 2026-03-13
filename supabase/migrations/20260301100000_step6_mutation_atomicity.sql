@@ -20,7 +20,6 @@ AS $$
 DECLARE
   v_company_before public.companies%ROWTYPE;
   v_company_after public.companies%ROWTYPE;
-  v_wallet_status text;
   v_is_frozen boolean;
   v_payload jsonb;
   v_existing record;
@@ -34,11 +33,7 @@ BEGIN
     RAISE EXCEPTION 'COMPANY_NOT_FOUND';
   END IF;
 
-  SELECT status = 'FROZEN' INTO v_is_frozen
-  FROM public.company_wallets
-  WHERE company_id = p_company_id
-  LIMIT 1;
-  v_is_frozen := COALESCE(v_is_frozen, false);
+  v_is_frozen := COALESCE(v_company_before.is_frozen, false);
 
   IF (p_freeze AND v_is_frozen) OR ((NOT p_freeze) AND (NOT v_is_frozen)) THEN
     v_payload := jsonb_build_object(
@@ -74,27 +69,20 @@ BEGIN
   END IF;
 
   UPDATE public.companies
-  SET freeze_reason = CASE WHEN p_freeze THEN COALESCE(NULLIF(p_reason, ''), 'Frozen by admin') ELSE NULL END,
+  SET is_frozen = p_freeze,
+      freeze_reason = CASE WHEN p_freeze THEN COALESCE(NULLIF(p_reason, ''), 'Frozen by admin') ELSE NULL END,
       updated_at = now()
   WHERE id = p_company_id;
-
-  INSERT INTO public.company_wallets (company_id, status, updated_at)
-  VALUES (p_company_id, CASE WHEN p_freeze THEN 'FROZEN' ELSE 'ACTIVE' END, now())
-  ON CONFLICT (company_id) DO UPDATE
-    SET status = EXCLUDED.status,
-        updated_at = EXCLUDED.updated_at;
 
   SELECT * INTO v_company_after
   FROM public.companies
   WHERE id = p_company_id;
 
-  v_wallet_status := CASE WHEN p_freeze THEN 'FROZEN' ELSE 'ACTIVE' END;
   v_payload := jsonb_build_object(
     'success', true,
     'company_id', p_company_id,
     'frozen', p_freeze,
-    'freeze_reason', CASE WHEN p_freeze THEN COALESCE(NULLIF(p_reason, ''), 'Frozen by admin') ELSE NULL END,
-    'wallet_status', v_wallet_status
+    'freeze_reason', CASE WHEN p_freeze THEN COALESCE(NULLIF(p_reason, ''), 'Frozen by admin') ELSE NULL END
   );
 
   INSERT INTO public.audit_logs (
@@ -110,8 +98,8 @@ BEGIN
     'success',
     to_jsonb(v_company_before),
     to_jsonb(v_company_after),
-    jsonb_build_object('company', to_jsonb(v_company_before), 'wallet_status', CASE WHEN v_is_frozen THEN 'FROZEN' ELSE 'ACTIVE' END),
-    jsonb_build_object('company', to_jsonb(v_company_after), 'wallet_status', v_wallet_status),
+    jsonb_build_object('company', to_jsonb(v_company_before), 'frozen', v_is_frozen),
+    jsonb_build_object('company', to_jsonb(v_company_after), 'frozen', p_freeze),
     'company',
     p_company_id::text,
     p_correlation_id,
