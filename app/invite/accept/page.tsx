@@ -54,7 +54,7 @@ function AcceptSeatInviteInner() {
           <Button onClick={acceptInvite} disabled={loading || !token}>
             {loading ? "Accepting..." : "Accept Invitation"}
           </Button>
-          <Link href={`/auth/signin?next=${encodeURIComponent(`/invite/accept?token=${token}`)}`}>
+          <Link href={`/auth/signin?redirect=${encodeURIComponent(`/invite/accept?token=${token}`)}`}>
             <Button variant="outline" type="button">Sign In</Button>
           </Link>
         </div>

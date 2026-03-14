@@ -17,6 +17,12 @@ export default function SignIn() {
   const [resetEmailSent, setResetEmailSent] = useState(false);
   const router = useRouter();
   const searchParams = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
+
+  const getSafePath = (value: string | null): string | null => {
+    if (!value) return null;
+    if (!value.startsWith('/') || value.startsWith('//')) return null;
+    return value;
+  };
   
   // Show error from URL params (e.g., from callback)
   useState(() => {
@@ -53,9 +59,10 @@ export default function SignIn() {
       }
       
       if (data?.user) {
-        // Honor ?redirect= (e.g. /admin) so same credentials work for admin sign-in
-        const redirectPath = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('redirect') : null;
-        if (redirectPath && redirectPath.startsWith('/') && !redirectPath.startsWith('//')) {
+        // Honor ?redirect= and legacy ?next= for deep-link flows (e.g. invite accept)
+        const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+        const redirectPath = getSafePath(urlParams?.get('redirect') ?? null) ?? getSafePath(urlParams?.get('next') ?? null);
+        if (redirectPath) {
           router.push(redirectPath);
           return;
         }
