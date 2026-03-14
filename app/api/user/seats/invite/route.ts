@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 import { resolveCompanyForUser } from "@/lib/company/resolve";
-import { createSeatInviteToken, hashSeatInviteToken } from "@/lib/seats/invitations";
 import { sendInvitationEmail } from "@/lib/email";
 
 function normalizeRole(raw: unknown): "admin" | "operator" | "viewer" {
@@ -50,7 +49,6 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => ({}));
   const email = String(body.email || "").trim().toLowerCase();
-  const fullName = String(body.full_name || body.name || "").trim();
   const role = normalizeRole(body.role);
   const plantIds = Array.isArray(body.plant_ids)
     ? body.plant_ids.map((value: unknown) => String(value)).filter(Boolean)
@@ -63,19 +61,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "PLANT_SELECTION_REQUIRED" }, { status: 400 });
   }
 
-  const rawToken = createSeatInviteToken();
-  const tokenHash = hashSeatInviteToken(rawToken);
-  const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
-
   const { data, error } = await supabase.rpc("create_seat_invitation_atomic", {
     p_company_id: resolved.companyId,
-    p_actor_user_id: user.id,
     p_email: email,
-    p_full_name: fullName || null,
     p_role: role,
     p_plant_ids: plantIds,
-    p_token_hash: tokenHash,
-    p_expires_at: expiresAt,
+    p_invited_by: user.id,
   });
 
   if (error) {
@@ -103,25 +94,33 @@ export async function POST(req: Request) {
 
   const rpcPayload = Array.isArray(data) ? data[0] : data;
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || new URL(req.url).origin;
-  const inviteUrl = `${baseUrl}/invite/accept?token=${encodeURIComponent(rawToken)}`;
+  const rpcInviteUrl = typeof rpcPayload?.invite_url === "string" ? rpcPayload.invite_url : null;
+  const rpcToken = typeof rpcPayload?.token === "string" ? rpcPayload.token : null;
+  const inviteUrl =
+    rpcInviteUrl ||
+    (rpcToken ? `${baseUrl}/invite/accept?token=${encodeURIComponent(rpcToken)}` : null);
 
   let emailSent = false;
   let emailError: string | null = null;
-  try {
-    const mailResult = await sendInvitationEmail({
-      to: email,
-      companyName: String((resolved.company as any)?.company_name || "Your Company"),
-      role,
-      inviterName: String(user.email || user.id),
-      inviteUrl,
-    });
-    emailSent = Boolean((mailResult as any)?.success);
-    if (!emailSent) {
-      emailError = String((mailResult as any)?.error || "EMAIL_SEND_FAILED");
+  if (!inviteUrl) {
+    emailError = "INVITE_LINK_UNAVAILABLE";
+  } else {
+    try {
+      const mailResult = await sendInvitationEmail({
+        to: email,
+        companyName: String((resolved.company as any)?.company_name || "Your Company"),
+        role,
+        inviterName: String(user.email || user.id),
+        inviteUrl,
+      });
+      emailSent = Boolean((mailResult as any)?.success);
+      if (!emailSent) {
+        emailError = String((mailResult as any)?.error || "EMAIL_SEND_FAILED");
+      }
+    } catch (err: any) {
+      emailSent = false;
+      emailError = err?.message || "EMAIL_SEND_FAILED";
     }
-  } catch (err: any) {
-    emailSent = false;
-    emailError = err?.message || "EMAIL_SEND_FAILED";
   }
 
   return NextResponse.json({
@@ -131,7 +130,7 @@ export async function POST(req: Request) {
       role,
       plant_ids: plantIds,
       status: "pending",
-      expires_at: expiresAt,
+      expires_at: rpcPayload?.expires_at ?? null,
     },
     seat: rpcPayload?.seat || null,
     invitation_id: rpcPayload?.invitation_id || null,
