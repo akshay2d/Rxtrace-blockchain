@@ -2,6 +2,10 @@
 
 This branch is configured for **trial-only entitlement**.
 
+## Development Requirements
+- Node.js 20 LTS is required.
+- Run `nvm use` before starting the project.
+
 ## Features
 - GS1 label generation (Unit/Box/Carton/Pallet)
 - Dashboard and analytics

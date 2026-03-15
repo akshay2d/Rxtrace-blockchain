@@ -4,12 +4,13 @@ import { useEffect, useState, useRef, Suspense } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Mail, CheckCircle, Loader2, ArrowLeft } from 'lucide-react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { supabaseClient } from '@/lib/supabase/client';
+import { useQueryParams } from '@/lib/hooks/useQueryParams';
 
 function VerifyOTPContent() {
   const router = useRouter();
-  const searchParams = useSearchParams();
+  const query = useQueryParams();
   
   const [email, setEmail] = useState('');
   const [otp, setOTP] = useState(['', '', '', '', '', '']);
@@ -22,7 +23,7 @@ function VerifyOTPContent() {
 
   useEffect(() => {
     // Get email from URL params or localStorage
-    const emailParam = searchParams.get('email');
+    const emailParam = query.get('email');
     if (emailParam) {
       setEmail(emailParam);
       localStorage.setItem('pending_verification_email', emailParam);
@@ -33,7 +34,7 @@ function VerifyOTPContent() {
         setError('Email address is missing. Please sign up again.');
       }
     }
-  }, [searchParams]);
+  }, [query]);
 
   // Countdown timer for resend button
   useEffect(() => {

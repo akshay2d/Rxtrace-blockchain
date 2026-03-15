@@ -1,12 +1,15 @@
 "use client";
 
-import { useEffect } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+export const dynamic = "force-dynamic";
 
-export default function LoginRedirectPage() {
+import { Suspense, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useQueryParams } from "@/lib/hooks/useQueryParams";
+
+function LoginContent() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const inviteToken = searchParams.get("invite_token");
+  const query = useQueryParams();
+  const inviteToken = query.get("invite_token");
 
   useEffect(() => {
     const redirectTarget = inviteToken
@@ -18,4 +21,12 @@ export default function LoginRedirectPage() {
   }, [inviteToken, router]);
 
   return null;
+}
+
+export default function LoginRedirectPage() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <LoginContent />
+    </Suspense>
+  );
 }

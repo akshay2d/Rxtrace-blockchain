@@ -1,9 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+export const dynamic = "force-dynamic";
+
+import { useEffect, useState } from "react";
+import { Suspense } from "react";
+import { useRouter } from "next/navigation";
 import { supabaseClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
+import { useQueryParams } from "@/lib/hooks/useQueryParams";
 
 type VerifyState =
   | "loading"
@@ -14,10 +18,10 @@ type VerifyState =
   | "invalid"
   | "error";
 
-export default function AcceptInvitePage() {
-  const searchParams = useSearchParams();
+function AcceptInviteContent() {
+  const query = useQueryParams();
   const router = useRouter();
-  const token = useMemo(() => searchParams.get("token") || "", [searchParams]);
+  const token = query.get("token") || "";
 
   const [state, setState] = useState<VerifyState>("loading");
   const [message, setMessage] = useState<string | null>(null);
@@ -131,5 +135,13 @@ export default function AcceptInvitePage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function AcceptInvitePage() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <AcceptInviteContent />
+    </Suspense>
   );
 }

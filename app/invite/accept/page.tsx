@@ -1,14 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { useQueryParams } from "@/lib/hooks/useQueryParams";
 
 function AcceptSeatInviteInner() {
-  const searchParams = useSearchParams();
-  const token = searchParams.get("token") || "";
+  const query = useQueryParams();
+  const token = query.get("token") || "";
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);

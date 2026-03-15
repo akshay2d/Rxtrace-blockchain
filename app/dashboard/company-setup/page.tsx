@@ -1,7 +1,7 @@
 'use client';
 
 import { Suspense, useEffect, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { supabaseClient } from '@/lib/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -12,6 +12,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AlertCircle, CheckCircle } from 'lucide-react';
 import { createOrUpdateCompanyProfile } from './actions';
 import { industries, IndustryOption, isIndustryOption } from '@/lib/companies/industry';
+import { useQueryParams } from '@/lib/hooks/useQueryParams';
 
 // Type definitions
 type LegalStructure = 'proprietorship' | 'partnership' | 'llp' | 'pvt_ltd';
@@ -21,8 +22,8 @@ type BusinessCategory = Industry;
 
 function CompanySetupContent() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const reasonCompleteProfile = searchParams.get('reason') === 'complete_profile';
+  const query = useQueryParams();
+  const reasonCompleteProfile = query.get('reason') === 'complete_profile';
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>('');
